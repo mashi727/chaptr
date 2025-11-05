@@ -155,7 +155,8 @@ rehearsal-finalize "リハーサル記録.tex"
 - **Claude Code** - AI分析エンジン
 - **ytdl-claude** - YouTube動画ダウンロード
 - **whisper-remote** - リモートWhisper文字起こし
-- **luatex-pdf** - LuaLaTeXコンパイラ
+- **luatex-pdf** - LuaLaTeXコンパイラ（リモートDocker経由）
+  - セットアップ: [luatex-docker-remote](https://github.com/mashi727/luatex-docker-remote)
 
 ### オプション
 
