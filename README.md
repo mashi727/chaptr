@@ -12,8 +12,11 @@
 - 📄 **LuaTeX形式レポート生成** - 2段組、美麗なタイポグラフィ
 - 📺 **YouTubeチャプター自動生成** - 動画説明欄にコピー＆ペースト
 - 🎬 **Movie Viewerチャプター** - ミリ秒精度で精密編集
+- 🖥️ **GUI版も利用可能** - グラフィカルフロントエンドで直感的操作
 
 ## Quick Start
+
+### コマンドライン版
 
 たった**3ステップ**で完全なリハーサル記録を生成:
 
@@ -29,6 +32,17 @@ claude code
 rehearsal-finalize "リハーサル記録.tex"
 ```
 
+### GUI版（オプション）
+
+グラフィカルインターフェースで同じワークフローを実行:
+
+```bash
+cd /path/to/work/directory
+python3 path/to/rehearsal-workflow/gui/rehearsal_gui.py
+```
+
+詳細: [gui/README.md](gui/README.md)
+
 ### 生成される成果物
 
 - `リハーサル記録.pdf` - 詳細なリハーサル記録（PDF）
@@ -42,7 +56,7 @@ rehearsal-finalize "リハーサル記録.tex"
 - macOS / Linux
 - Zsh
 - [Claude Code](https://claude.com/claude-code)
-- `ytdl-claude` - YouTube動画ダウンロードツール
+- `ytdl` - YouTube動画ダウンロードツール（ytdl-claude関数）
 - `whisper-remote` - Whisper文字起こしツール
 - `luatex-pdf` - LuaLaTeXコンパイラ
 
@@ -138,8 +152,7 @@ rehearsal-finalize "リハーサル記録.tex"
 ## Documentation
 
 - [Installation Guide](docs/installation.md) - インストール手順
-- [Usage Guide](docs/usage.md) - 詳細な使用方法
-- [Troubleshooting](docs/troubleshooting.md) - トラブルシューティング
+- [GUI Documentation](gui/README.md) - グラフィカルフロントエンド
 - [Implementation Details](docs/implementation.md) - 実装詳細
 - [Workflow Comparison](docs/workflow-comparison.md) - アプローチ比較
 
@@ -153,7 +166,7 @@ rehearsal-finalize "リハーサル記録.tex"
 
 - **Zsh** 5.0以上
 - **Claude Code** - AI分析エンジン
-- **ytdl-claude** - YouTube動画ダウンロード
+- **ytdl** - YouTube動画ダウンロード（ytdl-claude関数）
 - **whisper-remote** - リモートWhisper文字起こし
 - **luatex-pdf** - LuaLaTeXコンパイラ（リモートDocker経由）
   - セットアップ: [luatex-docker-remote](https://github.com/mashi727/luatex-docker-remote)

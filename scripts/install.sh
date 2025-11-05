@@ -16,7 +16,6 @@ readonly NC='\033[0m' # No Color
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ZSH_FUNCTIONS_DIR="${HOME}/.config/zsh/functions"
 CLAUDE_COMMANDS_DIR="${HOME}/.claude/commands"
-ZSHRC="${HOME}/.zshrc"
 
 # ログ関数
 log_info() {
@@ -45,6 +44,21 @@ echo "  Rehearsal Workflow Installer"
 echo "═══════════════════════════════════════════════════════════"
 echo ""
 
+# .zshrcの場所を自動検出（XDG準拠を優先）
+if [[ -f "${HOME}/.config/zsh/.zshrc" ]]; then
+    ZSHRC="${HOME}/.config/zsh/.zshrc"
+    log_info "Detected XDG-compliant Zsh configuration: ${ZSHRC}"
+elif [[ -f "${HOME}/.zshrc" ]]; then
+    ZSHRC="${HOME}/.zshrc"
+    log_info "Detected standard Zsh configuration: ${ZSHRC}"
+else
+    # デフォルトはXDG準拠
+    ZSHRC="${HOME}/.config/zsh/.zshrc"
+    log_warn "No .zshrc found. Will create: ${ZSHRC}"
+    mkdir -p "${HOME}/.config/zsh"
+fi
+echo ""
+
 # ------------------------------------------------------------------------------
 # ステップ1: 依存関係チェック
 # ------------------------------------------------------------------------------
@@ -64,7 +78,7 @@ check_command() {
 MISSING_DEPS=0
 
 check_command zsh || MISSING_DEPS=$((MISSING_DEPS + 1))
-check_command ytdl-claude || { log_warn "  Install ytdl-claude from your source"; MISSING_DEPS=$((MISSING_DEPS + 1)); }
+check_command ytdl || { log_warn "  Install ytdl (ytdl-claude function) from your source"; MISSING_DEPS=$((MISSING_DEPS + 1)); }
 check_command whisper-remote || { log_warn "  Install whisper-remote from your source"; MISSING_DEPS=$((MISSING_DEPS + 1)); }
 check_command luatex-pdf || { log_warn "  Install luatex-pdf from your source"; MISSING_DEPS=$((MISSING_DEPS + 1)); }
 
@@ -132,7 +146,7 @@ if grep -q "rehearsal-download" "$ZSHRC" 2>/dev/null; then
     log_info "✓ .zshrc already configured"
 else
     echo ""
-    echo "The following lines need to be added to your ~/.zshrc:"
+    echo "The following lines need to be added to your ${ZSHRC}:"
     echo ""
     echo -e "${YELLOW}  $CONFIG_LINE${NC}"
     echo -e "${YELLOW}  $AUTOLOAD_LINE${NC}"
@@ -145,9 +159,9 @@ else
         echo "# Rehearsal Workflow" >> "$ZSHRC"
         echo "$CONFIG_LINE" >> "$ZSHRC"
         echo "$AUTOLOAD_LINE" >> "$ZSHRC"
-        log_info "✓ .zshrc updated"
+        log_info "✓ ${ZSHRC} updated"
     else
-        log_warn "⚠ Please add manually to ~/.zshrc"
+        log_warn "⚠ Please add manually to ${ZSHRC}"
     fi
 fi
 
@@ -164,7 +178,7 @@ echo ""
 log_info "Next steps:"
 echo ""
 echo "  1. Reload your Zsh configuration:"
-echo -e "     ${GREEN}source ~/.zshrc${NC}"
+echo -e "     ${GREEN}source ${ZSHRC}${NC}"
 echo ""
 echo "  2. Test the installation:"
 echo -e "     ${GREEN}rehearsal-download --help${NC}"
