@@ -1,0 +1,50 @@
+# macOS
+.DS_Store
+._*
+*.swp
+
+# 動画ファイル（サイズが大きいため）
+*.mp4
+*.mov
+*.avi
+*.mkv
+
+# 字幕ファイル（プライバシー保護）
+*.srt
+
+# LaTeX生成物（中間ファイル）
+*.aux
+*.log
+*.out
+*.toc
+*.synctex.gz
+*.fls
+*.fdb_latexmk
+
+# PDF（大きい場合は除外、サンプルは含める）
+*.pdf
+!examples/*.pdf
+
+# 一時ファイル
+*.tmp
+*.bak
+*~
+
+# プロジェクト固有
+whisper_temp/
+assets/
+
+# エディタ
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# Logs
+*.log
