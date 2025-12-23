@@ -42,7 +42,8 @@ rehearsal-workflow/
 ├── bin/                     # コア（配管ツール）
 │   ├── yt-srt               # YouTube → SRT
 │   ├── video-trim           # 不要部分削除
-│   └── video-chapters       # チャプター結合
+│   ├── video-chapters       # チャプター結合
+│   └── spd2png              # SPD→PNG変換（PADtools CLI）
 │
 ├── bin/advanced/            # 拡張ツール（自分用）
 │   ├── audio-normalize      # 音量正規化
@@ -124,9 +125,11 @@ rehearsal-workflow/
 - [x] bin/yt-srt の作成（YouTube字幕取得）
 - [x] bin/video-trim の作成（動画トリミング）
 - [x] bin/video-chapters の作成（チャプター結合・埋め込み）
+- [x] bin/spd2png の作成（PADtools CLI PNG変換）
 - [x] examples/prompts/ の作成（Claude用・汎用プロンプト）
 - [x] README.md の更新（新構成を反映）
 - [x] docs/advanced/ の作成（環境構築ガイド）
+- [x] docs/pad/*.png の生成（PAD図PNG出力）
 
 ## 未実装タスク
 
@@ -141,12 +144,19 @@ rehearsal-workflow/
 # LuaTeXコンパイル
 luatex-pdf <file.tex>
 
-# PAD図の可視化（Windows/GUI）
-java -jar padtools.jar
-# → GUIからdocs/pad/*.spdを開く
+# PAD図をPNGに変換（CLI）
+bin/spd2png docs/pad/workflow-basic.spd docs/pad/workflow-basic.png 2.0
+
+# 全SPDファイルをPNG化
+for spd in docs/pad/*.spd; do bin/spd2png "$spd" "${spd%.spd}.png"; done
+
+# PAD図の編集（GUI）
+java -jar $PADTOOLS_HOME/PadTools.jar docs/pad/workflow-basic.spd
 ```
 
 ## 参考
 
 - Mermaid形式のワークフロー図: docs/workflow-diagrams.md
-- PADtools形式: docs/pad/*.spd
+- PAD図（ソース）: docs/pad/*.spd
+- PAD図（PNG）: docs/pad/*.png
+- PADtools: https://github.com/knaou/padtools

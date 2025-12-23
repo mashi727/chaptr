@@ -46,5 +46,11 @@ __pycache__/
 *.pyo
 *.egg-info/
 
+# Java
+*.class
+
+# PADtools
+settings.xml
+
 # Logs
 *.log
