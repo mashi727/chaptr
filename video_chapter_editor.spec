@@ -11,10 +11,6 @@ from pathlib import Path
 
 block_cipher = None
 
-# Get the path to PySide6
-import PySide6
-pyside6_path = Path(PySide6.__file__).parent
-
 a = Analysis(
     ['rehearsal_workflow/video_chapter_editor.py'],
     pathex=[],
@@ -35,10 +31,53 @@ a = Analysis(
     hooksconfig={},
     runtime_hooks=[],
     excludes=[
+        # Python標準で不要
         'tkinter',
+        'unittest',
+        'email',
+        'html',
+        'http',
+        'xml',
+        'pydoc',
+        # 科学計算系（不要）
         'matplotlib',
         'scipy',
         'pandas',
+        'IPython',
+        'jupyter',
+        # PySide6不要モジュール
+        'PySide6.QtWebEngine',
+        'PySide6.QtWebEngineCore',
+        'PySide6.QtWebEngineWidgets',
+        'PySide6.QtWebChannel',
+        'PySide6.QtQuick',
+        'PySide6.QtQuickWidgets',
+        'PySide6.QtQml',
+        'PySide6.QtDesigner',
+        'PySide6.QtHelp',
+        'PySide6.Qt3DCore',
+        'PySide6.Qt3DRender',
+        'PySide6.Qt3DInput',
+        'PySide6.Qt3DLogic',
+        'PySide6.Qt3DExtras',
+        'PySide6.Qt3DAnimation',
+        'PySide6.QtCharts',
+        'PySide6.QtDataVisualization',
+        'PySide6.QtNetworkAuth',
+        'PySide6.QtRemoteObjects',
+        'PySide6.QtSensors',
+        'PySide6.QtSerialPort',
+        'PySide6.QtBluetooth',
+        'PySide6.QtNfc',
+        'PySide6.QtPositioning',
+        'PySide6.QtLocation',
+        'PySide6.QtTest',
+        'PySide6.QtSql',
+        'PySide6.QtXml',
+        'PySide6.QtPdf',
+        'PySide6.QtPdfWidgets',
+        'PySide6.QtScxml',
+        'PySide6.QtStateMachine',
     ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
@@ -57,7 +96,7 @@ exe = EXE(
     name='Video Chapter Editor',
     debug=False,
     bootloader_ignore_signals=False,
-    strip=False,
+    strip=True,  # Strip symbols to reduce size
     upx=True,
     console=False,
     disable_windowed_traceback=False,
@@ -72,7 +111,7 @@ coll = COLLECT(
     a.binaries,
     a.zipfiles,
     a.datas,
-    strip=False,
+    strip=True,  # Strip symbols
     upx=True,
     upx_exclude=[],
     name='Video Chapter Editor',
@@ -86,8 +125,8 @@ if sys.platform == 'darwin':
         icon='assets/icon.icns',
         bundle_identifier='com.mashi727.video-chapter-editor',
         info_plist={
-            'CFBundleShortVersionString': '1.1.0',
-            'CFBundleVersion': '1.1.0',
+            'CFBundleShortVersionString': '1.1.1',
+            'CFBundleVersion': '1.1.1',
             'NSHighResolutionCapable': True,
             'CFBundleDocumentTypes': [
                 {
