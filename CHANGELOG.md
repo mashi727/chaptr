@@ -5,6 +5,104 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### コマンド一覧
+
+| コマンド | モジュール | 説明 |
+|----------|-----------|------|
+| video-chapter-editor | video_chapter_editor.py | 動画チャプター編集・書出 |
+| report-workflow | report_workflow.py | レポート生成ワークフロー |
+
+### インストール
+
+```bash
+pip install rehearsal-workflow
+```
+
+---
+
+### パッケージング・配布
+
+#### 2025-12-27
+
+##### pip installサポート
+- `pyproject.toml`追加（hatchlingビルドシステム）
+- `pip install rehearsal-workflow`でインストール可能
+- エントリーポイント: `video-chapter-editor`, `report-workflow`
+
+##### GitHub Actionsリリース自動化
+- `.github/workflows/release.yml`追加
+- macOS: PyInstaller → DMG
+- Windows: PyInstaller → ZIP
+- タグプッシュ時に自動ビルド・リリース
+
+##### アプリケーションアイコン
+- `assets/icon.svg` - ソースファイル（波形＋チャプターマーカーデザイン）
+- `assets/icon.icns` - macOS用
+- `assets/icon.ico` - Windows用
+
+---
+
+### video-chapter-editor（旧 prep_gui.py）
+
+#### 2025-12-27
+
+##### フォルダ引数サポート
+- コマンドライン引数で作業ディレクトリ指定可能
+- フォルダドロップで起動時にそのフォルダを作業ディレクトリとして使用
+- ウィンドウタイトルにフォルダ名を表示
+
+##### 除外チャプター機能（--prefix）
+- `--`で始まるチャプターをエクスポート時に自動除外
+- 除外区間の時間調整を自動計算
+- 残存チャプターの時間を調整してメタデータに反映
+- チャプター名の焼き込みも除外チャプターを考慮
+
+##### 波形ハッチング表示
+- `_get_excluded_regions()`: 除外チャプターの区間を特定
+- `paintEvent()`: 除外区間に半透明赤背景 + 斜線ハッチングを描画
+- チャプターテーブル編集時にリアルタイム更新（`itemChanged`シグナル接続）
+
+##### YouTubeチャプター連携
+- **コピー機能**（📋ボタン）: ミリ秒なし形式でクリップボードにコピー
+- **貼り付け機能**（Cmd+V）: YouTube形式（M:SS / H:MM:SS）をパースして読み込み
+- `time_str_youtube`プロパティ追加（HH:MM:SS形式）
+
+##### 0:00:00.000からの開始保証
+- 動画のみ読込時: `0:00:00.000 開始` を自動追加
+- YouTube貼付け時: 先頭が0でなければ `0:00:00.000 --開始` を自動追加
+- チャプター読込時: 先頭が0でなければ `0:00:00.000 --開始` を自動追加
+
+##### 技術詳細
+| 機能 | メソッド/行番号 |
+|------|----------------|
+| 除外区間計算 | `ExportWorker._process_excluded_chapters()` |
+| trim+concat filter | `ExportWorker._create_trim_concat_filter()` |
+| 波形ハッチング | `WaveformWidget._get_excluded_regions()`, `paintEvent()` |
+| テーブル編集検知 | `_on_chapter_table_changed()` |
+| YouTube貼付け | `paste_youtube_chapters()`, `keyPressEvent()` |
+| YouTubeコピー | `copy_youtube_chapters()` |
+
+#### 2025-12-26
+
+##### エクスポート機能
+- ffmpegによる動画書き出し（QThread非同期処理）
+- チャプターメタデータ埋め込み（FFMETADATA1形式）
+- チャプター名の映像焼き込み（drawtext filter）
+- 進捗バー表示（ffmpeg stderrパース）
+- 出力先・ファイル名設定UI
+
+##### 基本機能
+- 3タブ構成（MP3結合 / 編集 / 書出）
+- 動画プレビュー（QMediaPlayer + QVideoWidget）
+- 波形表示（ffmpegでpcm抽出 → ピーク保持ダウンサンプリング）
+- チャプターテーブル（追加/削除/編集/ジャンプ）
+- シークバー + 時間表示
+- オーディオデバイス選択
+
+---
+
 ## [1.0.0] - 2025-11-05
 
 ### Added

@@ -1,0 +1,112 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller
+          pip install PySide6 PyYAML numpy opencv-python
+
+      - name: Build with PyInstaller
+        run: |
+          pyinstaller video_chapter_editor.spec
+
+      - name: Create DMG
+        run: |
+          mkdir -p dmg_contents
+          cp -r "dist/Video Chapter Editor.app" dmg_contents/
+          hdiutil create -volname "Video Chapter Editor" \
+            -srcfolder dmg_contents \
+            -ov -format UDZO \
+            "Video-Chapter-Editor-${{ github.ref_name }}-macOS.dmg"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-app
+          path: "Video-Chapter-Editor-*.dmg"
+
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller
+          pip install PySide6 PyYAML numpy opencv-python
+
+      - name: Build with PyInstaller
+        run: |
+          pyinstaller --onefile --windowed --name "VideoChapterEditor" `
+            --add-data "rehearsal_workflow;rehearsal_workflow" `
+            --icon "assets/icon.ico" `
+            --hidden-import PySide6.QtCore `
+            --hidden-import PySide6.QtGui `
+            --hidden-import PySide6.QtWidgets `
+            --hidden-import PySide6.QtMultimedia `
+            --hidden-import PySide6.QtMultimediaWidgets `
+            rehearsal_workflow/video_chapter_editor.py
+
+      - name: Create ZIP
+        run: |
+          Compress-Archive -Path "dist/VideoChapterEditor.exe" `
+            -DestinationPath "Video-Chapter-Editor-${{ github.ref_name }}-Windows.zip"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-app
+          path: "Video-Chapter-Editor-*.zip"
+
+  release:
+    needs: [build-macos, build-windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download macOS artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-app
+
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-app
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            *.dmg
+            *.zip
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

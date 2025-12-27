@@ -8,19 +8,104 @@
 
 ## Features
 
-- **YouTube字幕取得** - yt-srtで字幕のみをシンプルに取得
-- **動画トリミング** - video-trimで不要部分（休憩、準備）を削除
-- **チャプター結合** - video-chaptersで複数動画を結合
+### GUIツール
+
+- **video-chapter-editor** - 動画チャプター編集・書出ツール
+  - 動画プレビュー＋波形表示
+  - チャプター編集（追加/削除/編集/ジャンプ）
+  - 除外チャプター機能（`--`プレフィックス）
+  - YouTubeチャプターのコピー＆ペースト
+  - ffmpegによる動画書き出し（チャプターメタデータ埋め込み）
+  - チャプター名の映像焼き込み
+
+- **report-workflow** - レポート生成ワークフロー（開発中）
+
+### CLIツール
+
+- **yt-srt** - YouTube字幕取得
+- **video-trim** - 動画トリミング（不要部分削除）
+- **video-chapters** - チャプター結合
+- **rehearsal-download** - 統合ツール: DL + Whisper起動
+- **rehearsal-finalize** - 統合ツール: PDF生成 + チャプター抽出
+- **tex2chapters** - LaTeX → チャプターリスト
+
+### AI統合
+
 - **Whisper高精度文字起こし** - リモートGPUサーバー経由で高速処理
 - **Claude AI統合分析** - 指揮者の指示を文脈理解し自動整理
 - **LuaTeX形式レポート生成** - 2段組、美麗なタイポグラフィ
-- **YouTubeチャプター自動生成** - 動画説明欄にコピー＆ペースト
-- **Movie Viewerチャプター** - ミリ秒精度で精密編集
-- **GUI版も利用可能** - グラフィカルフロントエンドで直感的操作
 
-## Quick Start
+## Installation
 
-### コマンドライン版
+### pip（推奨）
+
+```bash
+pip install rehearsal-workflow
+```
+
+インストール後、以下のコマンドが使用可能:
+
+```bash
+video-chapter-editor          # 動画チャプター編集GUI
+video-chapter-editor ./work   # 作業ディレクトリを指定して起動
+
+report-workflow               # レポート生成ワークフロー（開発中）
+```
+
+### バイナリ（スタンドアロン）
+
+[Releases](https://github.com/mashi727/rehearsal-workflow/releases)からダウンロード:
+
+| プラットフォーム | ファイル |
+|-----------------|----------|
+| macOS | `Video-Chapter-Editor-vX.X.X-macOS.dmg` |
+| Windows | `Video-Chapter-Editor-vX.X.X-Windows.zip` |
+
+**macOS**: DMGを開いて`.app`をアプリケーションフォルダにドラッグ
+**Windows**: ZIPを展開して`.exe`を実行
+
+フォルダをアプリにドロップすると、そのフォルダを作業ディレクトリとして起動します。
+
+### ソースから
+
+```bash
+git clone https://github.com/mashi727/rehearsal-workflow.git
+cd rehearsal-workflow
+pip install -e .
+```
+
+## Usage
+
+### Video Chapter Editor
+
+動画チャプター編集ツール:
+
+```bash
+# 起動
+video-chapter-editor
+
+# 作業ディレクトリを指定
+video-chapter-editor /path/to/work/directory
+```
+
+**基本操作**:
+
+1. **MP3結合タブ**: 複数のMP3を結合（任意）
+2. **編集タブ**:
+   - 動画を読み込み
+   - チャプターを追加/編集
+   - 波形上でクリックしてチャプター位置を設定
+3. **書出タブ**:
+   - 出力先と品質を設定
+   - 「エクスポート開始」で書き出し
+
+**除外チャプター**: チャプター名を`--`で始めると、エクスポート時にその区間がカットされます。波形上に赤いハッチングで表示されます。
+
+**YouTubeチャプター**:
+- 📋ボタン: 現在のチャプターをYouTube形式でコピー
+- Cmd+V / Ctrl+V: YouTubeチャプター形式をペースト
+
+### CLIワークフロー
 
 たった**3ステップ**で完全なリハーサル記録を生成:
 
@@ -36,212 +121,95 @@ claude code
 rehearsal-finalize "リハーサル記録.tex"
 ```
 
-### GUI版（オプション）
-
-グラフィカルインターフェースで同じワークフローを実行:
-
-```bash
-cd /path/to/work/directory
-python3 path/to/rehearsal-workflow/gui/rehearsal_gui.py
-```
-
-詳細: [gui/README.md](gui/README.md)
-
 ### 生成される成果物
 
 - `リハーサル記録.pdf` - 詳細なリハーサル記録（PDF）
 - `リハーサル記録_youtube.txt` - YouTubeチャプターリスト
 - `リハーサル記録_movieviewer.txt` - Movie Viewerチャプター（ミリ秒精度）
 
-## Installation
-
-### 前提条件
-
-- macOS / Linux
-- Zsh
-- [Claude Code](https://claude.com/claude-code)
-- `ytdl` - YouTube動画ダウンロードツール（ytdl-claude関数）
-- `whisper-remote` - Whisper文字起こしツール
-- `luatex-pdf` - LuaLaTeXコンパイラ
-
-### インストール手順
-
-```bash
-# リポジトリをクローン
-git clone https://github.com/mashi727/rehearsal-workflow.git
-cd rehearsal-workflow
-
-# インストールスクリプトを実行
-./scripts/install.sh
-
-# Zsh設定を反映
-source ~/.zshrc
-```
-
-詳細: [docs/installation.md](docs/installation.md)
-
-## Usage
-
-### ステップ1: ダウンロード + Whisper起動
-
-```bash
-rehearsal-download "https://youtu.be/VIDEO_ID"
-```
-
-**実行内容**:
-- YouTube動画と自動生成字幕をダウンロード
-- Whisper高精度文字起こしを起動（30分〜2時間）
-- 次のステップの案内を表示
-
-### ステップ2: AI分析 + LaTeX生成
-
-Whisperが完了したら（`*_wp.srt`ファイルが生成されたら）:
-
-```bash
-claude code
-```
-
-Claude Code内で:
-
-```
-/rehearsal
-```
-
-**実行内容**:
-- 前提条件を質問（団体名、指揮者、曲目、著者）
-- YouTube字幕とWhisper字幕を統合分析
-- 指揮者の指示を文脈に沿って校正・補足
-- タイムスタンプ付きLuaTeX形式レポートを生成
-
-### ステップ3: PDF生成 + チャプター抽出
-
-```bash
-rehearsal-finalize "リハーサル記録.tex"
-```
-
-**実行内容**:
-- LuaLaTeX PDFコンパイル（リモートサーバー経由）
-- YouTubeチャプターリスト生成
-- Movie Viewerチャプターリスト生成
-- 成果物レポートの表示
-
-### YouTubeチャプターの使い方
-
-1. `*_youtube.txt`の内容をコピー:
-   ```bash
-   cat リハーサル記録_youtube.txt | pbcopy
-   ```
-
-2. YouTube動画の説明欄にペースト
-
-3. 自動的にチャプター機能が有効化されます
-
-### Movie Viewerチャプターの使い方
-
-[Movie Viewer](https://github.com/mashi727/movie-viewer)で精密な動画編集:
-
-1. Movie Viewerで動画を開く
-2. `*_movieviewer.txt`ファイルを読み込む
-3. ミリ秒精度でチャプタージャンプ可能
-
 ## Architecture
 
-このワークフローは**ハイブリッドアプローチ**を採用:
+### ディレクトリ構成
 
+```
+rehearsal-workflow/
+├── rehearsal_workflow/      # Pythonパッケージ
+│   ├── __init__.py
+│   ├── video_chapter_editor.py   # 動画チャプター編集GUI
+│   └── report_workflow.py        # レポート生成ワークフロー
+│
+├── bin/                     # CLIツール（Zsh関数）
+│   ├── yt-srt
+│   ├── video-trim
+│   ├── video-chapters
+│   ├── rehearsal-download
+│   ├── rehearsal-finalize
+│   └── tex2chapters
+│
+├── examples/prompts/        # プロンプト例
+│   ├── rehearsal-claude.md
+│   └── rehearsal-generic.md
+│
+├── docs/                    # ドキュメント
+│   └── advanced/            # 環境構築ガイド
+│
+└── .github/workflows/       # GitHub Actions
+    └── release.yml          # 自動リリース（macOS/Windows）
+```
+
+### ハイブリッドアプローチ
+
+- **Python GUI**: 動画編集、チャプター管理
 - **Zsh関数**: 機械的処理（ダウンロード、コンパイル、抽出）
 - **Claude AI**: 分析・文書生成（SRT統合分析、LaTeX生成）
 
-### ツール構成
-
-```
-bin/                         # コア（配管ツール）
-├── yt-srt                   # YouTube → SRT（シンプル字幕取得）
-├── video-trim               # 動画の不要部分削除
-├── video-chapters           # チャプター付き動画結合
-├── rehearsal-download       # 統合ツール: DL + Whisper起動
-├── rehearsal-finalize       # 統合ツール: PDF生成 + チャプター抽出
-└── tex2chapters             # LaTeX → チャプターリスト
-
-examples/prompts/            # プロンプト例
-├── rehearsal-claude.md      # Claude用
-└── rehearsal-generic.md     # 汎用LLM向け
-
-docs/advanced/               # 環境構築ガイド（参考）
-├── my-setup.md              # 全体構成例
-├── whisper-remote.md        # Whisperリモート環境
-├── luatex-docker.md         # LuaTeX Docker環境
-└── claude-commands.md       # Claude Codeコマンド設定
-```
-
-### 階層的な使い方
-
-```
-[誰でも使える]
-├── yt-srt（YouTube字幕取得）
-├── video-trim（動画トリミング）
-└── video-chapters（チャプター結合）
-
-[興味があれば]
-└── examples/prompts/（プロンプト例）
-
-[本気でやりたい人向け]
-├── rehearsal-download/finalize（統合ワークフロー）
-└── docs/advanced/（環境構築ガイド）
-```
-
-詳細: [docs/workflow-comparison.md](docs/workflow-comparison.md)
-
-## Documentation
-
-- [Installation Guide](docs/installation.md) - インストール手順
-- [GUI Documentation](gui/README.md) - グラフィカルフロントエンド
-- [Implementation Details](docs/implementation.md) - 実装詳細
-- [Workflow Comparison](docs/workflow-comparison.md) - アプローチ比較
-
-### 環境構築ガイド（Advanced）
-
-- [My Setup](docs/advanced/my-setup.md) - 全体構成例
-- [Whisper Remote](docs/advanced/whisper-remote.md) - Whisperリモート環境
-- [LuaTeX Docker](docs/advanced/luatex-docker.md) - LuaTeX Docker環境
-- [Claude Commands](docs/advanced/claude-commands.md) - Claude Codeコマンド設定
-
-## Examples
-
-### プロンプト例
-
-LLMでリハーサル記録を作成するためのプロンプト例：
-
-- [rehearsal-claude.md](examples/prompts/rehearsal-claude.md) - Claude用
-- [rehearsal-generic.md](examples/prompts/rehearsal-generic.md) - ChatGPT/Gemini等汎用
-
 ## Requirements
 
-### 必須
+### GUIツール
 
-- **Zsh** 5.0以上
-- **Claude Code** - AI分析エンジン
-- **ytdl** - YouTube動画ダウンロード（ytdl-claude関数）
-- **whisper-remote** - リモートWhisper文字起こし
-- **luatex-pdf** - LuaLaTeXコンパイラ（リモートDocker経由）
-  - セットアップ: [luatex-docker-remote](https://github.com/mashi727/luatex-docker-remote)
+- Python 3.10以上
+- PySide6
+- numpy
+- opencv-python
+- ffmpeg（システムにインストール）
 
-### オプション
+### CLIワークフロー
 
-- **pdfinfo** (`poppler-utils`) - PDF情報表示
-- **gh** - GitHub CLI
+- Zsh 5.0以上
+- Claude Code
+- ytdl-claude（YouTube動画ダウンロード）
+- whisper-remote（リモートWhisper文字起こし）
+- luatex-pdf（LuaLaTeXコンパイラ）
 
-### フォント
-
-LuaLaTeX PDFコンパイルには以下のフォントが必要:
+### フォント（LaTeX出力用）
 
 - **Libertinus** (欧文) - [GitHub](https://github.com/alerque/libertinus)
 - **原ノ味** (日本語) - [GitHub](https://github.com/trueroad/HaranoAjiFonts)
 
-macOSでのインストール:
+```bash
+# macOS
+brew install --cask font-libertinus font-harano-aji
+```
+
+## Development
+
+### ローカル開発
 
 ```bash
-brew install --cask font-libertinus
-brew install --cask font-harano-aji
+git clone https://github.com/mashi727/rehearsal-workflow.git
+cd rehearsal-workflow
+pip install -e ".[dev]"
+```
+
+### ビルド
+
+```bash
+# macOS .app
+pyinstaller video_chapter_editor.spec
+
+# Wheel
+pip install build
+python -m build
 ```
 
 ## Privacy Notice
@@ -257,33 +225,6 @@ brew install --cask font-harano-aji
 - `.gitignore`を活用（`.srt`、`.mp4`ファイルは自動除外）
 - 個人名を匿名化
 - プライベートリポジトリの使用
-
-## Troubleshooting
-
-### 関数が見つからない
-
-```bash
-# fpath の確認
-echo $fpath | grep ".config/zsh/functions"
-
-# 関数の明示的な読み込み
-autoload -Uz rehearsal-download rehearsal-finalize tex2chapters
-```
-
-### Whisperが完了しない
-
-Whisper処理には30分〜2時間かかります。`*_wp.srt`ファイルが生成されるまで待ってください。
-
-### PDFコンパイルエラー
-
-フォントがインストールされているか確認:
-
-```bash
-fc-list | grep -i libertinus
-fc-list | grep -i harano
-```
-
-詳細: [docs/troubleshooting.md](docs/troubleshooting.md)
 
 ## Contributing
 
@@ -301,20 +242,9 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Author
 
-Created by [@mashi727](https://github.com/mashi727) for horn section archiving.
-
-## Acknowledgments
-
-- [Claude Code](https://claude.com/claude-code) - AI分析エンジン
-- [Whisper](https://github.com/openai/whisper) - 音声認識
-- [Movie Viewer](https://github.com/mashi727/movie-viewer) - 精密動画編集ツール
-- [Libertinus Fonts](https://github.com/alerque/libertinus) - 美麗な欧文フォント
-- [原ノ味フォント](https://github.com/trueroad/HaranoAjiFonts) - 高品質な日本語フォント
+Created by [@mashi727](https://github.com/mashi727)
 
 ## Related Projects
 
 - [movie-viewer](https://github.com/mashi727/movie-viewer) - ミリ秒精度のチャプタージャンプ対応動画プレイヤー
-
----
-
-**Note**: このツールは創価大学 新世紀管弦楽団のリハーサル記録アーカイブプロジェクトから生まれました。
+- [luatex-docker-remote](https://github.com/mashi727/luatex-docker-remote) - リモートLuaLaTeXコンパイル環境

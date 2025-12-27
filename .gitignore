@@ -3,11 +3,22 @@
 ._*
 *.swp
 
-# 動画ファイル（サイズが大きいため）
+# メディアファイル（サイズが大きいため）
 *.mp4
+*.mp3
+*.m4a
+*.wav
 *.mov
 *.avi
 *.mkv
+
+# 画像ファイル（ドキュメント用・アセット用は除外）
+*.jpg
+*.jpeg
+*.png
+!docs/**/*.jpg
+!docs/**/*.png
+!assets/*.png
 
 # 字幕ファイル（プライバシー保護）
 *.srt
@@ -32,7 +43,6 @@
 
 # プロジェクト固有
 whisper_temp/
-assets/
 
 # エディタ
 .vscode/
@@ -45,6 +55,12 @@ __pycache__/
 *.pyc
 *.pyo
 *.egg-info/
+.eggs/
+
+# PyInstaller
+build/
+dist/
+*.spec.bak
 
 # Java
 *.class
