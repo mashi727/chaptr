@@ -54,12 +54,12 @@ report-workflow               # レポート生成ワークフロー（開発中
 
 ### バイナリ（スタンドアロン）
 
-[Releases](https://github.com/mashi727/rehearsal-workflow/releases)からダウンロード:
+| プラットフォーム | ダウンロード |
+|-----------------|-------------|
+| macOS | [Video-Chapter-Editor-v1.1.0-macOS.dmg](https://github.com/mashi727/rehearsal-workflow/releases/download/v1.1.0/Video-Chapter-Editor-v1.1.0-macOS.dmg) |
+| Windows | [Video-Chapter-Editor-v1.1.0-Windows.zip](https://github.com/mashi727/rehearsal-workflow/releases/download/v1.1.0/Video-Chapter-Editor-v1.1.0-Windows.zip) |
 
-| プラットフォーム | ファイル |
-|-----------------|----------|
-| macOS | `Video-Chapter-Editor-vX.X.X-macOS.dmg` |
-| Windows | `Video-Chapter-Editor-vX.X.X-Windows.zip` |
+> 他のバージョン: [Releases](https://github.com/mashi727/rehearsal-workflow/releases)
 
 **macOS**: DMGを開いて`.app`をアプリケーションフォルダにドラッグ
 **Windows**: ZIPを展開して`.exe`を実行
