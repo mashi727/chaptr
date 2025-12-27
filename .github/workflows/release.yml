@@ -28,6 +28,11 @@ jobs:
         run: |
           pyinstaller video_chapter_editor.spec
 
+      - name: Debug - List dist contents
+        run: |
+          echo "=== dist directory contents ==="
+          ls -laR dist/
+
       - name: Create DMG
         run: |
           mkdir -p dmg_contents
