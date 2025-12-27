@@ -17,6 +17,7 @@
   - YouTubeチャプターのコピー＆ペースト
   - ffmpegによる動画書き出し（チャプターメタデータ埋め込み）
   - チャプター名の映像焼き込み
+  - **GPUハードウェアエンコード対応**（VideoToolbox/NVENC/QSV/AMF）
 
 - **report-workflow** - レポート生成ワークフロー（開発中）
 
@@ -56,8 +57,8 @@ report-workflow               # レポート生成ワークフロー（開発中
 
 | プラットフォーム | ダウンロード |
 |-----------------|-------------|
-| macOS | [Video-Chapter-Editor-v1.1.1-macOS.dmg](https://github.com/mashi727/rehearsal-workflow/releases/download/v1.1.1/Video-Chapter-Editor-v1.1.1-macOS.dmg) |
-| Windows | [Video-Chapter-Editor-v1.1.1-Windows.zip](https://github.com/mashi727/rehearsal-workflow/releases/download/v1.1.1/Video-Chapter-Editor-v1.1.1-Windows.zip) |
+| macOS | [Video-Chapter-Editor-v1.2.0-macOS.dmg](https://github.com/mashi727/rehearsal-workflow/releases/download/v1.2.0/Video-Chapter-Editor-v1.2.0-macOS.dmg) |
+| Windows | [Video-Chapter-Editor-v1.2.0-Windows.zip](https://github.com/mashi727/rehearsal-workflow/releases/download/v1.2.0/Video-Chapter-Editor-v1.2.0-Windows.zip) |
 
 > 他のバージョン: [Releases](https://github.com/mashi727/rehearsal-workflow/releases)
 
