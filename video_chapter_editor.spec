@@ -48,20 +48,17 @@ a = Analysis(
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
+# onedir mode for macOS .app bundle
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
     [],
+    exclude_binaries=True,
     name='Video Chapter Editor',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    upx_exclude=[],
-    runtime_tmpdir=None,
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=True,  # macOS: enable drag & drop
@@ -70,10 +67,21 @@ exe = EXE(
     entitlements_file=None,
 )
 
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    name='Video Chapter Editor',
+)
+
 # macOS app bundle
 if sys.platform == 'darwin':
     app = BUNDLE(
-        exe,
+        coll,
         name='Video Chapter Editor.app',
         icon='assets/icon.icns',
         bundle_identifier='com.mashi727.video-chapter-editor',
