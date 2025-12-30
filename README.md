@@ -58,10 +58,12 @@ report-workflow               # レポート生成ワークフロー（開発中
 | プラットフォーム | ダウンロード |
 |-----------------|-------------|
 | macOS (Apple Silicon) | [Video-Chapter-Editor-v2.1.0-macOS.dmg](https://github.com/mashi727/rehearsal-workflow/releases/download/v2.1.0/Video-Chapter-Editor-v2.1.0-macOS.dmg) |
+| Windows | [Video-Chapter-Editor-v2.1.0-Windows.zip](https://github.com/mashi727/rehearsal-workflow/releases/download/v2.1.0/Video-Chapter-Editor-v2.1.0-Windows.zip) |
 
 > 他のバージョン: [Releases](https://github.com/mashi727/rehearsal-workflow/releases)
 
 **macOS**: DMGを開いて`.app`をアプリケーションフォルダにドラッグ
+**Windows**: ZIPを展開して`VideoChapterEditor.exe`を実行
 
 フォルダをアプリにドロップすると、そのフォルダを作業ディレクトリとして起動します。
 
