@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "rehearsal-workflow"
-version = "2.1.3"
+version = "2.1.4"
 description = "リハーサル動画から字幕・チャプター付き動画を生成するワークフローツール"
 readme = "README.md"
 license = {text = "MIT"}
