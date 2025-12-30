@@ -27,6 +27,7 @@ a = Analysis(
         'numpy',
         'cv2',
         'psutil',
+        'imageio_ffmpeg',
         'rehearsal_workflow',
         'rehearsal_workflow.ui',
         'rehearsal_workflow.ui.app',
@@ -34,6 +35,8 @@ a = Analysis(
         'rehearsal_workflow.ui.dialogs',
         'rehearsal_workflow.ui.models',
         'rehearsal_workflow.ui.log_panel',
+        'rehearsal_workflow.ui.ffmpeg_utils',
+        'rehearsal_workflow.ui.workers',
         'rehearsal_workflow.ui.widgets',
         'rehearsal_workflow.ui.widgets.waveform',
         'rehearsal_workflow.ui.widgets.file_dialog',
@@ -136,8 +139,8 @@ if sys.platform == 'darwin':
         icon='assets/icon.icns',
         bundle_identifier='com.mashi727.video-chapter-editor',
         info_plist={
-            'CFBundleShortVersionString': '2.1.2',
-            'CFBundleVersion': '2.1.2',
+            'CFBundleShortVersionString': '2.1.3',
+            'CFBundleVersion': '2.1.3',
             'NSHighResolutionCapable': True,
             'CFBundleDocumentTypes': [
                 {

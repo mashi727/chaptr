@@ -33,7 +33,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install pyinstaller
-          pip install PySide6 PyYAML numpy opencv-python-headless psutil
+          pip install PySide6 PyYAML numpy opencv-python-headless psutil imageio-ffmpeg
 
       - name: Build with PyInstaller
         run: |
@@ -73,7 +73,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install pyinstaller
-          pip install PySide6 PyYAML numpy opencv-python-headless psutil
+          pip install PySide6 PyYAML numpy opencv-python-headless psutil imageio-ffmpeg
 
       - name: Build with PyInstaller
         run: |
@@ -88,12 +88,15 @@ jobs:
             --hidden-import numpy `
             --hidden-import cv2 `
             --hidden-import psutil `
+            --hidden-import imageio_ffmpeg `
             --hidden-import rehearsal_workflow.ui `
             --hidden-import rehearsal_workflow.ui.app `
             --hidden-import rehearsal_workflow.ui.main_workspace `
             --hidden-import rehearsal_workflow.ui.dialogs `
             --hidden-import rehearsal_workflow.ui.models `
             --hidden-import rehearsal_workflow.ui.log_panel `
+            --hidden-import rehearsal_workflow.ui.ffmpeg_utils `
+            --hidden-import rehearsal_workflow.ui.workers `
             --hidden-import rehearsal_workflow.ui.widgets `
             run_video_chapter_editor.py
 
