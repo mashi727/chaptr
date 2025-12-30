@@ -88,7 +88,14 @@ jobs:
             --hidden-import numpy `
             --hidden-import cv2 `
             --hidden-import psutil `
-            rehearsal_workflow/ui/app.py
+            --hidden-import rehearsal_workflow.ui `
+            --hidden-import rehearsal_workflow.ui.app `
+            --hidden-import rehearsal_workflow.ui.main_workspace `
+            --hidden-import rehearsal_workflow.ui.dialogs `
+            --hidden-import rehearsal_workflow.ui.models `
+            --hidden-import rehearsal_workflow.ui.log_panel `
+            --hidden-import rehearsal_workflow.ui.widgets `
+            run_video_chapter_editor.py
 
       - name: Create ZIP
         run: |
