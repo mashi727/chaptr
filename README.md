@@ -57,13 +57,11 @@ report-workflow               # レポート生成ワークフロー（開発中
 
 | プラットフォーム | ダウンロード |
 |-----------------|-------------|
-| macOS | [Video-Chapter-Editor-v1.3.0-macOS.dmg](https://github.com/mashi727/rehearsal-workflow/releases/download/v1.3.0/Video-Chapter-Editor-v1.3.0-macOS.dmg) |
-| Windows | [Video-Chapter-Editor-v1.3.0-Windows.zip](https://github.com/mashi727/rehearsal-workflow/releases/download/v1.3.0/Video-Chapter-Editor-v1.3.0-Windows.zip) |
+| macOS (Apple Silicon) | [Video-Chapter-Editor-v2.1.0-macOS.dmg](https://github.com/mashi727/rehearsal-workflow/releases/download/v2.1.0/Video-Chapter-Editor-v2.1.0-macOS.dmg) |
 
 > 他のバージョン: [Releases](https://github.com/mashi727/rehearsal-workflow/releases)
 
 **macOS**: DMGを開いて`.app`をアプリケーションフォルダにドラッグ
-**Windows**: ZIPを展開して`.exe`を実行
 
 フォルダをアプリにドロップすると、そのフォルダを作業ディレクトリとして起動します。
 
@@ -136,8 +134,12 @@ rehearsal-finalize "リハーサル記録.tex"
 rehearsal-workflow/
 ├── rehearsal_workflow/      # Pythonパッケージ
 │   ├── __init__.py
-│   ├── video_chapter_editor.py   # 動画チャプター編集GUI
-│   └── report_workflow.py        # レポート生成ワークフロー
+│   └── ui/                  # Video Chapter Editor v2.0
+│       ├── app.py           # アプリエントリポイント
+│       ├── main_workspace.py # メインUI
+│       ├── models.py        # データモデル
+│       ├── dialogs.py       # ダイアログ
+│       └── widgets/         # 再利用可能ウィジェット
 │
 ├── bin/                     # CLIツール（Zsh関数）
 │   ├── yt-srt
@@ -147,15 +149,11 @@ rehearsal-workflow/
 │   ├── rehearsal-finalize
 │   └── tex2chapters
 │
-├── examples/prompts/        # プロンプト例
-│   ├── rehearsal-claude.md
-│   └── rehearsal-generic.md
-│
 ├── docs/                    # ドキュメント
+│   ├── pad/                 # PADワークフロー図
 │   └── advanced/            # 環境構築ガイド
 │
-└── .github/workflows/       # GitHub Actions
-    └── release.yml          # 自動リリース（macOS/Windows）
+└── assets/                  # アイコン等
 ```
 
 ### ハイブリッドアプローチ

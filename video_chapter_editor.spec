@@ -12,7 +12,7 @@ from pathlib import Path
 block_cipher = None
 
 a = Analysis(
-    ['rehearsal_workflow/video_chapter_editor.py'],
+    ['rehearsal_workflow/ui/app.py'],
     pathex=[],
     binaries=[],
     datas=[
@@ -125,8 +125,8 @@ if sys.platform == 'darwin':
         icon='assets/icon.icns',
         bundle_identifier='com.mashi727.video-chapter-editor',
         info_plist={
-            'CFBundleShortVersionString': '1.3.0',
-            'CFBundleVersion': '1.3.0',
+            'CFBundleShortVersionString': '2.1.0',
+            'CFBundleVersion': '2.1.0',
             'NSHighResolutionCapable': True,
             'CFBundleDocumentTypes': [
                 {
