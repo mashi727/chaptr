@@ -12,7 +12,7 @@ from pathlib import Path
 block_cipher = None
 
 a = Analysis(
-    ['rehearsal_workflow/ui/app.py'],
+    ['run_video_chapter_editor.py'],
     pathex=[],
     binaries=[],
     datas=[
@@ -26,6 +26,17 @@ a = Analysis(
         'PySide6.QtMultimediaWidgets',
         'numpy',
         'cv2',
+        'psutil',
+        'rehearsal_workflow',
+        'rehearsal_workflow.ui',
+        'rehearsal_workflow.ui.app',
+        'rehearsal_workflow.ui.main_workspace',
+        'rehearsal_workflow.ui.dialogs',
+        'rehearsal_workflow.ui.models',
+        'rehearsal_workflow.ui.log_panel',
+        'rehearsal_workflow.ui.widgets',
+        'rehearsal_workflow.ui.widgets.waveform',
+        'rehearsal_workflow.ui.widgets.file_dialog',
     ],
     hookspath=[],
     hooksconfig={},
@@ -125,8 +136,8 @@ if sys.platform == 'darwin':
         icon='assets/icon.icns',
         bundle_identifier='com.mashi727.video-chapter-editor',
         info_plist={
-            'CFBundleShortVersionString': '2.1.1',
-            'CFBundleVersion': '2.1.1',
+            'CFBundleShortVersionString': '2.1.2',
+            'CFBundleVersion': '2.1.2',
             'NSHighResolutionCapable': True,
             'CFBundleDocumentTypes': [
                 {
