@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "rehearsal-workflow"
-version = "1.3.0"
+version = "2.0.0"
 description = "リハーサル動画から字幕・チャプター付き動画を生成するワークフローツール"
 readme = "README.md"
 license = {text = "MIT"}
@@ -45,7 +45,7 @@ Homepage = "https://github.com/mashi727/rehearsal-workflow"
 Repository = "https://github.com/mashi727/rehearsal-workflow"
 
 [project.scripts]
-video-chapter-editor = "rehearsal_workflow.video_chapter_editor:main"
+video-chapter-editor = "rehearsal_workflow.ui.app:main"
 report-workflow = "rehearsal_workflow.report_workflow:main"
 
 [tool.hatch.build.targets.wheel]
