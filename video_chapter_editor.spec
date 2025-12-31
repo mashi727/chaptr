@@ -40,6 +40,7 @@ a = Analysis(
         'rehearsal_workflow.ui.widgets',
         'rehearsal_workflow.ui.widgets.waveform',
         'rehearsal_workflow.ui.widgets.file_dialog',
+        'rehearsal_workflow.ui.updater',
     ],
     hookspath=[],
     hooksconfig={},
@@ -139,8 +140,8 @@ if sys.platform == 'darwin':
         icon='assets/icon.icns',
         bundle_identifier='com.mashi727.video-chapter-editor',
         info_plist={
-            'CFBundleShortVersionString': '2.1.21',
-            'CFBundleVersion': '2.1.21',
+            'CFBundleShortVersionString': '2.1.22',
+            'CFBundleVersion': '2.1.22',
             'NSHighResolutionCapable': True,
             'CFBundleDocumentTypes': [
                 {
