@@ -57,8 +57,8 @@ report-workflow               # レポート生成ワークフロー（開発中
 
 | プラットフォーム | ダウンロード |
 |-----------------|-------------|
-| macOS (Apple Silicon) | [Video-Chapter-Editor-v2.1.17-macOS.dmg](https://github.com/mashi727/rehearsal-workflow/releases/download/v2.1.17/Video-Chapter-Editor-v2.1.17-macOS.dmg) |
-| Windows | [Video-Chapter-Editor-v2.1.17-Windows.zip](https://github.com/mashi727/rehearsal-workflow/releases/download/v2.1.17/Video-Chapter-Editor-v2.1.17-Windows.zip) |
+| macOS (Apple Silicon) | [Video-Chapter-Editor-v2.1.18-macOS.dmg](https://github.com/mashi727/rehearsal-workflow/releases/download/v2.1.18/Video-Chapter-Editor-v2.1.18-macOS.dmg) |
+| Windows | [Video-Chapter-Editor-v2.1.18-Windows.zip](https://github.com/mashi727/rehearsal-workflow/releases/download/v2.1.18/Video-Chapter-Editor-v2.1.18-Windows.zip) |
 
 > 他のバージョン: [Releases](https://github.com/mashi727/rehearsal-workflow/releases)
 
