@@ -49,9 +49,9 @@ a = Analysis(
         # Python標準で不要
         'tkinter',
         'unittest',
-        'email',
-        'html',
-        'http',
+        # 'email',  # urllib.requestが依存
+        # 'html',   # urllib.requestが依存
+        # 'http',   # urllib.requestが依存
         'xml',
         'pydoc',
         # 科学計算系（不要）
@@ -140,8 +140,8 @@ if sys.platform == 'darwin':
         icon='assets/icon.icns',
         bundle_identifier='com.mashi727.video-chapter-editor',
         info_plist={
-            'CFBundleShortVersionString': '2.1.23',
-            'CFBundleVersion': '2.1.23',
+            'CFBundleShortVersionString': '2.1.24',
+            'CFBundleVersion': '2.1.24',
             'NSHighResolutionCapable': True,
             'CFBundleDocumentTypes': [
                 {
