@@ -140,8 +140,8 @@ if sys.platform == 'darwin':
         icon='assets/icon.icns',
         bundle_identifier='com.mashi727.video-chapter-editor',
         info_plist={
-            'CFBundleShortVersionString': '2.1.25',
-            'CFBundleVersion': '2.1.25',
+            'CFBundleShortVersionString': '2.1.26',
+            'CFBundleVersion': '2.1.26',
             'NSHighResolutionCapable': True,
             'CFBundleDocumentTypes': [
                 {
