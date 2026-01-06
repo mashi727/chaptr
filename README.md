@@ -57,13 +57,14 @@ report-workflow               # レポート生成ワークフロー（開発中
 
 | プラットフォーム | ダウンロード |
 |-----------------|-------------|
-| macOS (Apple Silicon) | [Video-Chapter-Editor-v2.1.26-macOS.dmg](https://github.com/mashi727/rehearsal-workflow/releases/download/v2.1.26/Video-Chapter-Editor-v2.1.26-macOS.dmg) |
-| Windows | [Video-Chapter-Editor-v2.1.26-Windows.zip](https://github.com/mashi727/rehearsal-workflow/releases/download/v2.1.26/Video-Chapter-Editor-v2.1.26-Windows.zip) |
+| macOS (Apple Silicon) | [Video-Chapter-Editor-v2.1.27-macOS-AppleSilicon.dmg](https://github.com/mashi727/rehearsal-workflow/releases/download/v2.1.27/Video-Chapter-Editor-v2.1.27-macOS-AppleSilicon.dmg) |
+| macOS (Intel) | [Video-Chapter-Editor-v2.1.27-macOS-Intel.dmg](https://github.com/mashi727/rehearsal-workflow/releases/download/v2.1.27/Video-Chapter-Editor-v2.1.27-macOS-Intel.dmg) |
+| Windows | [Video-Chapter-Editor-v2.1.27-Windows.zip](https://github.com/mashi727/rehearsal-workflow/releases/download/v2.1.27/Video-Chapter-Editor-v2.1.27-Windows.zip) |
 
 > 他のバージョン: [Releases](https://github.com/mashi727/rehearsal-workflow/releases)
 
-**macOS**: DMGを開いて`.app`をアプリケーションフォルダにドラッグ
-**Windows**: ZIPを展開して`VideoChapterEditor.exe`を実行
+**macOS**: DMGを開いて`.app`をアプリケーションフォルダにドラッグ（ffmpeg/ffprobe同梱済み）
+**Windows**: ZIPを展開して`VideoChapterEditor.exe`を実行（ffmpeg/ffprobe同梱済み）
 
 フォルダをアプリにドロップすると、そのフォルダを作業ディレクトリとして起動します。
 
@@ -166,13 +167,17 @@ rehearsal-workflow/
 
 ## Requirements
 
-### GUIツール
+### GUIツール（バイナリ版）
+
+バイナリ版は全ての依存関係が同梱されているため、追加インストール不要です。
+
+### GUIツール（pip版）
 
 - Python 3.10以上
 - PySide6
 - numpy
 - opencv-python
-- ffmpeg（システムにインストール）
+- static-ffmpeg（ffmpeg/ffprobe同梱）
 
 ### CLIワークフロー
 
