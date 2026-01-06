@@ -9,7 +9,27 @@ Usage:
 import sys
 from pathlib import Path
 
+# static-ffmpegのバイナリパスを取得
+def get_static_ffmpeg_binaries():
+    """static-ffmpegのバイナリをdatasに追加"""
+    try:
+        import static_ffmpeg
+        # バイナリをダウンロード（まだなければ）
+        static_ffmpeg.add_paths()
+
+        pkg_dir = Path(static_ffmpeg.__file__).parent
+        bin_dir = pkg_dir / 'bin'
+
+        if bin_dir.exists():
+            return [(str(bin_dir), 'static_ffmpeg/bin')]
+    except Exception as e:
+        print(f"Warning: Could not get static-ffmpeg binaries: {e}")
+    return []
+
 block_cipher = None
+
+# static-ffmpegバイナリを追加
+static_ffmpeg_datas = get_static_ffmpeg_binaries()
 
 a = Analysis(
     ['run_video_chapter_editor.py'],
@@ -17,7 +37,7 @@ a = Analysis(
     binaries=[],
     datas=[
         ('rehearsal_workflow', 'rehearsal_workflow'),
-    ],
+    ] + static_ffmpeg_datas,
     hiddenimports=[
         'PySide6.QtCore',
         'PySide6.QtGui',
@@ -27,7 +47,7 @@ a = Analysis(
         'numpy',
         'cv2',
         'psutil',
-        'imageio_ffmpeg',
+        'static_ffmpeg',
         # yt-dlp（同梱ダウンローダー）
         'yt_dlp',
         'yt_dlp.extractor',
@@ -149,8 +169,8 @@ if sys.platform == 'darwin':
         icon='assets/icon.icns',
         bundle_identifier='com.mashi727.video-chapter-editor',
         info_plist={
-            'CFBundleShortVersionString': '2.1.26',
-            'CFBundleVersion': '2.1.26',
+            'CFBundleShortVersionString': '2.1.27',
+            'CFBundleVersion': '2.1.27',
             'NSHighResolutionCapable': True,
             'CFBundleDocumentTypes': [
                 {

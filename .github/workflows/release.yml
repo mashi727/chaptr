@@ -15,8 +15,8 @@ env:
   VERSION: ${{ github.event.inputs.version || github.ref_name }}
 
 jobs:
-  build-macos:
-    runs-on: macos-13  # Intel x86_64 (Catalina 10.15+ 互換)
+  build-macos-intel:
+    runs-on: macos-13  # Intel x86_64
 
     steps:
       - name: Checkout
@@ -33,7 +33,9 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install pyinstaller
-          pip install PySide6 PyYAML numpy opencv-python-headless psutil imageio-ffmpeg yt-dlp
+          pip install PySide6 PyYAML numpy opencv-python-headless psutil static-ffmpeg yt-dlp
+          # static-ffmpegのバイナリをダウンロード
+          python -c "import static_ffmpeg; static_ffmpeg.add_paths()"
 
       - name: Build with PyInstaller
         env:
@@ -49,13 +51,57 @@ jobs:
           hdiutil create -volname "Video Chapter Editor" \
             -srcfolder dmg_contents \
             -ov -format UDZO \
-            "Video-Chapter-Editor-${VERSION}-macOS.dmg"
+            "Video-Chapter-Editor-${VERSION}-macOS-Intel.dmg"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: macos-app
-          path: "Video-Chapter-Editor-*.dmg"
+          name: macos-intel-app
+          path: "Video-Chapter-Editor-*-macOS-Intel.dmg"
+
+  build-macos-arm:
+    runs-on: macos-latest  # Apple Silicon (arm64)
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.version || github.ref }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller
+          pip install PySide6 PyYAML numpy opencv-python-headless psutil static-ffmpeg yt-dlp
+          # static-ffmpegのバイナリをダウンロード
+          python -c "import static_ffmpeg; static_ffmpeg.add_paths()"
+
+      - name: Build with PyInstaller
+        env:
+          MACOSX_DEPLOYMENT_TARGET: '11.0'
+        run: |
+          pyinstaller video_chapter_editor.spec
+
+      - name: Create DMG
+        run: |
+          VERSION="${{ github.event.inputs.version || github.ref_name }}"
+          mkdir -p dmg_contents
+          cp -r "dist/Video Chapter Editor.app" dmg_contents/
+          hdiutil create -volname "Video Chapter Editor" \
+            -srcfolder dmg_contents \
+            -ov -format UDZO \
+            "Video-Chapter-Editor-${VERSION}-macOS-AppleSilicon.dmg"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-arm-app
+          path: "Video-Chapter-Editor-*-macOS-AppleSilicon.dmg"
 
   build-windows:
     runs-on: windows-latest
@@ -75,7 +121,9 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install pyinstaller
-          pip install PySide6 PyYAML numpy opencv-python-headless psutil imageio-ffmpeg
+          pip install PySide6 PyYAML numpy opencv-python-headless psutil static-ffmpeg yt-dlp
+          # static-ffmpegのバイナリをダウンロード
+          python -c "import static_ffmpeg; static_ffmpeg.add_paths()"
 
       - name: Build with PyInstaller
         run: |
@@ -90,7 +138,14 @@ jobs:
             --hidden-import numpy `
             --hidden-import cv2 `
             --hidden-import psutil `
-            --hidden-import imageio_ffmpeg `
+            --hidden-import static_ffmpeg `
+            --hidden-import yt_dlp `
+            --hidden-import yt_dlp.extractor `
+            --hidden-import yt_dlp.extractor.youtube `
+            --hidden-import yt_dlp.downloader `
+            --hidden-import yt_dlp.postprocessor `
+            --hidden-import yt_dlp.utils `
+            --hidden-import yt_dlp.version `
             --hidden-import rehearsal_workflow.ui `
             --hidden-import rehearsal_workflow.ui.app `
             --hidden-import rehearsal_workflow.ui.main_workspace `
@@ -100,13 +155,22 @@ jobs:
             --hidden-import rehearsal_workflow.ui.ffmpeg_utils `
             --hidden-import rehearsal_workflow.ui.workers `
             --hidden-import rehearsal_workflow.ui.widgets `
+            --hidden-import rehearsal_workflow.ui.updater `
             run_video_chapter_editor.py
+
+      - name: Bundle static-ffmpeg binaries
+        run: |
+          $ffmpeg_path = python -c "import static_ffmpeg, os; print(os.path.dirname(static_ffmpeg.__file__))"
+          $bin_dir = Join-Path $ffmpeg_path "bin"
+          if (Test-Path $bin_dir) {
+            Copy-Item -Recurse $bin_dir "dist/static_ffmpeg_bin"
+          }
 
       - name: Create ZIP
         run: |
           $version = "${{ github.event.inputs.version }}"
           if (-not $version) { $version = "${{ github.ref_name }}" }
-          Compress-Archive -Path "dist/VideoChapterEditor.exe" `
+          Compress-Archive -Path "dist/VideoChapterEditor.exe", "dist/static_ffmpeg_bin" `
             -DestinationPath "Video-Chapter-Editor-${version}-Windows.zip"
 
       - name: Upload artifact
@@ -116,16 +180,21 @@ jobs:
           path: "Video-Chapter-Editor-*.zip"
 
   release:
-    needs: [build-macos, build-windows]
+    needs: [build-macos-intel, build-macos-arm, build-windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write
 
     steps:
-      - name: Download macOS artifact
+      - name: Download macOS Intel artifact
         uses: actions/download-artifact@v4
         with:
-          name: macos-app
+          name: macos-intel-app
+
+      - name: Download macOS ARM artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-arm-app
 
       - name: Download Windows artifact
         uses: actions/download-artifact@v4
