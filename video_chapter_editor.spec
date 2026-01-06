@@ -28,6 +28,15 @@ a = Analysis(
         'cv2',
         'psutil',
         'imageio_ffmpeg',
+        # yt-dlp（同梱ダウンローダー）
+        'yt_dlp',
+        'yt_dlp.extractor',
+        'yt_dlp.extractor.youtube',
+        'yt_dlp.downloader',
+        'yt_dlp.postprocessor',
+        'yt_dlp.utils',
+        'yt_dlp.version',
+        # アプリモジュール
         'rehearsal_workflow',
         'rehearsal_workflow.ui',
         'rehearsal_workflow.ui.app',

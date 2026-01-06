@@ -16,7 +16,7 @@ env:
 
 jobs:
   build-macos:
-    runs-on: macos-latest
+    runs-on: macos-13  # Intel x86_64 (Catalina 10.15+ 互換)
 
     steps:
       - name: Checkout
@@ -33,9 +33,11 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install pyinstaller
-          pip install PySide6 PyYAML numpy opencv-python-headless psutil imageio-ffmpeg
+          pip install PySide6 PyYAML numpy opencv-python-headless psutil imageio-ffmpeg yt-dlp
 
       - name: Build with PyInstaller
+        env:
+          MACOSX_DEPLOYMENT_TARGET: '10.15'
         run: |
           pyinstaller video_chapter_editor.spec
 
