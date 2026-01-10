@@ -1,78 +1,114 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <defs>
     <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#4A90D9"/>
-      <stop offset="100%" style="stop-color:#357ABD"/>
+      <stop offset="0%" style="stop-color:#1a1b26"/>
+      <stop offset="100%" style="stop-color:#24283b"/>
     </linearGradient>
-    <linearGradient id="playGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#FFFFFF"/>
-      <stop offset="100%" style="stop-color:#E8E8E8"/>
+    <linearGradient id="waveGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#7aa2f7"/>
+      <stop offset="100%" style="stop-color:#7dcfff"/>
+    </linearGradient>
+    <linearGradient id="textGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#bb9af7"/>
+      <stop offset="100%" style="stop-color:#c0caf5"/>
+    </linearGradient>
+    <linearGradient id="penGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#ff9e64"/>
+      <stop offset="100%" style="stop-color:#e0af68"/>
+    </linearGradient>
+    <linearGradient id="screenGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#1f2335"/>
+      <stop offset="100%" style="stop-color:#292e42"/>
     </linearGradient>
   </defs>
 
-  <!-- Background rounded rectangle -->
+  <!-- Background rounded rectangle - TokyoNight dark -->
   <rect x="32" y="32" width="448" height="448" rx="64" ry="64" fill="url(#bgGrad)"/>
 
-  <!-- Film strip perforations - left -->
-  <rect x="56" y="80" width="24" height="32" rx="4" fill="#2D5A8A"/>
-  <rect x="56" y="140" width="24" height="32" rx="4" fill="#2D5A8A"/>
-  <rect x="56" y="200" width="24" height="32" rx="4" fill="#2D5A8A"/>
-  <rect x="56" y="260" width="24" height="32" rx="4" fill="#2D5A8A"/>
-  <rect x="56" y="320" width="24" height="32" rx="4" fill="#2D5A8A"/>
-  <rect x="56" y="380" width="24" height="32" rx="4" fill="#2D5A8A"/>
+  <!-- Subtle glow border -->
+  <rect x="32" y="32" width="448" height="448" rx="64" ry="64" fill="none" stroke="#7aa2f7" stroke-width="2" opacity="0.3"/>
 
-  <!-- Film strip perforations - right -->
-  <rect x="432" y="80" width="24" height="32" rx="4" fill="#2D5A8A"/>
-  <rect x="432" y="140" width="24" height="32" rx="4" fill="#2D5A8A"/>
-  <rect x="432" y="200" width="24" height="32" rx="4" fill="#2D5A8A"/>
-  <rect x="432" y="260" width="24" height="32" rx="4" fill="#2D5A8A"/>
-  <rect x="432" y="320" width="24" height="32" rx="4" fill="#2D5A8A"/>
-  <rect x="432" y="380" width="24" height="32" rx="4" fill="#2D5A8A"/>
-
-  <!-- Main screen area -->
-  <rect x="100" y="100" width="312" height="220" rx="8" fill="#1A3A5C"/>
-
-  <!-- Waveform visualization -->
-  <g fill="#5BA3E0" opacity="0.8">
-    <rect x="120" y="180" width="8" height="60" rx="2"/>
-    <rect x="136" y="160" width="8" height="100" rx="2"/>
-    <rect x="152" y="190" width="8" height="40" rx="2"/>
-    <rect x="168" y="150" width="8" height="120" rx="2"/>
-    <rect x="184" y="170" width="8" height="80" rx="2"/>
-    <rect x="200" y="140" width="8" height="140" rx="2"/>
-    <rect x="216" y="165" width="8" height="90" rx="2"/>
-    <rect x="232" y="155" width="8" height="110" rx="2"/>
-    <rect x="248" y="175" width="8" height="70" rx="2"/>
-    <rect x="264" y="145" width="8" height="130" rx="2"/>
-    <rect x="280" y="160" width="8" height="100" rx="2"/>
-    <rect x="296" y="180" width="8" height="60" rx="2"/>
-    <rect x="312" y="150" width="8" height="120" rx="2"/>
-    <rect x="328" y="170" width="8" height="80" rx="2"/>
-    <rect x="344" y="185" width="8" height="50" rx="2"/>
-    <rect x="360" y="165" width="8" height="90" rx="2"/>
-    <rect x="376" y="175" width="8" height="70" rx="2"/>
-    <rect x="392" y="190" width="8" height="40" rx="2"/>
+  <!-- Film strip perforations -->
+  <g fill="#414868" opacity="0.6">
+    <rect x="52" y="80" width="18" height="24" rx="4"/>
+    <rect x="52" y="130" width="18" height="24" rx="4"/>
+    <rect x="52" y="180" width="18" height="24" rx="4"/>
+    <rect x="52" y="290" width="18" height="24" rx="4"/>
+    <rect x="52" y="340" width="18" height="24" rx="4"/>
+    <rect x="52" y="390" width="18" height="24" rx="4"/>
+    <rect x="442" y="80" width="18" height="24" rx="4"/>
+    <rect x="442" y="130" width="18" height="24" rx="4"/>
+    <rect x="442" y="180" width="18" height="24" rx="4"/>
+    <rect x="442" y="290" width="18" height="24" rx="4"/>
+    <rect x="442" y="340" width="18" height="24" rx="4"/>
+    <rect x="442" y="390" width="18" height="24" rx="4"/>
   </g>
+
+  <!-- Main content area -->
+  <rect x="88" y="75" width="336" height="200" rx="16" fill="url(#screenGrad)"/>
+  <rect x="88" y="75" width="336" height="200" rx="16" fill="none" stroke="#7aa2f7" stroke-width="1" opacity="0.4"/>
+
+  <!-- Waveform visualization (left side - audio) -->
+  <g fill="url(#waveGrad)">
+    <rect x="108" y="140" width="8" height="55" rx="3"/>
+    <rect x="124" y="120" width="8" height="95" rx="3"/>
+    <rect x="140" y="150" width="8" height="35" rx="3"/>
+    <rect x="156" y="110" width="8" height="115" rx="3"/>
+    <rect x="172" y="130" width="8" height="75" rx="3"/>
+    <rect x="188" y="100" width="8" height="135" rx="3"/>
+    <rect x="204" y="125" width="8" height="85" rx="3"/>
+    <rect x="220" y="115" width="8" height="105" rx="3"/>
+  </g>
+
+  <!-- Text lines (right side - transcription) -->
+  <g fill="url(#textGrad)">
+    <rect x="275" y="110" width="130" height="12" rx="4"/>
+    <rect x="275" y="138" width="105" height="12" rx="4"/>
+    <rect x="275" y="166" width="120" height="12" rx="4"/>
+    <rect x="275" y="194" width="90" height="12" rx="4"/>
+    <rect x="275" y="222" width="110" height="12" rx="4"/>
+  </g>
+
+  <!-- Arrow showing transformation -->
+  <g fill="#7dcfff" opacity="0.9">
+    <polygon points="248,168 260,158 260,164 272,164 272,172 260,172 260,178"/>
+  </g>
+
+  <!-- Timeline area -->
+  <rect x="88" y="295" width="336" height="55" rx="12" fill="url(#screenGrad)"/>
+  <rect x="88" y="295" width="336" height="55" rx="12" fill="none" stroke="#7aa2f7" stroke-width="1" opacity="0.4"/>
+
+  <!-- Timeline base -->
+  <rect x="105" y="315" width="306" height="16" rx="6" fill="#414868"/>
+
+  <!-- Timeline progress -->
+  <rect x="105" y="315" width="185" height="16" rx="6" fill="#7aa2f7"/>
 
   <!-- Chapter markers -->
-  <g fill="#FFD93D">
-    <polygon points="170,100 178,115 162,115"/>
-    <rect x="167" y="115" width="6" height="25"/>
-  </g>
-  <g fill="#FFD93D">
-    <polygon points="280,100 288,115 272,115"/>
-    <rect x="277" y="115" width="6" height="25"/>
-  </g>
-  <g fill="#FF6B6B">
-    <polygon points="350,100 358,115 342,115"/>
-    <rect x="347" y="115" width="6" height="25"/>
+  <g>
+    <rect x="165" y="302" width="5" height="42" rx="2" fill="#e0af68"/>
+    <rect x="250" y="302" width="5" height="42" rx="2" fill="#e0af68"/>
+    <rect x="350" y="302" width="5" height="42" rx="2" fill="#f7768e"/>
   </g>
 
-  <!-- Timeline bar -->
-  <rect x="100" y="340" width="312" height="40" rx="8" fill="#1A3A5C"/>
-  <rect x="108" y="352" width="200" height="16" rx="4" fill="#5BA3E0"/>
+  <!-- Pen/Quill icon -->
+  <g transform="translate(345, 385)">
+    <path d="M 0 0 L 55 -55 L 65 -45 L 10 10 Z" fill="url(#penGrad)"/>
+    <path d="M 0 0 L -6 18 L 10 10 Z" fill="#565f89"/>
+    <path d="M 12 -4 L 50 -42 L 54 -38 L 16 0 Z" fill="#FFF" opacity="0.3"/>
+  </g>
 
-  <!-- Play button circle -->
-  <circle cx="256" y="430" r="40" fill="url(#playGrad)" opacity="0.95"/>
-  <polygon points="246,410 246,450 276,430" fill="#357ABD"/>
+  <!-- SRT badge -->
+  <g transform="translate(100, 380)">
+    <rect x="0" y="0" width="68" height="34" rx="8" fill="#292e42"/>
+    <rect x="0" y="0" width="68" height="34" rx="8" fill="none" stroke="#9ece6a" stroke-width="1.5"/>
+    <text x="34" y="23" font-family="Arial, sans-serif" font-size="15" font-weight="bold" fill="#9ece6a" text-anchor="middle">.SRT</text>
+  </g>
+
+  <!-- Media play icon -->
+  <g transform="translate(185, 383)">
+    <circle cx="16" cy="16" r="16" fill="#292e42"/>
+    <circle cx="16" cy="16" r="16" fill="none" stroke="#7aa2f7" stroke-width="1.5"/>
+    <polygon points="13,9 13,23 24,16" fill="#7aa2f7"/>
+  </g>
 </svg>
