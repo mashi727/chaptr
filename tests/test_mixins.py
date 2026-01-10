@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from rehearsal_workflow.ui.workers import (
+from media_scribe_workflow.ui.workers import (
     TempFileManagerMixin,
     CancellableWorkerMixin,
 )

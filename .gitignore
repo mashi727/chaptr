@@ -35,6 +35,7 @@
 # PDF（大きい場合は除外、サンプルは含める）
 *.pdf
 !examples/*.pdf
+!docs/**/*.pdf
 
 # 一時ファイル
 *.tmp

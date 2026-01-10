@@ -3,16 +3,16 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "rehearsal-workflow"
+name = "media-scribe-workflow"
 version = "2.1.27"
-description = "リハーサル動画から字幕・チャプター付き動画を生成するワークフローツール"
+description = "メディアファイルから字幕・チャプター付き動画を生成するワークフローツール"
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.10"
 authors = [
     {name = "mashi727"}
 ]
-keywords = ["rehearsal", "video", "chapter", "subtitle", "workflow"]
+keywords = ["media", "scribe", "video", "chapter", "subtitle", "workflow"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Environment :: MacOS X",
@@ -43,12 +43,12 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/mashi727/rehearsal-workflow"
-Repository = "https://github.com/mashi727/rehearsal-workflow"
+Homepage = "https://github.com/mashi727/media-scribe-workflow"
+Repository = "https://github.com/mashi727/media-scribe-workflow"
 
 [project.scripts]
-video-chapter-editor = "rehearsal_workflow.ui.app:main"
-report-workflow = "rehearsal_workflow.report_workflow:main"
+video-chapter-editor = "media_scribe_workflow.ui.app:main"
+scribe-workflow = "media_scribe_workflow.scribe_workflow:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["rehearsal_workflow"]
+packages = ["media_scribe_workflow"]

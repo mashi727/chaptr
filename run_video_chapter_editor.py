@@ -14,7 +14,7 @@ if str(package_dir) not in sys.path:
     sys.path.insert(0, str(package_dir))
 
 # Import and run the main function
-from rehearsal_workflow.ui.app import main
+from media_scribe_workflow.ui.app import main
 
 if __name__ == "__main__":
     main()

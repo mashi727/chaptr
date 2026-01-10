@@ -128,7 +128,7 @@ jobs:
       - name: Build with PyInstaller
         run: |
           pyinstaller --onefile --windowed --name "VideoChapterEditor" `
-            --add-data "rehearsal_workflow;rehearsal_workflow" `
+            --add-data "media_scribe_workflow;media_scribe_workflow" `
             --icon "assets/icon.ico" `
             --hidden-import PySide6.QtCore `
             --hidden-import PySide6.QtGui `
@@ -146,16 +146,16 @@ jobs:
             --hidden-import yt_dlp.postprocessor `
             --hidden-import yt_dlp.utils `
             --hidden-import yt_dlp.version `
-            --hidden-import rehearsal_workflow.ui `
-            --hidden-import rehearsal_workflow.ui.app `
-            --hidden-import rehearsal_workflow.ui.main_workspace `
-            --hidden-import rehearsal_workflow.ui.dialogs `
-            --hidden-import rehearsal_workflow.ui.models `
-            --hidden-import rehearsal_workflow.ui.log_panel `
-            --hidden-import rehearsal_workflow.ui.ffmpeg_utils `
-            --hidden-import rehearsal_workflow.ui.workers `
-            --hidden-import rehearsal_workflow.ui.widgets `
-            --hidden-import rehearsal_workflow.ui.updater `
+            --hidden-import media_scribe_workflow.ui `
+            --hidden-import media_scribe_workflow.ui.app `
+            --hidden-import media_scribe_workflow.ui.main_workspace `
+            --hidden-import media_scribe_workflow.ui.dialogs `
+            --hidden-import media_scribe_workflow.ui.models `
+            --hidden-import media_scribe_workflow.ui.log_panel `
+            --hidden-import media_scribe_workflow.ui.ffmpeg_utils `
+            --hidden-import media_scribe_workflow.ui.workers `
+            --hidden-import media_scribe_workflow.ui.widgets `
+            --hidden-import media_scribe_workflow.ui.updater `
             run_video_chapter_editor.py
 
       - name: Bundle static-ffmpeg binaries

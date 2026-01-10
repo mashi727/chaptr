@@ -5,7 +5,7 @@ GUIに依存しない純粋関数部分のみをテスト。
 
 import pytest
 
-from rehearsal_workflow.ui.youtube_mixin import YouTubeDownloadMixin
+from media_scribe_workflow.ui.youtube_mixin import YouTubeDownloadMixin
 
 
 class TestYouTubeDownloadMixin:
@@ -110,11 +110,11 @@ class TestYouTubeDownloadMixin:
         style = mixin._youtube_btn_style_normal()
         assert isinstance(style, str)
         assert "QPushButton" in style
-        assert "#3b82f6" in style  # 青色
+        assert "#1e50a2" in style  # 瑠璃色
 
     def test_youtube_btn_style_processing_returns_string(self, mixin):
         """処理中スタイルは文字列を返す"""
         style = mixin._youtube_btn_style_processing()
         assert isinstance(style, str)
         assert "QPushButton" in style
-        assert "#dc2626" in style  # 赤色
+        assert "#dc2626" in style  # 処理中の赤色

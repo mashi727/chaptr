@@ -1,6 +1,6 @@
-# Rehearsal Workflow
+# Media Scribe Workflow
 
-オーケストラ・吹奏楽のリハーサル動画から、AI分析による詳細レポートとチャプターリストを自動生成するワークフロー。
+メディアファイルから字幕・チャプター付き動画を生成し、AI分析による詳細レポートを自動生成するワークフローツール群。
 
 「Gitの陶器と配管」の思想に基づき、単一目的のツールを組み合わせてワークフローを構築します。
 
@@ -41,7 +41,7 @@
 ### pip（推奨）
 
 ```bash
-pip install rehearsal-workflow
+pip install media-scribe-workflow
 ```
 
 インストール後、以下のコマンドが使用可能:
@@ -57,11 +57,11 @@ report-workflow               # レポート生成ワークフロー（開発中
 
 | プラットフォーム | ダウンロード |
 |-----------------|-------------|
-| macOS (Apple Silicon) | [Video-Chapter-Editor-v2.1.27-macOS-AppleSilicon.dmg](https://github.com/mashi727/rehearsal-workflow/releases/download/v2.1.27/Video-Chapter-Editor-v2.1.27-macOS-AppleSilicon.dmg) |
-| macOS (Intel) | [Video-Chapter-Editor-v2.1.27-macOS-Intel.dmg](https://github.com/mashi727/rehearsal-workflow/releases/download/v2.1.27/Video-Chapter-Editor-v2.1.27-macOS-Intel.dmg) |
-| Windows | [Video-Chapter-Editor-v2.1.27-Windows.zip](https://github.com/mashi727/rehearsal-workflow/releases/download/v2.1.27/Video-Chapter-Editor-v2.1.27-Windows.zip) |
+| macOS (Apple Silicon) | [Video-Chapter-Editor-v2.1.27-macOS-AppleSilicon.dmg](https://github.com/mashi727/media-scribe-workflow/releases/download/v2.1.27/Video-Chapter-Editor-v2.1.27-macOS-AppleSilicon.dmg) |
+| macOS (Intel) | [Video-Chapter-Editor-v2.1.27-macOS-Intel.dmg](https://github.com/mashi727/media-scribe-workflow/releases/download/v2.1.27/Video-Chapter-Editor-v2.1.27-macOS-Intel.dmg) |
+| Windows | [Video-Chapter-Editor-v2.1.27-Windows.zip](https://github.com/mashi727/media-scribe-workflow/releases/download/v2.1.27/Video-Chapter-Editor-v2.1.27-Windows.zip) |
 
-> 他のバージョン: [Releases](https://github.com/mashi727/rehearsal-workflow/releases)
+> 他のバージョン: [Releases](https://github.com/mashi727/media-scribe-workflow/releases)
 
 **macOS**: DMGを開いて`.app`をアプリケーションフォルダにドラッグ（ffmpeg/ffprobe同梱済み）
 **Windows**: ZIPを展開して`VideoChapterEditor.exe`を実行（ffmpeg/ffprobe同梱済み）
@@ -71,8 +71,8 @@ report-workflow               # レポート生成ワークフロー（開発中
 ### ソースから
 
 ```bash
-git clone https://github.com/mashi727/rehearsal-workflow.git
-cd rehearsal-workflow
+git clone https://github.com/mashi727/media-scribe-workflow.git
+cd media-scribe-workflow
 pip install -e .
 ```
 
@@ -134,8 +134,8 @@ rehearsal-finalize "リハーサル記録.tex"
 ### ディレクトリ構成
 
 ```
-rehearsal-workflow/
-├── rehearsal_workflow/      # Pythonパッケージ
+media-scribe-workflow/
+├── media_scribe_workflow/      # Pythonパッケージ
 │   ├── __init__.py
 │   └── ui/                  # Video Chapter Editor v2.0
 │       ├── app.py           # アプリエントリポイント
@@ -202,8 +202,8 @@ brew install --cask font-libertinus font-harano-aji
 ### ローカル開発
 
 ```bash
-git clone https://github.com/mashi727/rehearsal-workflow.git
-cd rehearsal-workflow
+git clone https://github.com/mashi727/media-scribe-workflow.git
+cd media-scribe-workflow
 pip install -e ".[dev]"
 ```
 

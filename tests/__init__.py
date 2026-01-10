@@ -1,1 +1,1 @@
-# Tests for rehearsal_workflow
+# Tests for media_scribe_workflow

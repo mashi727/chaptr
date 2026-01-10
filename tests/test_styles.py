@@ -2,7 +2,7 @@
 
 import pytest
 
-from rehearsal_workflow.ui.styles import Colors, ButtonStyles
+from media_scribe_workflow.ui.styles import Colors, ButtonStyles
 
 
 class TestColors:
@@ -87,14 +87,14 @@ class TestButtonStyles:
     def test_danger_uses_red_color(self):
         """dangerスタイルは赤系の色を使用"""
         style = ButtonStyles.danger()
-        # Colors.DANGER (#dc2626) を使用
-        assert "#dc2626" in style.lower() or "red" in style.lower()
+        # Colors.DANGER (#c53d43 赤紅) を使用
+        assert "#c53d43" in style.lower()
 
     def test_primary_uses_blue_color(self):
         """primaryスタイルは青系の色を使用"""
         style = ButtonStyles.primary()
-        # Colors.PRIMARY (#3b82f6) を使用
-        assert "#3b82f6" in style.lower()
+        # Colors.PRIMARY (#1e50a2 瑠璃色) を使用
+        assert "#1e50a2" in style.lower()
 
     def test_compact_has_smaller_padding(self):
         """compactバージョンはパディングが小さい"""
