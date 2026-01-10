@@ -43,6 +43,8 @@ media-scribe-workflow/
 │   ├── yt-srt               # YouTube → SRT
 │   ├── video-trim           # 不要部分削除
 │   ├── video-chapters       # チャプター結合
+│   ├── vce-encode           # VCEプロジェクト → 動画エンコード
+│   ├── vce-split            # VCEプロジェクト → チャプター分割
 │   └── spd2png              # SPD→PNG変換（PADtools CLI）
 │
 ├── bin/advanced/            # 拡張ツール（自分用）
@@ -125,6 +127,8 @@ media-scribe-workflow/
 - [x] bin/yt-srt の作成（YouTube字幕取得）
 - [x] bin/video-trim の作成（動画トリミング）
 - [x] bin/video-chapters の作成（チャプター結合・埋め込み）
+- [x] bin/vce-encode の作成（VCEプロジェクトエンコード）
+- [x] bin/vce-split の作成（VCEプロジェクトチャプター分割）
 - [x] bin/spd2png の作成（PADtools CLI PNG変換）
 - [x] examples/prompts/ の作成（Claude用・汎用プロンプト）
 - [x] README.md の更新（新構成を反映）
@@ -141,6 +145,17 @@ media-scribe-workflow/
 ## コマンド
 
 ```bash
+# VCEプロジェクトのエンコード（チャプター付き単一動画）
+bin/vce-encode project.vce.json
+bin/vce-encode project.vce.json --dry-run       # 計画だけ表示
+bin/vce-encode project.vce.json -e libx264 -q 1 # エンコーダと品質指定
+
+# VCEプロジェクトのチャプター分割
+bin/vce-split project.vce.json
+bin/vce-split project.vce.json --dry-run        # 計画だけ表示
+bin/vce-split project.vce.json --audio-only     # MP3で出力
+bin/vce-split project.vce.json --overlay-title  # タイトル焼き込み
+
 # LuaTeXコンパイル
 luatex-pdf <file.tex>
 
