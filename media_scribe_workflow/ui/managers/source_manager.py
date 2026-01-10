@@ -29,6 +29,99 @@ class SourceInsertResult:
     chapter_file: Optional[Path] = None  # 同名チャプターファイル
 
 
+@dataclass
+class InitialLoadResult:
+    """初回ロード結果
+
+    SourceFileManager.handle_initial_load() の戻り値として使用。
+    MainWorkspaceがUI更新に必要な情報を提供する。
+    """
+    work_dir: Path
+    sources: List["SourceFile"]
+    media_type: str  # "video" | "audio"
+    is_single: bool
+
+    @property
+    def first_source(self) -> Optional["SourceFile"]:
+        """最初のソースを取得"""
+        return self.sources[0] if self.sources else None
+
+    @property
+    def first_path(self) -> Optional[Path]:
+        """最初のソースパスを取得"""
+        return self.sources[0].path if self.sources else None
+
+
+@dataclass
+class AddSourcesResult:
+    """ソース追加結果
+
+    SourceFileManager.handle_add_sources() の戻り値として使用。
+    """
+    inserted_at: int  # 挿入開始位置
+    sources_added: List["SourceFile"]  # 追加されたソース
+    skipped_paths: List[Path]  # 重複でスキップされたパス
+
+    @property
+    def count_added(self) -> int:
+        """追加されたソース数"""
+        return len(self.sources_added)
+
+    @property
+    def has_skipped(self) -> bool:
+        """スキップされたパスがあるか"""
+        return len(self.skipped_paths) > 0
+
+
+@dataclass
+class ClassifiedFiles:
+    """ドロップされたファイルの分類結果"""
+    projects: List[Path]   # .vce.json プロジェクトファイル
+    videos: List[Path]     # 動画ファイル
+    audios: List[Path]     # 音声ファイル
+    chapters: List[Path]   # チャプターファイル (.txt)
+
+    @property
+    def has_project(self) -> bool:
+        """プロジェクトファイルがあるか"""
+        return len(self.projects) > 0
+
+    @property
+    def has_media(self) -> bool:
+        """メディアファイル（動画または音声）があるか"""
+        return len(self.videos) > 0 or len(self.audios) > 0
+
+    @property
+    def has_video(self) -> bool:
+        """動画ファイルがあるか"""
+        return len(self.videos) > 0
+
+    @property
+    def has_audio(self) -> bool:
+        """音声ファイルがあるか"""
+        return len(self.audios) > 0
+
+    @property
+    def has_chapter_only(self) -> bool:
+        """チャプターファイルのみか"""
+        return len(self.chapters) > 0 and not self.has_media
+
+    @property
+    def media_count(self) -> int:
+        """メディアファイル数"""
+        return len(self.videos) + len(self.audios)
+
+    @property
+    def is_single_media(self) -> bool:
+        """単一メディアファイルか"""
+        return self.media_count == 1
+
+    @property
+    def is_multiple_media(self) -> bool:
+        """複数メディアファイルか"""
+        return self.media_count > 1
+
+
 class SourceFileManager(QObject):
     """ソースファイル管理マネージャー
 
@@ -377,6 +470,157 @@ class SourceFileManager(QObject):
             if idx >= 0:
                 indices.add(idx)
         return indices
+
+    @staticmethod
+    def classify_dropped_files(file_paths: List[str]) -> ClassifiedFiles:
+        """ドロップされたファイルを分類
+
+        Args:
+            file_paths: ファイルパス文字列のリスト
+
+        Returns:
+            ClassifiedFiles: 分類結果
+        """
+        projects: List[Path] = []
+        videos: List[Path] = []
+        audios: List[Path] = []
+        chapters: List[Path] = []
+
+        for path_str in file_paths:
+            path = Path(path_str)
+            ext = path.suffix.lower()
+
+            # .vce.json判定（.jsonだけでなく.vce.jsonを優先）
+            if path.name.endswith('.vce.json'):
+                projects.append(path)
+            elif ext in VIDEO_EXTENSIONS:
+                videos.append(path)
+            elif ext in AUDIO_EXTENSIONS:
+                audios.append(path)
+            elif ext in CHAPTER_EXTENSIONS:
+                chapters.append(path)
+
+        return ClassifiedFiles(
+            projects=projects,
+            videos=videos,
+            audios=audios,
+            chapters=chapters
+        )
+
+    def handle_initial_load(
+        self,
+        classified: ClassifiedFiles
+    ) -> Optional[InitialLoadResult]:
+        """初回ドロップ時のソース構築を処理
+
+        ClassifiedFilesからソースリストを構築し、InitialLoadResultを返す。
+        チャプターファイルのみの場合はNoneを返す（呼び出し元で別処理が必要）。
+
+        Args:
+            classified: 分類済みファイル情報
+
+        Returns:
+            InitialLoadResult: ソース構築結果、またはNone（チャプターのみの場合）
+        """
+        # チャプターファイルのみの場合は呼び出し元で処理
+        if classified.has_chapter_only:
+            return None
+
+        # 動画優先で処理
+        if classified.has_video:
+            media_paths = classified.videos
+            media_type = "video"
+        elif classified.has_audio:
+            media_paths = classified.audios
+            media_type = "audio"
+        else:
+            return None
+
+        # work_dirを最初のファイルの親ディレクトリに設定
+        work_dir = media_paths[0].parent
+        self._work_dir = work_dir
+
+        # SourceFileオブジェクトを作成（duration検出付き）
+        sources = [
+            SourceFile(
+                path=p,
+                duration_ms=detect_video_duration(str(p)) or 0,
+                file_type=p.suffix[1:].lower()
+            )
+            for p in media_paths
+        ]
+
+        # 内部リストを更新
+        self._sources = sources
+        self.sources_changed.emit(self._sources)
+
+        return InitialLoadResult(
+            work_dir=work_dir,
+            sources=sources,
+            media_type=media_type,
+            is_single=len(sources) == 1
+        )
+
+    def handle_add_sources(
+        self,
+        new_paths: List[Path],
+        insert_after_index: int
+    ) -> Optional[AddSourcesResult]:
+        """既存ソースリストに新規ソースを追加
+
+        重複をスキップし、指定位置の後にソースを挿入する。
+
+        Args:
+            new_paths: 追加するファイルパスのリスト
+            insert_after_index: この位置の後に挿入（-1の場合は末尾）
+
+        Returns:
+            AddSourcesResult: 追加結果、追加なしの場合はNone
+        """
+        if not new_paths:
+            return None
+
+        # 重複フィルタリング
+        paths_to_add = []
+        skipped = []
+        for path in new_paths:
+            if self.contains_path(path):
+                skipped.append(path)
+            else:
+                paths_to_add.append(path)
+
+        if not paths_to_add:
+            return AddSourcesResult(
+                inserted_at=0,
+                sources_added=[],
+                skipped_paths=skipped
+            )
+
+        # 挿入位置を決定
+        insert_index = insert_after_index + 1 if insert_after_index >= 0 else len(self._sources)
+
+        # SourceFileオブジェクトを作成（duration検出付き）
+        sources_to_add = [
+            SourceFile(
+                path=p,
+                duration_ms=detect_video_duration(str(p)) or 0,
+                file_type=p.suffix[1:].lower()
+            )
+            for p in paths_to_add
+        ]
+
+        # リストに挿入
+        for i, source in enumerate(sources_to_add):
+            self._sources.insert(insert_index + i, source)
+
+        # シグナル発火
+        self.sources_changed.emit(self._sources)
+
+        return AddSourcesResult(
+            inserted_at=insert_index,
+            sources_added=sources_to_add,
+            skipped_paths=skipped
+        )
 
     # ========================================
     # パブリックAPI - 時間変換

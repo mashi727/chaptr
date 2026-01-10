@@ -57,7 +57,15 @@ from .styles import ButtonStyles
 from .ffmpeg_utils import get_ffmpeg_path, get_ffprobe_path, extract_chapters_with_ffmpeg, get_subprocess_kwargs
 from .dialogs import ExportSettingsDialog, PlaylistVideoSelectionDialog, ReorderSourcesDialog
 from .youtube_mixin import YouTubeDownloadMixin
-from .managers import PlaybackManager, ChapterManager, ChapterData, SourceFileManager
+from .managers import (
+    PlaybackManager,
+    ChapterManager,
+    ChapterData,
+    SourceFileManager,
+    ClassifiedFiles,
+    InitialLoadResult,
+    AddSourcesResult,
+)
 
 
 # ファイル拡張子定義
@@ -6210,37 +6218,22 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
         if not file_paths:
             return
 
-        videos = []
-        audios = []
-        chapter_files = []
-        project_files = []
-
-        for path_str in file_paths:
-            path = Path(path_str)
-            ext = path.suffix.lower()
-            # .vce.json判定（.jsonだけでなく.vce.jsonを優先）
-            if path.name.endswith('.vce.json'):
-                project_files.append(path)
-            elif ext in VIDEO_EXTENSIONS:
-                videos.append(path)
-            elif ext in AUDIO_EXTENSIONS:
-                audios.append(path)
-            elif ext == '.txt':
-                chapter_files.append(path)
+        # Phase 1: SourceFileManagerで分類
+        classified = SourceFileManager.classify_dropped_files(file_paths)
 
         # プロジェクトファイルがある場合は読み込み（他のファイルは無視）
-        if project_files:
-            self._load_project(str(project_files[0]))
-            if len(project_files) > 1:
+        if classified.has_project:
+            self._load_project(str(classified.projects[0]))
+            if len(classified.projects) > 1:
                 self._log_panel.warning(
-                    f"Multiple project files dropped. Only loaded: {project_files[0].name}",
+                    f"Multiple project files dropped. Only loaded: {classified.projects[0].name}",
                     source="Project"
                 )
             return
 
         # 既存ソースがない場合は新規モード
         if not self._state.sources:
-            self._handle_initial_drop(videos, audios, chapter_files)
+            self._handle_initial_drop(classified)
             return
 
         # 既存ソースがある場合は追加モード（型チェック）
@@ -6248,90 +6241,74 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
 
         if current_is_audio:
             # 音声モード中
-            if videos:
+            if classified.has_video:
                 self._log_panel.warning(
                     "Cannot add video files in audio mode. Drop audio files instead.",
                     source="Drop"
                 )
                 return
-            if audios:
-                self._add_sources_to_existing(audios, chapter_files)
-            elif chapter_files and not videos and not audios:
+            if classified.has_audio:
+                self._add_sources_to_existing(classified.audios, classified.chapters)
+            elif classified.has_chapter_only:
                 # チャプターファイルのみ: 同名音声を探して追加
-                self._handle_chapter_file_drop(chapter_files, is_audio_mode=True)
+                self._handle_chapter_file_drop(classified.chapters, is_audio_mode=True)
         else:
             # 動画モード中
-            if audios and not videos:
+            if classified.has_audio and not classified.has_video:
                 self._log_panel.warning(
                     "Cannot add audio files in video mode. Drop video files instead.",
                     source="Drop"
                 )
                 return
-            if videos:
-                self._add_sources_to_existing(videos, chapter_files)
-            elif chapter_files and not videos and not audios:
+            if classified.has_video:
+                self._add_sources_to_existing(classified.videos, classified.chapters)
+            elif classified.has_chapter_only:
                 # チャプターファイルのみ: 同名動画を探して追加
-                self._handle_chapter_file_drop(chapter_files, is_audio_mode=False)
+                self._handle_chapter_file_drop(classified.chapters, is_audio_mode=False)
 
-    def _handle_initial_drop(self, videos: list, audios: list, chapter_files: list):
-        """初回ドロップ時の処理（ソースがない場合）"""
-        # 動画を優先
-        if videos:
-            video_path = videos[0]
-            # 作業ディレクトリをファイルの親フォルダに設定
-            self._state.work_dir = video_path.parent
-            self.work_dir_changed.emit(self._state.work_dir)
-            self._log_panel.info(f"Working directory: {video_path.parent}", source="Drop")
-            # ソースを設定（複数動画対応、duration_msを取得）
-            self._state.sources = [
-                SourceFile(
-                    path=p,
-                    duration_ms=detect_video_duration(str(p)) or 0,
-                    file_type=p.suffix[1:].lower()
-                )
-                for p in videos
-            ]
-            self._sync_source_manager()  # SourceFileManagerを同期
-            self._prepare_for_new_source()
-            self._load_source_media()
-            self._update_base_filename_from_first_source()  # ベースファイル名を更新
-            if len(videos) == 1:
-                self._log_panel.info(f"Dropped video: {video_path.name}", source="Drop")
-                # 同名.txtチャプターファイルを自動読み込み
-                self._try_load_chapter_file(video_path)
-            else:
-                self._log_panel.info(f"Dropped {len(videos)} video files", source="Drop")
-                # 複数ファイルの場合、各ファイルのチャプターを読み込み
-                self._load_chapters_for_all_sources()
-        elif audios:
-            # 作業ディレクトリを最初のファイルの親フォルダに設定
-            self._state.work_dir = audios[0].parent
-            self.work_dir_changed.emit(self._state.work_dir)
-            self._log_panel.info(f"Working directory: {audios[0].parent}", source="Drop")
-            # 音声ファイル: ソースとして設定（duration_msを取得）
-            self._state.sources = [
-                SourceFile(
-                    path=p,
-                    duration_ms=detect_video_duration(str(p)) or 0,
-                    file_type=p.suffix[1:].lower()
-                )
-                for p in audios
-            ]
-            self._sync_source_manager()  # SourceFileManagerを同期
-            self._prepare_for_new_source()
-            self._load_source_media()
-            self._update_base_filename_from_first_source()  # ベースファイル名を更新
-            if len(audios) == 1:
-                self._log_panel.info(f"Dropped audio: {audios[0].name}", source="Drop")
-                # 同名.txtチャプターファイルを自動読み込み
-                self._try_load_chapter_file(audios[0])
-            else:
-                self._log_panel.info(f"Dropped {len(audios)} audio files", source="Drop")
-                # 複数ファイルの場合、各ファイルのチャプターを読み込み
-                self._load_chapters_for_all_sources()
-        elif chapter_files:
-            # チャプターファイルのみ: 同名の動画/音声を探して読み込み
-            self._handle_chapter_file_drop(chapter_files, is_audio_mode=None)
+    def _handle_initial_drop(self, classified: ClassifiedFiles):
+        """初回ドロップ時の処理（ソースがない場合）
+
+        Args:
+            classified: 分類済みファイル情報
+        """
+        # SourceFileManagerでソース構築を処理
+        result = self._source_manager.handle_initial_load(classified)
+
+        if result is None:
+            # チャプターファイルのみの場合
+            if classified.has_chapter_only:
+                self._handle_chapter_file_drop(classified.chapters, is_audio_mode=None)
+            return
+
+        # 作業ディレクトリを更新
+        self._state.work_dir = result.work_dir
+        self.work_dir_changed.emit(self._state.work_dir)
+        self._log_panel.info(f"Working directory: {result.work_dir}", source="Drop")
+
+        # ソースを同期（SourceFileManagerは既に更新済み）
+        self._state.sources = result.sources
+
+        # UI更新
+        self._prepare_for_new_source()
+        self._load_source_media()
+        self._update_base_filename_from_first_source()
+
+        # ログとチャプター読み込み
+        if result.is_single:
+            self._log_panel.info(
+                f"Dropped {result.media_type}: {result.first_path.name}",
+                source="Drop"
+            )
+            # 同名.txtチャプターファイルを自動読み込み
+            self._try_load_chapter_file(result.first_path)
+        else:
+            self._log_panel.info(
+                f"Dropped {len(result.sources)} {result.media_type} files",
+                source="Drop"
+            )
+            # 複数ファイルの場合、各ファイルのチャプターを読み込み
+            self._load_chapters_for_all_sources()
 
     def _load_multiple_sources(self, source_paths: List[Path]):
         """複数ソースを非同期で読み込み（プロジェクトファイル用）
@@ -6602,35 +6579,37 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
         return None
 
     def _add_sources_to_existing(self, new_paths: list, chapter_files: list):
-        """既存ソースに追加（再生中ソースの後に挿入、チャプターファイル自動読み込み）"""
-        # 重複を除外
-        paths_to_add = []
-        for path in new_paths:
-            if any(s.path == path for s in self._state.sources):
-                self._log_panel.debug(f"Skipped duplicate: {path.name}", source="Drop")
-                continue
-            paths_to_add.append(path)
+        """既存ソースに追加（再生中ソースの後に挿入、チャプターファイル自動読み込み）
 
-        if not paths_to_add:
-            return
-
+        Args:
+            new_paths: 追加するファイルパスのリスト
+            chapter_files: チャプターファイル（現在未使用、将来の拡張用）
+        """
         # 挿入位置を決定（再生中ソースの後）
         current_idx = self._source_list.get_current_index()
-        insert_index = current_idx + 1 if current_idx >= 0 else len(self._state.sources)
 
-        # ソースを挿入（duration_msを取得して設定）
-        for i, path in enumerate(paths_to_add):
-            duration_ms = detect_video_duration(str(path)) or 0
-            self._state.sources.insert(
-                insert_index + i,
-                SourceFile(path=path, duration_ms=duration_ms, file_type=path.suffix[1:].lower())
-            )
+        # SourceFileManagerでソース追加を処理
+        result = self._source_manager.handle_add_sources(new_paths, current_idx)
+
+        if result is None or result.count_added == 0:
+            # スキップされたパスをログ
+            if result and result.has_skipped:
+                for path in result.skipped_paths:
+                    self._log_panel.debug(f"Skipped duplicate: {path.name}", source="Drop")
+            return
+
+        # スキップされたパスをログ
+        for path in result.skipped_paths:
+            self._log_panel.debug(f"Skipped duplicate: {path.name}", source="Drop")
+
+        # ソースリストを同期
+        self._state.sources = self._source_manager.sources
 
         # ベースファイル名を更新（複数ソースになった場合はフォルダ名に）
         self._update_base_filename_from_first_source()
 
-        # チャプターを再構築（_rebuild_chapters_after_insertがチャプターファイルも読み込む）
-        self._rebuild_chapters_after_insert(insert_index, len(paths_to_add))
+        # チャプターを再構築
+        self._rebuild_chapters_after_insert(result.inserted_at, result.count_added)
 
         # UIを更新
         self._source_list.set_sources(self._state.sources)
@@ -6643,7 +6622,7 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
         self._start_waveform_generation(self._state.sources[0].path)
 
         self._log_panel.info(
-            f"Added {len(paths_to_add)} file(s) after position {insert_index}",
+            f"Added {result.count_added} file(s) after position {result.inserted_at}",
             source="Drop"
         )
 
