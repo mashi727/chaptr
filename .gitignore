@@ -19,6 +19,7 @@
 !docs/**/*.jpg
 !docs/**/*.png
 !assets/*.png
+!dev_logs_tex/*.png
 
 # 字幕ファイル（プライバシー保護）
 *.srt
