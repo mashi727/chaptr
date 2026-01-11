@@ -120,57 +120,40 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pyinstaller
+          pip install nuitka ordered-set zstandard
           pip install PySide6 PyYAML numpy opencv-python-headless psutil static-ffmpeg yt-dlp
           # static-ffmpegのバイナリをダウンロード
           python -c "import static_ffmpeg; static_ffmpeg.add_paths()"
 
-      - name: Build with PyInstaller (onedir mode)
-        run: |
-          pyinstaller --onedir --windowed --name "VideoChapterEditor" `
-            --add-data "media_scribe_workflow;media_scribe_workflow" `
-            --icon "assets/icon.ico" `
-            --hidden-import PySide6.QtCore `
-            --hidden-import PySide6.QtGui `
-            --hidden-import PySide6.QtWidgets `
-            --hidden-import PySide6.QtMultimedia `
-            --hidden-import PySide6.QtMultimediaWidgets `
-            --hidden-import numpy `
-            --hidden-import cv2 `
-            --hidden-import psutil `
-            --hidden-import static_ffmpeg `
-            --hidden-import yt_dlp `
-            --hidden-import yt_dlp.extractor `
-            --hidden-import yt_dlp.extractor.youtube `
-            --hidden-import yt_dlp.downloader `
-            --hidden-import yt_dlp.postprocessor `
-            --hidden-import yt_dlp.utils `
-            --hidden-import yt_dlp.version `
-            --hidden-import media_scribe_workflow.ui `
-            --hidden-import media_scribe_workflow.ui.app `
-            --hidden-import media_scribe_workflow.ui.main_workspace `
-            --hidden-import media_scribe_workflow.ui.dialogs `
-            --hidden-import media_scribe_workflow.ui.models `
-            --hidden-import media_scribe_workflow.ui.log_panel `
-            --hidden-import media_scribe_workflow.ui.ffmpeg_utils `
-            --hidden-import media_scribe_workflow.ui.workers `
-            --hidden-import media_scribe_workflow.ui.widgets `
-            --hidden-import media_scribe_workflow.ui.updater `
-            run_video_chapter_editor.py
-
-      - name: Bundle static-ffmpeg binaries
+      - name: Get static-ffmpeg path
+        id: ffmpeg-path
         run: |
           $ffmpeg_path = python -c "import static_ffmpeg, os; print(os.path.dirname(static_ffmpeg.__file__))"
           $bin_dir = Join-Path $ffmpeg_path "bin"
-          if (Test-Path $bin_dir) {
-            Copy-Item -Recurse $bin_dir "dist/VideoChapterEditor/static_ffmpeg_bin"
-          }
+          echo "FFMPEG_BIN_DIR=$bin_dir" >> $env:GITHUB_OUTPUT
+
+      - name: Build with Nuitka (onefile mode)
+        run: |
+          python -m nuitka `
+            --standalone `
+            --onefile `
+            --windows-console-mode=disable `
+            --windows-icon-from-ico=assets/icon.ico `
+            --enable-plugin=pyside6 `
+            --include-package=media_scribe_workflow `
+            --include-package=yt_dlp `
+            --include-module=cv2 `
+            --include-module=psutil `
+            --include-data-dir="${{ steps.ffmpeg-path.outputs.FFMPEG_BIN_DIR }}=static_ffmpeg/bin" `
+            --output-filename=VideoChapterEditor.exe `
+            --output-dir=dist `
+            run_video_chapter_editor.py
 
       - name: Create ZIP
         run: |
           $version = "${{ github.event.inputs.version }}"
           if (-not $version) { $version = "${{ github.ref_name }}" }
-          Compress-Archive -Path "dist/VideoChapterEditor" `
+          Compress-Archive -Path "dist/VideoChapterEditor.exe" `
             -DestinationPath "Video-Chapter-Editor-${version}-Windows.zip"
 
       - name: Upload artifact
