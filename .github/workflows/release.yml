@@ -121,7 +121,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install nuitka ordered-set zstandard
-          pip install PySide6 PyYAML numpy opencv-python-headless psutil static-ffmpeg yt-dlp
+          pip install PySide6 PyYAML numpy opencv-python-headless psutil static-ffmpeg
           # static-ffmpegのバイナリをダウンロード
           python -c "import static_ffmpeg; static_ffmpeg.add_paths()"
 
@@ -132,7 +132,11 @@ jobs:
           $bin_dir = Join-Path $ffmpeg_path "bin"
           echo "FFMPEG_BIN_DIR=$bin_dir" >> $env:GITHUB_OUTPUT
 
-      - name: Build with Nuitka (onefile mode)
+      - name: Download yt-dlp.exe
+        run: |
+          Invoke-WebRequest -Uri "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe" -OutFile "yt-dlp.exe"
+
+      - name: Build with Nuitka (onefile mode, without yt-dlp)
         run: |
           python -m nuitka `
             --standalone `
@@ -141,7 +145,6 @@ jobs:
             --windows-icon-from-ico=assets/icon.ico `
             --enable-plugin=pyside6 `
             --include-package=media_scribe_workflow `
-            --include-package=yt_dlp `
             --include-module=cv2 `
             --include-module=psutil `
             --include-data-dir="${{ steps.ffmpeg-path.outputs.FFMPEG_BIN_DIR }}=static_ffmpeg/bin" `
@@ -153,7 +156,11 @@ jobs:
         run: |
           $version = "${{ github.event.inputs.version }}"
           if (-not $version) { $version = "${{ github.ref_name }}" }
-          Compress-Archive -Path "dist/VideoChapterEditor.exe" `
+          # VideoChapterEditor.exeとyt-dlp.exeを同梱
+          New-Item -ItemType Directory -Path "dist/package" -Force
+          Copy-Item "dist/VideoChapterEditor.exe" "dist/package/"
+          Copy-Item "yt-dlp.exe" "dist/package/"
+          Compress-Archive -Path "dist/package/*" `
             -DestinationPath "Video-Chapter-Editor-${version}-Windows.zip"
 
       - name: Upload artifact
