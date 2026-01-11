@@ -30,6 +30,27 @@ from .models import (
 from .ffmpeg_utils import get_ffmpeg_path, get_ffprobe_path, get_subprocess_kwargs, get_popen_kwargs
 
 
+def get_browser_for_cookies() -> Optional[str]:
+    """プラットフォームに応じたブラウザを返す（クッキー取得用）
+
+    Returns:
+        ブラウザ名、または取得不可の場合はNone
+    """
+    import platform
+    system = platform.system()
+
+    if system == 'Darwin':  # macOS
+        return 'safari'
+    elif system == 'Windows':
+        # Windowsでは Edge > Chrome > Firefox の優先順位で試行
+        # ただし、yt-dlpはedgeをサポートしているので優先
+        return 'edge'
+    elif system == 'Linux':
+        return 'firefox'
+    else:
+        return None
+
+
 @dataclass
 class SegmentInfo:
     """抽出するセグメント情報"""
@@ -1934,11 +1955,15 @@ class YouTubeDownloadWorker(QThread, CancellableWorkerMixin):
             'merge_output_format': 'mp4',
             'outtmpl': {'default': output_template},
             'noplaylist': True,
-            'cookiesfrombrowser': ('safari',),
             'quiet': True,
             'no_warnings': True,
             'noprogress': True,
         }
+
+        # プラットフォームに応じたブラウザからクッキーを取得
+        browser = get_browser_for_cookies()
+        if browser:
+            opts['cookiesfrombrowser'] = (browser,)
 
         if self.download_subs:
             opts.update({
@@ -1960,7 +1985,6 @@ class YouTubeDownloadWorker(QThread, CancellableWorkerMixin):
 
         cmd = [
             'yt-dlp',
-            '--cookies-from-browser', 'safari',
             # H.264優先、AV1除外（macOSでハードウェアデコード非対応のため）
             '-f', 'bv[vcodec^=avc1]+ba/bv[vcodec!^=av01]+ba/b',
             '--merge-output-format', 'mp4',
@@ -1968,6 +1992,12 @@ class YouTubeDownloadWorker(QThread, CancellableWorkerMixin):
             '--newline',
             '--no-playlist',
         ]
+
+        # プラットフォームに応じたブラウザからクッキーを取得
+        browser = get_browser_for_cookies()
+        if browser:
+            cmd.insert(1, '--cookies-from-browser')
+            cmd.insert(2, browser)
 
         if self.download_subs:
             cmd.extend([
@@ -2422,9 +2452,13 @@ class PlaylistDownloadWorker(QThread):
             'quiet': True,
             'no_warnings': True,
             'noprogress': True,
-            'cookiesfrombrowser': ('safari',),
             'progress_hooks': [progress_hook],
         }
+
+        # プラットフォームに応じたブラウザからクッキーを取得
+        browser = get_browser_for_cookies()
+        if browser:
+            opts['cookiesfrombrowser'] = (browser,)
 
         # 強制再ダウンロード
         if self.force_overwrite:
