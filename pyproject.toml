@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "media-scribe-workflow"
-version = "2.1.29"
+version = "2.1.30"
 description = "メディアファイルから字幕・チャプター付き動画を生成するワークフローツール"
 readme = "README.md"
 license = {text = "MIT"}

@@ -125,9 +125,9 @@ jobs:
           # static-ffmpegのバイナリをダウンロード
           python -c "import static_ffmpeg; static_ffmpeg.add_paths()"
 
-      - name: Build with PyInstaller
+      - name: Build with PyInstaller (onedir mode)
         run: |
-          pyinstaller --onefile --windowed --name "VideoChapterEditor" `
+          pyinstaller --onedir --windowed --name "VideoChapterEditor" `
             --add-data "media_scribe_workflow;media_scribe_workflow" `
             --icon "assets/icon.ico" `
             --hidden-import PySide6.QtCore `
@@ -163,14 +163,14 @@ jobs:
           $ffmpeg_path = python -c "import static_ffmpeg, os; print(os.path.dirname(static_ffmpeg.__file__))"
           $bin_dir = Join-Path $ffmpeg_path "bin"
           if (Test-Path $bin_dir) {
-            Copy-Item -Recurse $bin_dir "dist/static_ffmpeg_bin"
+            Copy-Item -Recurse $bin_dir "dist/VideoChapterEditor/static_ffmpeg_bin"
           }
 
       - name: Create ZIP
         run: |
           $version = "${{ github.event.inputs.version }}"
           if (-not $version) { $version = "${{ github.ref_name }}" }
-          Compress-Archive -Path "dist/VideoChapterEditor.exe", "dist/static_ffmpeg_bin" `
+          Compress-Archive -Path "dist/VideoChapterEditor" `
             -DestinationPath "Video-Chapter-Editor-${version}-Windows.zip"
 
       - name: Upload artifact
