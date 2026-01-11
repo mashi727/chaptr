@@ -5,6 +5,43 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.28] - 2026-01-11
+
+### Added
+
+#### CLIツール
+- **vce-split** - VCEプロジェクトからチャプター単位で動画/音声を分割
+  - `--audio-only`: MP3出力モード
+  - `--overlay-title`: チャプター名焼き込み
+  - `--dry-run`: 実行計画のプレビュー
+
+#### アーキテクチャ
+- **Manager層の導入** - MainWorkspaceのリファクタリング
+  - `PlaybackManager`: 再生制御・仮想タイムライン
+  - `ChapterManager`: チャプター管理・永続化
+  - `ExportOrchestrator`: エクスポートワークフロー
+  - `SourceFileManager`: ソースファイル管理
+- **2軸モデル設計** - VCE機能図（What/How/Who）
+
+#### ドキュメント
+- `vce_architecture.tex`: アーキテクチャ設計書
+- `vce_functional_diagram.mmd`: 機能図（Mermaid）
+- PAD図: ワークフロー可視化
+
+### Changed
+
+- リポジトリ名を `rehearsal-workflow` から `media-scribe-workflow` に変更
+- パッケージ名を `rehearsal_workflow` から `media_scribe_workflow` に変更
+- アプリアイコンをTokyoNightテーマに更新
+- 開発ログを `dev_logs/` と `dev_logs_tex/` に整理
+
+### Fixed
+
+- チャプタースキップ時の継続時間追跡
+- ドロップされたソースの処理
+
+---
+
 ## [Unreleased]
 
 ### コマンド一覧
