@@ -57,9 +57,9 @@ report-workflow               # レポート生成ワークフロー（開発中
 
 | プラットフォーム | ダウンロード |
 |-----------------|-------------|
-| macOS (Apple Silicon) | [Video-Chapter-Editor-v2.1.33-macOS-AppleSilicon.dmg](https://github.com/mashi727/media-scribe-workflow/releases/download/v2.1.33/Video-Chapter-Editor-v2.1.33-macOS-AppleSilicon.dmg) |
-| macOS (Intel) | [Video-Chapter-Editor-v2.1.33-macOS-Intel.dmg](https://github.com/mashi727/media-scribe-workflow/releases/download/v2.1.33/Video-Chapter-Editor-v2.1.33-macOS-Intel.dmg) |
-| Windows | [Video-Chapter-Editor-v2.1.33-Windows.zip](https://github.com/mashi727/media-scribe-workflow/releases/download/v2.1.33/Video-Chapter-Editor-v2.1.33-Windows.zip) |
+| macOS (Apple Silicon) | [Video-Chapter-Editor-v2.1.34-macOS-AppleSilicon.dmg](https://github.com/mashi727/media-scribe-workflow/releases/download/v2.1.34/Video-Chapter-Editor-v2.1.34-macOS-AppleSilicon.dmg) |
+| macOS (Intel) | [Video-Chapter-Editor-v2.1.34-macOS-Intel.dmg](https://github.com/mashi727/media-scribe-workflow/releases/download/v2.1.34/Video-Chapter-Editor-v2.1.34-macOS-Intel.dmg) |
+| Windows | [Video-Chapter-Editor-v2.1.34-Windows.zip](https://github.com/mashi727/media-scribe-workflow/releases/download/v2.1.34/Video-Chapter-Editor-v2.1.34-Windows.zip) |
 
 > 他のバージョン: [Releases](https://github.com/mashi727/media-scribe-workflow/releases)
 

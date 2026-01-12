@@ -48,6 +48,8 @@ jobs:
           VERSION="${{ github.event.inputs.version || github.ref_name }}"
           mkdir -p dmg_contents
           cp -r "dist/Video Chapter Editor.app" dmg_contents/
+          sync
+          sleep 2
           hdiutil create -volname "Video Chapter Editor" \
             -srcfolder dmg_contents \
             -ov -format UDZO \
@@ -92,6 +94,8 @@ jobs:
           VERSION="${{ github.event.inputs.version || github.ref_name }}"
           mkdir -p dmg_contents
           cp -r "dist/Video Chapter Editor.app" dmg_contents/
+          sync
+          sleep 2
           hdiutil create -volname "Video Chapter Editor" \
             -srcfolder dmg_contents \
             -ov -format UDZO \
