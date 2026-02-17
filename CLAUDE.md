@@ -175,3 +175,25 @@ java -jar $PADTOOLS_HOME/PadTools.jar docs/pad/workflow-basic.spd
 - PAD図（ソース）: docs/pad/*.spd
 - PAD図（PNG）: docs/pad/*.png
 - PADtools: https://github.com/knaou/padtools
+
+## 将来の検討事項 (Action Items)
+
+### mpv統合によるインターレース対応
+
+**背景**: インターレース映像（1080i等）の再生時、QMediaPlayer/AVFoundationの自動デインターレースが不十分で、動きのあるシーンでコーミングが発生する。
+
+**提案**: QMediaPlayerからmpv/libmpvへの移行
+
+**メリット**:
+- リアルタイムハードウェアデインターレース（yadif/bwdif）
+- 処理オーバーヘッドなし
+- クロスプラットフォーム対応（macOS VideoToolbox, Windows DXVA2/D3D11VA, Linux VAAPI）
+
+**実装方針**:
+- python-mpvを使用
+- PlaybackManagerのインターフェースは維持し、内部実装をmpvに置換
+- mpv-2.dll（Windows）/ libmpv.dylib（macOS）の同梱が必要（+約50MB）
+
+**優先度**: 中（インターレース映像の使用頻度による）
+
+**参考検証**: `/Users/mashi/Dropbox/01_Projects/00_SB2009_Affairs/SB2009_10th_Anniversary/Project_D_FinalMix.mov` (1080i, top field first)
