@@ -125,8 +125,8 @@ class VideoChapterEditor(QMainWindow):
         self._setup_ui()
         self._setup_statusbar()
 
-        # 起動後3秒でアップデートチェック
-        QTimer.singleShot(3000, self._check_for_updates)
+        # 起動後3秒でアップデートチェック（無効化）
+        # QTimer.singleShot(3000, self._check_for_updates)
 
     def _setup_window(self):
         """ウィンドウ設定"""

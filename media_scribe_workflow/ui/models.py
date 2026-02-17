@@ -570,13 +570,13 @@ def detect_available_encoders() -> List[Tuple[str, str, str]]:
 
     # ffmpegでエンコーダの利用可否を確認
     try:
+        from .ffmpeg_utils import get_subprocess_kwargs
+        kwargs = get_subprocess_kwargs(timeout=15)  # GPU初期化に時間がかかる場合があるため延長
         result = subprocess.run(
             [get_ffmpeg_path(), "-hide_banner", "-encoders"],
-            capture_output=True,
-            text=True,
-            timeout=5
+            **kwargs
         )
-        available_output = result.stdout
+        available_output = result.stdout or ""
 
         for encoder_id, display_name, description in gpu_candidates:
             if encoder_id in available_output:
@@ -610,6 +610,7 @@ def get_encoder_args(encoder_id: str, bitrate_kbps: int = 4000, crf: int = 23) -
         # macOS VideoToolbox
         return [
             '-c:v', 'h264_videotoolbox',
+            '-profile:v', 'high', '-level', '4.1',
             '-b:v', bitrate,
             '-maxrate', maxrate,
             '-bufsize', bufsize,
@@ -619,6 +620,7 @@ def get_encoder_args(encoder_id: str, bitrate_kbps: int = 4000, crf: int = 23) -
         # NVIDIA NVENC
         return [
             '-c:v', 'h264_nvenc',
+            '-profile:v', 'high', '-level', '4.1',
             '-preset', 'p4',  # バランス（p1=最速, p7=最高画質）
             '-b:v', bitrate,
             '-maxrate', maxrate,
@@ -629,6 +631,7 @@ def get_encoder_args(encoder_id: str, bitrate_kbps: int = 4000, crf: int = 23) -
         # Intel Quick Sync
         return [
             '-c:v', 'h264_qsv',
+            '-profile:v', 'high', '-level', '4.1',
             '-preset', 'medium',
             '-b:v', bitrate,
             '-maxrate', maxrate,
@@ -639,6 +642,7 @@ def get_encoder_args(encoder_id: str, bitrate_kbps: int = 4000, crf: int = 23) -
         # AMD AMF
         return [
             '-c:v', 'h264_amf',
+            '-profile:v', 'high', '-level', '4.1',
             '-quality', 'balanced',
             '-b:v', bitrate,
             '-maxrate', maxrate,
@@ -649,6 +653,7 @@ def get_encoder_args(encoder_id: str, bitrate_kbps: int = 4000, crf: int = 23) -
         # VAAPI (Linux)
         return [
             '-c:v', 'h264_vaapi',
+            '-profile:v', 'high', '-level', '4.1',
             '-b:v', bitrate,
             '-maxrate', maxrate,
             '-bufsize', bufsize,
@@ -659,6 +664,7 @@ def get_encoder_args(encoder_id: str, bitrate_kbps: int = 4000, crf: int = 23) -
         bufsize = f"{bitrate_kbps * 2}k"
         return [
             '-c:v', 'libx264',
+            '-profile:v', 'high', '-level', '4.1',
             '-preset', 'ultrafast',
             '-crf', str(crf),
             '-maxrate', maxrate,

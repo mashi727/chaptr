@@ -70,7 +70,7 @@ from .managers import (
 
 # ファイル拡張子定義
 AUDIO_EXTENSIONS = {'.mp3', '.m4a', '.wav', '.aac', '.flac'}
-VIDEO_EXTENSIONS = {'.mp4', '.mov', '.avi', '.mkv'}
+VIDEO_EXTENSIONS = {'.mp4', '.mov', '.avi', '.mkv', '.m4v'}
 
 
 def get_icon_path(icon_name: str) -> Path:
@@ -1192,6 +1192,7 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
         self._media_player.durationChanged.connect(self._on_duration_changed)
         self._media_player.errorOccurred.connect(self._on_media_error)
         self._media_player.mediaStatusChanged.connect(self._on_media_status_changed)
+        self._media_player.playbackStateChanged.connect(self._on_playback_state_changed)
 
         # === 中央揃えのコントロール行（movie-viewerスタイル）===
         ctrl_row = QHBoxLayout()
@@ -1466,13 +1467,21 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
         return frame
 
     def _seek_relative(self, delta_ms: int):
-        """現在位置から相対的にシーク"""
+        """現在位置から相対的にシーク（再生/一時停止状態を維持）"""
         if not self._media_player:
             return
+
+        # 現在の再生状態を保存
+        was_playing = self._media_player.playbackState() == QMediaPlayer.PlaybackState.PlayingState
+
         current = self._media_player.position()
         duration = self._media_player.duration()
         new_pos = max(0, min(duration, current + delta_ms))
         self._media_player.setPosition(new_pos)
+
+        # 再生状態を復元（一時停止中だった場合は一時停止を維持）
+        if not was_playing:
+            self._media_player.pause()
 
     def _create_video_panel(self) -> QWidget:
         """右側パネル（Video + Waveform + 再生コントロール）"""
@@ -2145,7 +2154,7 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
             output_base = "output"
         # 拡張子を除去
         output_base_path = Path(output_base)
-        if output_base_path.suffix.lower() in {'.mp4', '.mov', '.avi', '.mkv', '.mp3', '.m4a'}:
+        if output_base_path.suffix.lower() in {'.mp4', '.mov', '.avi', '.mkv', '.m4v', '.mp3', '.m4a'}:
             output_base = str(output_base_path.with_suffix(''))
         base_name = Path(output_base).name
 
@@ -2203,7 +2212,7 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
         self._source_list.set_sources(self._state.sources)
 
         # ファイル拡張子で判定
-        VIDEO_EXTENSIONS = {'.mp4', '.mov', '.avi', '.mkv'}
+        VIDEO_EXTENSIONS = {'.mp4', '.mov', '.avi', '.mkv', '.m4v'}
         AUDIO_EXTENSIONS = {'.mp3', '.m4a', '.wav', '.aac', '.flac'}
 
         first_source = self._state.sources[0]
@@ -2473,10 +2482,16 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
         """再生/一時停止切替"""
         if self._media_player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
             self._media_player.pause()
-            self._play_btn.setIcon(self._play_icon)
         else:
             self._media_player.play()
+        # アイコンは _on_playback_state_changed で更新される
+
+    def _on_playback_state_changed(self, state: QMediaPlayer.PlaybackState):
+        """再生状態変更時にボタンアイコンを更新"""
+        if state == QMediaPlayer.PlaybackState.PlayingState:
             self._play_btn.setIcon(self._pause_icon)
+        else:
+            self._play_btn.setIcon(self._play_icon)
 
     def _stop_video(self):
         """停止"""
@@ -2953,9 +2968,12 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
         return f"{h}:{m:02d}:{s:02d}.{millis:03d}"
 
     def _skip_to_prev_chapter(self):
-        """前のチャプターへスキップ"""
+        """前のチャプターへスキップ（再生状態維持）"""
         if not self._media_player:
             return
+
+        # 現在の再生状態を保存
+        was_playing = self._media_player.playbackState() == QMediaPlayer.PlaybackState.PlayingState
 
         current_pos = self._media_player.position()
         chapters = self._get_table_chapters()
@@ -2963,6 +2981,8 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
         if not chapters:
             # チャプターがない場合は先頭へ
             self._media_player.setPosition(0)
+            if not was_playing:
+                self._media_player.pause()
             return
 
         # 時間順にソート
@@ -2984,10 +3004,17 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
             # 最初のチャプターより前なら先頭へ
             self._media_player.setPosition(0)
 
+        # 再生状態を復元
+        if not was_playing:
+            self._media_player.pause()
+
     def _skip_to_next_chapter(self):
-        """次のチャプターへスキップ"""
+        """次のチャプターへスキップ（再生状態維持）"""
         if not self._media_player:
             return
+
+        # 現在の再生状態を保存
+        was_playing = self._media_player.playbackState() == QMediaPlayer.PlaybackState.PlayingState
 
         current_pos = self._media_player.position()
         chapters = self._get_table_chapters()
@@ -3002,6 +3029,9 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
         for ch in sorted_chapters:
             if ch.time_ms > current_pos + 500:  # 500ms マージン
                 self._media_player.setPosition(ch.time_ms)
+                # 再生状態を復元
+                if not was_playing:
+                    self._media_player.pause()
                 self._log_panel.debug(f"Skip to: {ch.title}", source="Playback")
                 return
 
@@ -3352,6 +3382,7 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
             )
 
         self._state.sources = sources
+        self._sync_source_manager()  # SourceFileManagerを同期（オフセット計算に必要）
 
         # ベースファイル名を更新（単一:ファイル名、複数:フォルダ名）
         self._update_base_filename_from_first_source()
@@ -3521,10 +3552,10 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
                 except Exception as e:
                     self._log_panel.debug(f"Failed to load chapter file: {e}", source="Add")
 
-            # 0:00チャプターがなければ「Chapter 0」を自動追加（YouTube互換性のため）
+            # 0:00チャプターがなければファイル名をデフォルトタイトルとして追加
             if not has_zero_chapter:
                 new_chapters.append({
-                    'title': 'Chapter 0',
+                    'title': src.path.stem,  # ファイル名（拡張子なし）
                     'source_index': source_index,
                     'local_time_ms': 0,
                     'color': QColor("#f0f0f0")
@@ -4665,7 +4696,20 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
         self._table.removeRow(row)
 
     def _on_chapter_clicked(self, row: int, column: int):
-        """チャプタークリックでその位置にシーク（仮想タイムライン対応）"""
+        """チャプタークリックでその位置にシーク（仮想タイムライン対応、再生状態維持）"""
+        self._seek_to_chapter_row(row, start_playback=False)
+
+    def _on_chapter_double_clicked(self, row: int, column: int):
+        """チャプターダブルクリックでその位置から再生開始"""
+        self._seek_to_chapter_row(row, start_playback=True)
+
+    def _seek_to_chapter_row(self, row: int, start_playback: bool = False):
+        """チャプター行の位置にシーク
+
+        Args:
+            row: チャプター行番号
+            start_playback: Trueの場合、シーク後に再生を開始
+        """
         time_item = self._table.item(row, 0)
         if not time_item:
             return
@@ -4680,13 +4724,22 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
             self._log_panel.warning(f"Invalid time format: {time_str}", source="Chapter")
             return
 
+        # 現在の再生状態を保存（start_playback=Trueの場合は強制再生）
+        if start_playback:
+            restore_paused = False
+        else:
+            restore_paused = (
+                self._media_player
+                and self._media_player.playbackState() != QMediaPlayer.PlaybackState.PlayingState
+            )
+
         # デバッグ: シーク位置の詳細をログ出力
         if len(self._state.sources) > 1:
             source_idx, local_pos = self._virtual_to_source(position_ms)
             offsets = self._get_source_offsets()
             total_dur = self._get_total_duration()
             self._log_panel.debug(
-                f"Chapter click: row={row}, time_str={time_str}, "
+                f"Chapter seek: row={row}, time_str={time_str}, "
                 f"virtual_pos={position_ms}ms -> source[{source_idx}] local={local_pos}ms",
                 source="Chapter"
             )
@@ -4697,8 +4750,14 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
             )
 
         # 仮想タイムラインでシーク
-        self._seek_virtual(position_ms)
-        self._log_panel.debug(f"Seek to chapter: {time_str}", source="Chapter")
+        self._seek_virtual(position_ms, restore_paused=restore_paused)
+
+        # 再生開始が指定された場合、明示的に再生とアイコン更新
+        if start_playback and self._media_player:
+            self._media_player.play()
+            self._play_btn.setIcon(self._pause_icon)
+
+        self._log_panel.debug(f"Seek to chapter: {time_str}, start_playback={start_playback}", source="Chapter")
 
     def _goto_prev_chapter(self):
         """前のチャプターにジャンプ（仮想タイムライン対応）"""
@@ -4851,14 +4910,15 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
                     'color': default_color,
                 })
 
-            # 各ソースに0:00チャプターがなければ「Chapter 0」を自動追加（YouTube互換性のため）
+            # 各ソースに0:00チャプターがなければファイル名をデフォルトタイトルとして追加
             sources_with_zero = set(
                 ch['source_index'] for ch in chapters_data if ch['local_time_ms'] == 0
             )
             for source_index in range(len(self._state.sources)):
                 if source_index not in sources_with_zero:
+                    default_title = self._state.sources[source_index].path.stem
                     chapters_data.append({
-                        'title': 'Chapter 0',
+                        'title': default_title,
                         'source_index': source_index,
                         'local_time_ms': 0,
                         'color': default_color,
@@ -5879,7 +5939,7 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
             output_base = "output"
         # 拡張子を除去してベース名を取得
         output_base_path = Path(output_base)
-        if output_base_path.suffix.lower() in {'.mp4', '.mov', '.avi', '.mkv', '.mp3', '.m4a'}:
+        if output_base_path.suffix.lower() in {'.mp4', '.mov', '.avi', '.mkv', '.m4v', '.mp3', '.m4a'}:
             output_base = str(output_base_path.with_suffix(''))
         # サフィックスを決定（チャプターあり: _chaptered、なし: _encoded）
         suffix = "_chaptered" if has_valid_chapters else "_encoded"
@@ -6009,8 +6069,18 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
         if hasattr(self, '_cover_image') and self._cover_image is not None:
             # 一時ファイルに保存
             cover_image_path = Path(tempfile.gettempdir()) / "cover_image.jpg"
-            self._cover_image.save(str(cover_image_path), "JPEG", 85)
-            self._log_panel.debug(f"Cover image: {cover_image_path}", source="Export")
+            save_success = self._cover_image.save(str(cover_image_path), "JPEG", 85)
+            if save_success and cover_image_path.exists():
+                self._log_panel.debug(
+                    f"Cover image saved: {cover_image_path} ({cover_image_path.stat().st_size} bytes)",
+                    source="Export"
+                )
+            else:
+                self._log_panel.error(
+                    f"Cover image save failed: {cover_image_path}, success={save_success}",
+                    source="Export"
+                )
+                cover_image_path = None  # 保存失敗時はNoneに戻す
 
         # ExportWorkerを作成して開始
         self._export_worker = ExportWorker(
@@ -6519,7 +6589,7 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
                 if ch.local_time_ms == 0:
                     has_zero_chapter = True
 
-            # 0:00チャプターがなければ「Chapter 0」を自動追加（YouTube互換性のため）
+            # 0:00チャプターがなければファイル名をデフォルトタイトルとして追加
             if not has_zero_chapter:
                 # 既存データにも該当sourceの0:00がないか確認
                 existing_zero = any(
@@ -6527,8 +6597,9 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
                     for ch in existing_data
                 )
                 if not existing_zero:
+                    default_title = self._state.sources[source_index].path.stem
                     existing_data.append({
-                        'title': 'Chapter 0',
+                        'title': default_title,
                         'source_index': source_index,
                         'local_time_ms': 0,
                         'color': default_color,
@@ -6627,7 +6698,7 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
         )
 
     def _try_load_chapter_file(self, source_path: Path):
-        """同名.txtチャプターファイルがあれば自動読み込み、なければChapter 0を追加"""
+        """同名.txtチャプターファイルがあれば自動読み込み、なければファイル名でチャプター追加"""
         chapter_path = source_path.with_suffix('.txt')
         if chapter_path.exists():
             try:
@@ -6642,8 +6713,8 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
             except Exception as e:
                 self._log_panel.debug(f"Failed to load chapter file: {e}", source="Drop")
 
-        # チャプターファイルがない場合はChapter 0を追加（YouTube互換性のため）
-        self._add_chapter_at_position(0, 'Chapter 0', 0)
+        # チャプターファイルがない場合はファイル名をデフォルトタイトルとして追加
+        self._add_chapter_at_position(0, source_path.stem, 0)
 
     def _load_chapters_for_all_sources(self):
         """全ソースファイルから同名.txtチャプターファイルを読み込み
@@ -6679,7 +6750,7 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
                 except Exception as e:
                     self._log_panel.debug(f"Failed to load {chapter_path.name}: {e}", source="Drop")
 
-            # 0:00チャプターがなければ「Chapter 0」を自動追加（該当ソースの先頭に）
+            # 0:00チャプターがなければファイル名をデフォルトタイトルとして追加（該当ソースの先頭に）
             if not has_zero_chapter:
                 # 該当ソースの先頭位置を探して挿入
                 insert_pos = len(all_chapters)
@@ -6691,7 +6762,7 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
                         insert_pos = i
                         break
                 all_chapters.insert(insert_pos, {
-                    'title': 'Chapter 0',
+                    'title': source.path.stem,  # ファイル名（拡張子なし）
                     'source_index': source_index,
                     'local_time_ms': 0,
                     'color': QColor("#f0f0f0")
@@ -6707,11 +6778,12 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
             )
 
     def _add_chapter_for_source(self, source_index: int):
-        """新しいソース用のChapter 0を追加（YouTube互換性のため）"""
+        """新しいソース用のデフォルトチャプターを追加（ファイル名をタイトルとして使用）"""
         if source_index >= len(self._state.sources):
             return
-        # ソースのローカル時間0に「Chapter 0」を追加
-        self._add_chapter_at_position(0, 'Chapter 0', source_index)
+        # ソースのローカル時間0にファイル名をタイトルとして追加
+        default_title = self._state.sources[source_index].path.stem
+        self._add_chapter_at_position(0, default_title, source_index)
 
     def _load_chapters_to_table(self, chapters: list):
         """パース済みチャプターをテーブルに読み込み
@@ -6757,7 +6829,7 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
                 'color': default_color,
             })
 
-        # 各ソースに0:00チャプターがなければ「Chapter 0」を自動追加（YouTube互換性のため）
+        # 各ソースに0:00チャプターがなければファイル名をデフォルトタイトルとして追加
         sources_with_zero = set(
             ch['source_index'] for ch in chapters_data if ch['local_time_ms'] == 0
         )
@@ -6774,8 +6846,10 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
                         break
                     else:
                         insert_pos = i + 1
+                # ファイル名（拡張子なし）をデフォルトタイトルとして使用
+                default_title = self._state.sources[source_index].path.stem
                 chapters_data.insert(insert_pos, {
-                    'title': 'Chapter 0',
+                    'title': default_title,
                     'source_index': source_index,
                     'local_time_ms': 0,
                     'color': default_color,
@@ -6967,14 +7041,15 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
                             editor.setCursorPosition(len(editor.text()))
                             return True
 
-        # ビューポート: ダブルクリックでシーク、ドロップで行順序同期
+        # ビューポート: ダブルクリックで再生開始、ドロップで行順序同期
         elif hasattr(self, '_table') and obj == self._table.viewport():
             if event.type() == QEvent.Type.MouseButtonDblClick:
                 # ビューポート座標でセルを検出
                 pos = event.position().toPoint()
                 index = self._table.indexAt(pos)
                 if index.isValid():
-                    self._on_chapter_clicked(index.row(), index.column())
+                    # ダブルクリックでその位置から再生開始
+                    self._on_chapter_double_clicked(index.row(), index.column())
                 return True  # 編集をブロック
 
             elif event.type() == QEvent.Type.MouseButtonPress:
@@ -7041,7 +7116,17 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
         return super().eventFilter(obj, event)
 
     def keyPressEvent(self, event: QKeyEvent):
-        """キープレスイベント: スペースバーで再生/停止"""
+        """キープレスイベント: スペースバーで再生/停止、Shift+Cmd+Sでスクリーンショット"""
+        modifiers = event.modifiers()
+
+        # Shift+Command+S (macOS) / Shift+Ctrl+S (Windows/Linux): スクリーンショット保存
+        shift_cmd = Qt.KeyboardModifier.ShiftModifier | Qt.KeyboardModifier.MetaModifier  # macOS: Cmd
+        shift_ctrl = Qt.KeyboardModifier.ShiftModifier | Qt.KeyboardModifier.ControlModifier  # Win/Linux: Ctrl
+        if event.key() == Qt.Key.Key_S and modifiers in (shift_cmd, shift_ctrl):
+            self._save_screenshot()
+            event.accept()
+            return
+
         if event.key() == Qt.Key.Key_Space:
             # テーブル編集中でなければ再生/停止
             if hasattr(self, '_table') and self._table.state() == QAbstractItemView.State.EditingState:
@@ -7054,6 +7139,53 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
                 event.accept()
                 return
         super().keyPressEvent(event)
+
+    def _save_screenshot(self):
+        """現在のフレームをスクリーンショットとして保存（Shift+Command+S）"""
+        if not self._media_player or not self._state.sources:
+            self._log_panel.warning("メディアが読み込まれていません", source="Screenshot")
+            return
+
+        # 現在の再生位置を取得
+        current_source_idx = self._source_list.get_current_index()
+        if current_source_idx < 0 or current_source_idx >= len(self._state.sources):
+            self._log_panel.warning("ソースファイルが選択されていません", source="Screenshot")
+            return
+
+        source = self._state.sources[current_source_idx]
+        current_pos_ms = self._media_player.position()
+        current_pos_sec = current_pos_ms / 1000.0
+
+        # 保存先ファイル名（ソースファイルと同じディレクトリに直接保存）
+        timestamp_str = self._format_time(current_pos_ms).replace(":", "-")
+        file_path = source.path.parent / f"{source.path.stem}_{timestamp_str}.png"
+
+        # ffmpegでフレームを抽出
+        try:
+            from .ffmpeg_utils import get_ffmpeg_path, get_subprocess_kwargs
+
+            ffmpeg = get_ffmpeg_path()
+            cmd = [
+                ffmpeg,
+                "-y",  # 上書き許可
+                "-ss", str(current_pos_sec),  # シーク位置
+                "-i", str(source.path),
+                "-frames:v", "1",  # 1フレームのみ
+                "-q:v", "2",  # 高品質
+                str(file_path)
+            ]
+
+            kwargs = get_subprocess_kwargs(timeout=30)
+            result = subprocess.run(cmd, **kwargs)
+
+            if result.returncode == 0:
+                self._log_panel.info(f"スクリーンショット保存: {file_path.name}", source="Screenshot")
+            else:
+                error_msg = result.stderr if result.stderr else "Unknown error"
+                self._log_panel.error(f"保存失敗: {error_msg}", source="Screenshot")
+
+        except Exception as e:
+            self._log_panel.error(f"スクリーンショット保存エラー: {e}", source="Screenshot")
 
     # ============================================
     # プロジェクトファイル (.vce.json)

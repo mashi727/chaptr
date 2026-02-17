@@ -17,7 +17,7 @@ from ..workers import DurationDetectWorker
 
 # ファイル拡張子定義
 AUDIO_EXTENSIONS = {'.mp3', '.m4a', '.wav', '.aac', '.flac'}
-VIDEO_EXTENSIONS = {'.mp4', '.mov', '.avi', '.mkv'}
+VIDEO_EXTENSIONS = {'.mp4', '.mov', '.avi', '.mkv', '.m4v'}
 CHAPTER_EXTENSIONS = {'.txt'}
 
 

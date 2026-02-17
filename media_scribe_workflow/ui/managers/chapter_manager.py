@@ -367,14 +367,15 @@ class ChapterManager(QObject):
                     'color': self._default_color,
                 })
 
-            # 各ソースに0:00チャプターがなければ追加
+            # 各ソースに0:00チャプターがなければファイル名で追加
             sources_with_zero = set(
                 ch['source_index'] for ch in chapters_data if ch['local_time_ms'] == 0
             )
             for source_index in range(len(self._sources)):
                 if source_index not in sources_with_zero:
+                    default_title = self._sources[source_index].path.stem
                     chapters_data.append({
-                        'title': 'Chapter 0',
+                        'title': default_title,
                         'source_index': source_index,
                         'local_time_ms': 0,
                         'color': self._default_color,

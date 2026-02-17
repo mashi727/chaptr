@@ -168,16 +168,21 @@ class PlaybackManager(QObject):
                 self._media_player.pause()
                 self.playback_state_changed.emit(False)
 
-    def seek_relative(self, delta_ms: int):
+    def seek_relative(self, delta_ms: int, preserve_state: bool = True):
         """現在位置から相対シーク
 
         Args:
             delta_ms: シーク量（ミリ秒、負の値で戻る）
+            preserve_state: Trueの場合、シーク後に再生/一時停止状態を維持
         """
         current_pos = self.get_virtual_position()
         total_duration = self.get_total_duration()
         new_pos = max(0, min(total_duration, current_pos + delta_ms))
-        self.seek_virtual(new_pos)
+
+        # 現在の再生状態を保存
+        was_paused = not self.is_playing if preserve_state else False
+
+        self.seek_virtual(new_pos, restore_paused=was_paused)
 
     def seek_to_source_position(self, source_index: int, local_pos: int):
         """特定ソースのローカル位置にシーク

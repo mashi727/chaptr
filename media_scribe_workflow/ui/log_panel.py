@@ -10,8 +10,9 @@ log_panel.py - ログ表示パネル
 
 from enum import IntEnum
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Dict
 from dataclasses import dataclass
+import time
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPlainTextEdit,
@@ -53,6 +54,9 @@ class LogPanel(QWidget):
     # シグナル
     log_copied = Signal(str)  # ログがコピーされた時
 
+    # エントリ数上限（再帰エラー防止）
+    MAX_ENTRIES = 5000
+
     # レベル別カラー
     LEVEL_COLORS = {
         LogLevel.DEBUG: "#888888",
@@ -75,11 +79,16 @@ class LogPanel(QWidget):
         "Linux": ["Ubuntu Mono", "DejaVu Sans Mono"],
     }
 
+    # DEBUGログのスロットリング間隔（秒）
+    DEBUG_THROTTLE_INTERVAL = 0.1  # 100ms
+
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self._entries: List[LogEntry] = []
         self._min_level = LogLevel.INFO  # デフォルト表示レベル
         self._is_collapsed = False
+        self._is_logging = False  # 再帰防止フラグ
+        self._last_debug_time: Dict[str, float] = {}  # DEBUGログのスロットリング用
         self._setup_ui()
 
     @staticmethod
@@ -243,19 +252,54 @@ class LogPanel(QWidget):
             message: メッセージ
             source: 発生源（ツール名など）
         """
-        entry = LogEntry(
-            timestamp=datetime.now(),
-            level=level,
-            message=message,
-            source=source
-        )
-        self._entries.append(entry)
+        # 再帰防止: ログ処理中に再度logが呼ばれた場合はスキップ
+        if self._is_logging:
+            return
 
-        # 表示レベル以上なら表示に追加
-        if level >= self._min_level:
-            self._append_entry(entry)
+        # DEBUGレベルのスロットリング（高頻度イベントからの呼び出し対策）
+        if level == LogLevel.DEBUG:
+            now = time.time()
+            throttle_key = f"{source}:{message[:50]}"  # ソースとメッセージ先頭でグループ化
+            last_time = self._last_debug_time.get(throttle_key, 0)
+            if now - last_time < self.DEBUG_THROTTLE_INTERVAL:
+                return  # スロットリング中はスキップ
+            self._last_debug_time[throttle_key] = now
 
-        self._update_count()
+            # スロットリングキャッシュが大きくなりすぎないよう制限
+            if len(self._last_debug_time) > 100:
+                # 古いエントリを削除
+                cutoff = now - self.DEBUG_THROTTLE_INTERVAL * 10
+                self._last_debug_time = {
+                    k: v for k, v in self._last_debug_time.items()
+                    if v > cutoff
+                }
+
+        self._is_logging = True
+        try:
+            entry = LogEntry(
+                timestamp=datetime.now(),
+                level=level,
+                message=message,
+                source=source
+            )
+            self._entries.append(entry)
+
+            # 上限を超えたら古いエントリを削除
+            if len(self._entries) > self.MAX_ENTRIES:
+                # 古い半分を削除
+                trim_count = self.MAX_ENTRIES // 2
+                self._entries = self._entries[trim_count:]
+                self._refresh_view()
+            elif level >= self._min_level:
+                # 表示レベル以上なら表示に追加
+                self._append_entry(entry)
+
+            self._update_count()
+        except RecursionError:
+            # スタックオーバーフロー時は静かに失敗
+            pass
+        finally:
+            self._is_logging = False
 
     def debug(self, message: str, source: str = ""):
         """DEBUGログ"""
