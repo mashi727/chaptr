@@ -32,7 +32,7 @@ from ..workers import (
 
 # ファイル拡張子定義
 AUDIO_EXTENSIONS = {'.mp3', '.m4a', '.wav', '.aac', '.flac'}
-VIDEO_EXTENSIONS = {'.mp4', '.mov', '.avi', '.mkv'}
+VIDEO_EXTENSIONS = {'.mp4', '.mov', '.avi', '.mkv', '.m4v'}
 
 
 class ExportState(Enum):
@@ -370,6 +370,8 @@ class ExportOrchestrator(QObject):
             auto_bitrate=True,  # ソースと同じビットレート
             embed_chapters=settings.embed_chapters,
             cut_excluded=settings.cut_excluded,
+            cover_image=job.cover_image_path,
+            overlay_title=settings.overlay_titles,
             parent=self
         )
 
@@ -422,7 +424,7 @@ class ExportOrchestrator(QObject):
         """出力パスを生成（衝突回避）"""
         # 拡張子を除去
         base_path = Path(output_base)
-        if base_path.suffix.lower() in {'.mp4', '.mov', '.avi', '.mkv', '.mp3', '.m4a'}:
+        if base_path.suffix.lower() in {'.mp4', '.mov', '.avi', '.mkv', '.m4v', '.mp3', '.m4a'}:
             output_base = str(base_path.with_suffix(''))
 
         output_path = output_dir / f"{Path(output_base).name}{suffix}.mp4"
