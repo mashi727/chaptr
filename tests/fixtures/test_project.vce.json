@@ -1,0 +1,31 @@
+{
+  "version": "1.0",
+  "sources": [
+    {
+      "path": "lesson_2026-01-15.mp4",
+      "start": 0,
+      "end": 3600000
+    }
+  ],
+  "chapters": [
+    {"title": "導入", "start": 0, "end": 300000},
+    {"title": "アンブシュア解説", "start": 300000, "end": 1200000}
+  ],
+  "export": {
+    "encoder": "libx264",
+    "quality": 1
+  },
+  "msw": {
+    "template": "instrument_lesson",
+    "metadata": {
+      "date": "2026-01-15",
+      "instructor": "濵地 宗",
+      "instructor_title": "群馬交響楽団 首席ホルン奏者",
+      "instrument": "ホルン",
+      "lesson_topic": "アンブシュア"
+    },
+    "output": {
+      "report": "lesson_report.tex"
+    }
+  }
+}
