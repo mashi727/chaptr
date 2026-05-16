@@ -39,6 +39,7 @@ class CLIEncodeWorker(QThread):
         cut_excluded: bool = True,
         cover_image: Optional[Path] = None,
         overlay_title: bool = False,
+        overlay_position: str = "top_left",
         parent=None
     ):
         super().__init__(parent)
@@ -51,6 +52,7 @@ class CLIEncodeWorker(QThread):
         self.cut_excluded = cut_excluded
         self.cover_image = cover_image
         self.overlay_title = overlay_title
+        self.overlay_position = overlay_position
 
         self._process: Optional[subprocess.Popen] = None
         self._cancelled = False
@@ -128,6 +130,8 @@ class CLIEncodeWorker(QThread):
             cmd.extend(['--cover-image', str(self.cover_image)])
         if self.overlay_title:
             cmd.append('--overlay-title')
+            if self.overlay_position != "top_left":
+                cmd.extend(['--overlay-position', self.overlay_position])
 
         self.log_message.emit(f"Running: {' '.join(cmd[-3:])}")
 

@@ -65,6 +65,7 @@ from .managers import (
     ClassifiedFiles,
     InitialLoadResult,
     AddSourcesResult,
+    SubtitleManager,
 )
 
 
@@ -886,6 +887,9 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
         self._source_manager = SourceFileManager(self)
         self._source_manager.work_dir = self._state.work_dir
 
+        # SubtitleManager（字幕管理を委譲）
+        self._subtitle_manager = SubtitleManager(self)
+
         # 波形生成スレッド
         self._waveform_thread: Optional[QThread] = None
         self._waveform_worker: Optional[WaveformWorker] = None
@@ -1583,6 +1587,29 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
         self._video_container.installEventFilter(self)
 
         video_outer_layout.addWidget(self._video_container, stretch=1)
+
+        # 字幕パネル（動画コンテナの下部）
+        self._subtitle_label = QLabel()
+        self._subtitle_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._subtitle_label.setWordWrap(True)
+        self._subtitle_label.setFixedHeight(60)
+        self._subtitle_label.setStyleSheet("""
+            QLabel {
+                background: #0a0a0a;
+                color: #ffffff;
+                font-size: 16px;
+                padding: 4px 12px;
+                border-top: 1px solid #2a2a2a;
+            }
+        """)
+        self._subtitle_label.hide()  # 字幕未読み込み時は非表示
+        video_outer_layout.addWidget(self._subtitle_label)
+
+        # SubtitleManagerシグナル接続
+        self._subtitle_manager.subtitle_changed.connect(self._subtitle_label.setText)
+        self._subtitle_manager.subtitles_loaded.connect(self._on_subtitles_loaded)
+        self._subtitle_manager.subtitles_cleared.connect(self._on_subtitles_cleared)
+
         main_layout.addWidget(video_frame, stretch=4)  # 動画に多くのスペース
 
         # === 波形表示 ===
@@ -2278,6 +2305,15 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
         else:
             self._log_panel.warning(f"Unknown file type: {ext}", source="Media")
 
+        # 同名SRTファイルの自動読み込み
+        self._auto_load_subtitles(file_path)
+
+    def _auto_load_subtitles(self, media_path: Path):
+        """メディアファイルと同名のSRTファイルがあれば自動読み込み"""
+        srt_path = media_path.with_suffix('.srt')
+        if srt_path.exists():
+            self.load_subtitles(srt_path)
+
     def _update_quality_combo_for_mode(self, is_audio: bool):
         """音声/動画モードを記録（設定ダイアログ移行後は内部フラグのみ）"""
         self._is_audio_only = is_audio
@@ -2729,6 +2765,9 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
 
             # 現在のチャプターをハイライト（仮想位置）
             self._highlight_current_chapter(virtual_pos)
+
+            # 字幕更新（仮想位置）
+            self._subtitle_manager.update_position(virtual_pos)
         else:
             # 単一ファイルの場合は従来通り
             duration = self._media_player.duration()
@@ -2742,6 +2781,9 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
 
             # 現在のチャプターをハイライト
             self._highlight_current_chapter(position)
+
+            # 字幕更新
+            self._subtitle_manager.update_position(position)
 
     def _on_duration_changed(self, duration: int):
         """動画長さ変更"""
@@ -2954,6 +2996,42 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
         else:
             self._chapter_overlay_label.hide()
         self._log_panel.info(f"Chapter overlay {'enabled' if enabled else 'disabled'}", source="UI")
+
+    # === 字幕（SRT）管理 ===
+
+    def load_subtitles(self, path: Path):
+        """SRTファイルを読み込んで字幕パネルを表示"""
+        try:
+            count = self._subtitle_manager.load_srt(path)
+            self._state.srt_path = path
+            self._log_panel.info(f"Subtitles loaded: {path.name} ({count} entries)", source="Subtitle")
+        except FileNotFoundError:
+            self._log_panel.error(f"SRT file not found: {path}", source="Subtitle")
+        except ValueError as e:
+            self._log_panel.error(f"SRT parse error: {e}", source="Subtitle")
+
+    def clear_subtitles(self):
+        """字幕をクリアしてパネルを非表示"""
+        self._subtitle_manager.clear()
+        self._state.srt_path = None
+        self._log_panel.info("Subtitles cleared", source="Subtitle")
+
+    def _on_subtitles_loaded(self, srt_path: str):
+        """字幕読み込み完了時のUI更新"""
+        self._subtitle_label.show()
+        self._subtitle_label.setText("")
+
+    def _on_subtitles_cleared(self):
+        """字幕クリア時のUI更新"""
+        self._subtitle_label.setText("")
+        self._subtitle_label.hide()
+
+    def set_subtitle_panel_visible(self, visible: bool):
+        """字幕パネルの表示/非表示を切り替え"""
+        if visible and self._subtitle_manager.is_loaded:
+            self._subtitle_label.show()
+        else:
+            self._subtitle_label.hide()
 
     def _on_media_error(self, error):
         """メディアエラー"""
@@ -5378,6 +5456,7 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
                 "quality_index": encode_settings.get("quality_index", 0),
                 "embed_chapters": encode_settings.get("embed_chapters", True),
                 "overlay_titles": encode_settings.get("overlay_titles", True),
+                "overlay_position": encode_settings.get("overlay_position", "top_left"),
                 "split_chapters": encode_settings.get("split_chapters", False),
             },
             "output_base": output_base if output_base else None,
@@ -5965,6 +6044,7 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
         quality_index = settings["quality_index"]
         embed_chapters = settings["embed_chapters"]
         overlay_titles = settings.get("overlay_titles", True)
+        overlay_position = settings.get("overlay_position", "top_left")
         cut_excluded = settings["cut_excluded"]
         split_chapters = settings["split_chapters"]
 
@@ -6045,6 +6125,7 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
                 colorspace=colorspace,
                 is_audio_only=input_path.suffix.lower() in AUDIO_EXTENSIONS,
                 overlay_title=overlay_titles,
+                overlay_position=overlay_position,
                 source_bases=source_bases,
                 source_files=source_files,
                 source_durations=source_durations
@@ -6090,6 +6171,7 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
             embed_chapters=embed_chapters,
             embed_title=True,
             overlay_chapter_titles=overlay_titles,
+            overlay_position=overlay_position,
             total_duration_ms=duration_ms,
             encoder_id=encoder_id,
             bitrate_kbps=bitrate,

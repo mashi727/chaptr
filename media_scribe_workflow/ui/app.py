@@ -201,6 +201,15 @@ class VideoChapterEditor(QMainWindow):
         load_chapters_action.triggered.connect(self._load_chapters)
         file_menu.addAction(load_chapters_action)
 
+        load_subtitles_action = QAction("Load Subtitles...", self)
+        load_subtitles_action.setShortcut("Ctrl+Shift+L")
+        load_subtitles_action.triggered.connect(self._load_subtitles)
+        file_menu.addAction(load_subtitles_action)
+
+        clear_subtitles_action = QAction("Clear Subtitles", self)
+        clear_subtitles_action.triggered.connect(self._clear_subtitles)
+        file_menu.addAction(clear_subtitles_action)
+
         file_menu.addSeparator()
 
         # Project menu items
@@ -251,6 +260,12 @@ class VideoChapterEditor(QMainWindow):
         chapter_overlay_action.setChecked(True)  # デフォルトON
         chapter_overlay_action.triggered.connect(self._toggle_chapter_overlay)
         view_menu.addAction(chapter_overlay_action)
+
+        self._show_subtitles_action = QAction("Show Subtitles", self)
+        self._show_subtitles_action.setCheckable(True)
+        self._show_subtitles_action.setChecked(True)  # デフォルトON
+        self._show_subtitles_action.triggered.connect(self._toggle_subtitles)
+        view_menu.addAction(self._show_subtitles_action)
 
         view_menu.addSeparator()
 
@@ -387,6 +402,25 @@ class VideoChapterEditor(QMainWindow):
     def _toggle_chapter_overlay(self, checked: bool):
         """チャプターオーバーレイ表示切り替え"""
         self._workspace.set_chapter_overlay_enabled(checked)
+
+    def _load_subtitles(self):
+        """SRTファイルを選択して字幕を読み込む"""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Load Subtitles",
+            str(self._work_dir),
+            "SRT Files (*.srt);;All Files (*)"
+        )
+        if file_path:
+            self._workspace.load_subtitles(Path(file_path))
+
+    def _clear_subtitles(self):
+        """字幕をクリア"""
+        self._workspace.clear_subtitles()
+
+    def _toggle_subtitles(self, checked: bool):
+        """字幕パネルの表示/非表示を切り替え"""
+        self._workspace.set_subtitle_panel_visible(checked)
 
     def _set_log_level(self, level: LogLevel):
         """ログレベル設定"""

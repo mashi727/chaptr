@@ -31,8 +31,8 @@ class TestBuildDrawtextFilter:
         assert "fontcolor=white" in result
         assert "borderw=2" in result
         assert "bordercolor=black" in result
-        assert "x=(w-text_w)/2" in result  # 中央配置
-        assert "y=h*0.325-th/2" in result
+        assert "x=w*0.05" in result  # 左上配置
+        assert "y=h*0.05" in result
 
     def test_custom_fontsize_ratio(self):
         """フォントサイズ比率をカスタマイズ"""

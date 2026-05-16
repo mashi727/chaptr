@@ -212,6 +212,10 @@ class YouTubeDownloadMixin:
 
         if srt_path:
             self._log_panel.info(f"Subtitle saved: {Path(srt_path).name}", source="YouTube")
+            # SRT字幕を自動読み込み
+            srt_path_obj = Path(srt_path)
+            if srt_path_obj.exists() and hasattr(self, 'load_subtitles'):
+                self.load_subtitles(srt_path_obj)
 
         # ダウンロードした動画をソースとしてロード
         video_path_obj = Path(video_path)

@@ -23,6 +23,7 @@ from PySide6.QtCore import Qt, Signal, QSettings
 from PySide6.QtGui import QImage, QPixmap
 
 from ..styles import ButtonStyles
+from ..workers.base import OVERLAY_POSITION_PRESETS, DEFAULT_OVERLAY_POSITION
 from .cover_image import CoverImageDialog
 
 
@@ -49,6 +50,7 @@ class ExportSettingsDialog(QDialog):
     SETTINGS_KEY_QUALITY = "export/quality_index"
     SETTINGS_KEY_EMBED_CHAPTERS = "export/embed_chapters"
     SETTINGS_KEY_OVERLAY_TITLES = "export/overlay_titles"
+    SETTINGS_KEY_OVERLAY_POSITION = "export/overlay_position"
     SETTINGS_KEY_SPLIT_CHAPTERS = "export/split_chapters"
     SETTINGS_KEY_EMBED_COVER = "export/embed_cover"
     SETTINGS_KEY_OUTPUT_DIR = "export/output_dir"
@@ -152,7 +154,23 @@ class ExportSettingsDialog(QDialog):
         self._overlay_titles_cb = QCheckBox("Overlay Titles")
         self._overlay_titles_cb.setStyleSheet(checkbox_style)
         self._overlay_titles_cb.setToolTip("映像にチャプタータイトルを焼き込み")
-        options_layout.addWidget(self._overlay_titles_cb)
+        self._overlay_titles_cb.stateChanged.connect(self._on_overlay_titles_changed)
+
+        # 位置選択コンボ（Overlay Titlesと横並び）
+        overlay_row = QHBoxLayout()
+        overlay_row.setSpacing(12)
+        overlay_row.addWidget(self._overlay_titles_cb)
+
+        self._overlay_position_combo = QComboBox()
+        self._overlay_position_combo.setStyleSheet(self._combo_style())
+        self._overlay_position_combo.setToolTip("タイトル焼き込み位置")
+        self._overlay_position_combo.setMinimumWidth(140)
+        for key, (display_name, _x, _y) in OVERLAY_POSITION_PRESETS.items():
+            self._overlay_position_combo.addItem(display_name, key)
+        overlay_row.addStretch()
+
+        options_layout.addLayout(overlay_row)
+        options_layout.addWidget(self._overlay_position_combo)
 
         self._split_chapters_cb = QCheckBox("Split Chapters")
         self._split_chapters_cb.setStyleSheet(checkbox_style)
@@ -337,6 +355,15 @@ class ExportSettingsDialog(QDialog):
         self._overlay_titles_cb.setChecked(
             self._settings.value(self.SETTINGS_KEY_OVERLAY_TITLES, True, type=bool)
         )
+        # Overlay Position
+        position_key = self._settings.value(
+            self.SETTINGS_KEY_OVERLAY_POSITION, DEFAULT_OVERLAY_POSITION
+        )
+        for i in range(self._overlay_position_combo.count()):
+            if self._overlay_position_combo.itemData(i) == position_key:
+                self._overlay_position_combo.setCurrentIndex(i)
+                break
+        self._overlay_position_combo.setEnabled(self._overlay_titles_cb.isChecked())
         self._split_chapters_cb.setChecked(
             self._settings.value(self.SETTINGS_KEY_SPLIT_CHAPTERS, False, type=bool)
         )
@@ -359,6 +386,10 @@ class ExportSettingsDialog(QDialog):
         self._settings.setValue(self.SETTINGS_KEY_QUALITY, self._quality_combo.currentIndex())
         self._settings.setValue(self.SETTINGS_KEY_EMBED_CHAPTERS, self._embed_chapters_cb.isChecked())
         self._settings.setValue(self.SETTINGS_KEY_OVERLAY_TITLES, self._overlay_titles_cb.isChecked())
+        self._settings.setValue(
+            self.SETTINGS_KEY_OVERLAY_POSITION,
+            self._overlay_position_combo.currentData() or DEFAULT_OVERLAY_POSITION,
+        )
         self._settings.setValue(self.SETTINGS_KEY_SPLIT_CHAPTERS, self._split_chapters_cb.isChecked())
         self._settings.setValue(self.SETTINGS_KEY_EMBED_COVER, self._embed_cover_cb.isChecked())
         # Output Directory
@@ -383,6 +414,14 @@ class ExportSettingsDialog(QDialog):
     def is_overlay_titles(self) -> bool:
         """タイトル焼き込みが有効か"""
         return self._overlay_titles_cb.isChecked()
+
+    def get_overlay_position(self) -> str:
+        """オーバーレイ位置キーを取得"""
+        return self._overlay_position_combo.currentData() or DEFAULT_OVERLAY_POSITION
+
+    def _on_overlay_titles_changed(self, state: int):
+        """Overlay Titlesチェック変更時、位置コンボの有効/無効を切り替え"""
+        self._overlay_position_combo.setEnabled(state != 0)
 
     def is_split_chapters(self) -> bool:
         """チャプター分割が有効か"""
@@ -473,6 +512,7 @@ class ExportSettingsDialog(QDialog):
             "quality_index": settings.value(ExportSettingsDialog.SETTINGS_KEY_QUALITY, 0, type=int),
             "embed_chapters": settings.value(ExportSettingsDialog.SETTINGS_KEY_EMBED_CHAPTERS, True, type=bool),
             "overlay_titles": settings.value(ExportSettingsDialog.SETTINGS_KEY_OVERLAY_TITLES, True, type=bool),
+            "overlay_position": settings.value(ExportSettingsDialog.SETTINGS_KEY_OVERLAY_POSITION, DEFAULT_OVERLAY_POSITION),
             "cut_excluded": True,  # 常に除外区間をカット
             "split_chapters": settings.value(ExportSettingsDialog.SETTINGS_KEY_SPLIT_CHAPTERS, False, type=bool),
             "embed_cover": settings.value(ExportSettingsDialog.SETTINGS_KEY_EMBED_COVER, False, type=bool),
@@ -491,6 +531,8 @@ class ExportSettingsDialog(QDialog):
             settings.setValue(ExportSettingsDialog.SETTINGS_KEY_EMBED_CHAPTERS, encode_settings["embed_chapters"])
         if "overlay_titles" in encode_settings:
             settings.setValue(ExportSettingsDialog.SETTINGS_KEY_OVERLAY_TITLES, encode_settings["overlay_titles"])
+        if "overlay_position" in encode_settings:
+            settings.setValue(ExportSettingsDialog.SETTINGS_KEY_OVERLAY_POSITION, encode_settings["overlay_position"])
         if "split_chapters" in encode_settings:
             settings.setValue(ExportSettingsDialog.SETTINGS_KEY_SPLIT_CHAPTERS, encode_settings["split_chapters"])
         if "embed_cover" in encode_settings:

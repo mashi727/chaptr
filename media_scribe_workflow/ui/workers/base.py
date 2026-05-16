@@ -15,6 +15,29 @@ from ..models import ChapterInfo, SourceFile
 from ...utils import escape_ffmpeg_path
 
 
+# オーバーレイ位置プリセット: (表示名, x式, y式)
+OVERLAY_POSITION_PRESETS: Dict[str, Tuple[str, str, str]] = {
+    "top_left":      ("Top Left",      "w*0.05",        "h*0.05"),
+    "top_center":    ("Top Center",    "(w-text_w)/2",  "h*0.05"),
+    "top_right":     ("Top Right",     "w*0.95-text_w", "h*0.05"),
+    "center":        ("Center",        "(w-text_w)/2",  "(h-th)/2"),
+    "bottom_left":   ("Bottom Left",   "w*0.05",        "h*0.9-th"),
+    "bottom_center": ("Bottom Center", "(w-text_w)/2",  "h*0.9-th"),
+    "bottom_right":  ("Bottom Right",  "w*0.95-text_w", "h*0.9-th"),
+}
+
+DEFAULT_OVERLAY_POSITION = "top_left"
+
+
+def get_overlay_position_xy(position_key: str) -> Tuple[str, str]:
+    """位置キーからx, y式を取得"""
+    preset = OVERLAY_POSITION_PRESETS.get(position_key)
+    if preset:
+        return preset[1], preset[2]
+    default = OVERLAY_POSITION_PRESETS[DEFAULT_OVERLAY_POSITION]
+    return default[1], default[2]
+
+
 @dataclass
 class SegmentInfo:
     """抽出するセグメント情報"""
@@ -171,8 +194,8 @@ def build_drawtext_filter(
     box: bool = True,
     boxcolor: str = "black@0.6",
     boxborderw: int = 15,
-    x: str = "(w-text_w)/2",
-    y: str = "h*0.325-th/2",
+    x: str = OVERLAY_POSITION_PRESETS[DEFAULT_OVERLAY_POSITION][1],
+    y: str = OVERLAY_POSITION_PRESETS[DEFAULT_OVERLAY_POSITION][2],
     enable_start: Optional[float] = None,
     enable_end: Optional[float] = None,
 ) -> str:

@@ -199,6 +199,7 @@ class ProjectState:
     video_duration_ms: int = 0
     colorspace: Optional[ColorspaceInfo] = None
     project_complete: bool = False  # 編集完了フラグ
+    srt_path: Optional[Path] = None  # SRT字幕ファイルパス
 
 
 def detect_video_colorspace(file_path: str) -> ColorspaceInfo:

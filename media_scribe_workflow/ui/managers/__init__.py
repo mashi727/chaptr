@@ -14,6 +14,7 @@ from .source_manager import (
     AddSourcesResult,
     ClassifiedFiles,
 )
+from .subtitle_manager import SubtitleManager
 
 __all__ = [
     "PlaybackManager",
@@ -28,4 +29,5 @@ __all__ = [
     "InitialLoadResult",
     "AddSourcesResult",
     "ClassifiedFiles",
+    "SubtitleManager",
 ]

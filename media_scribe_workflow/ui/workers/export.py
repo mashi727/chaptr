@@ -25,6 +25,7 @@ from .base import (
     TempFileManagerMixin,
     CancellableWorkerMixin,
     build_drawtext_filter,
+    get_overlay_position_xy,
 )
 
 
@@ -48,6 +49,7 @@ class ExportWorker(QThread, TempFileManagerMixin, CancellableWorkerMixin):
                  embed_chapters: bool = True,
                  embed_title: bool = True,
                  overlay_chapter_titles: bool = False,
+                 overlay_position: str = "top_left",
                  total_duration_ms: int = 0,
                  encoder_id: str = "libx264",
                  bitrate_kbps: int = 4000,
@@ -65,6 +67,7 @@ class ExportWorker(QThread, TempFileManagerMixin, CancellableWorkerMixin):
         self.embed_chapters = embed_chapters
         self.embed_title = embed_title
         self.overlay_chapter_titles = overlay_chapter_titles
+        self.overlay_position = overlay_position
         self.total_duration_ms = total_duration_ms
         self.encoder_id = encoder_id
         self.bitrate_kbps = bitrate_kbps
@@ -274,6 +277,9 @@ class ExportWorker(QThread, TempFileManagerMixin, CancellableWorkerMixin):
         # 各チャプター用のテキストファイルを生成
         textfiles = self._create_chapter_textfiles(chapters_to_use)
 
+        # オーバーレイ位置を取得
+        pos_x, pos_y = get_overlay_position_xy(self.overlay_position)
+
         filters = []
         for i, ch in enumerate(chapters_to_use):
             start_sec = ch.time_ms / 1000.0
@@ -288,6 +294,8 @@ class ExportWorker(QThread, TempFileManagerMixin, CancellableWorkerMixin):
                 fontfile=self.font_path,
                 textfile=textfiles[i],
                 fontsize_ratio=self.FONT_SIZE_RATIO,
+                x=pos_x,
+                y=pos_y,
                 enable_start=start_sec,
                 enable_end=end_sec,
             )
@@ -383,6 +391,9 @@ class ExportWorker(QThread, TempFileManagerMixin, CancellableWorkerMixin):
         if self.overlay_chapter_titles and chapters_to_use:
             textfiles = self._create_chapter_textfiles(chapters_to_use)
 
+        # オーバーレイ位置
+        pos_x, pos_y = get_overlay_position_xy(self.overlay_position)
+
         # エンコーダ引数を取得（静止画なのでCRF 32で十分）
         encoder_args = get_encoder_args(
             self.encoder_id, self.bitrate_kbps, crf=32
@@ -424,6 +435,8 @@ class ExportWorker(QThread, TempFileManagerMixin, CancellableWorkerMixin):
                         fontfile=self.font_path,
                         textfile=textfiles[i],
                         fontsize_ratio=self.FONT_SIZE_RATIO,
+                        x=pos_x,
+                        y=pos_y,
                         enable_start=start_sec,
                         enable_end=end_sec,
                     )
@@ -469,6 +482,8 @@ class ExportWorker(QThread, TempFileManagerMixin, CancellableWorkerMixin):
                         fontfile=self.font_path,
                         textfile=textfiles[i],
                         fontsize_ratio=self.FONT_SIZE_RATIO,
+                        x=pos_x,
+                        y=pos_y,
                         enable_start=start_sec,
                         enable_end=end_sec,
                     )

@@ -30,6 +30,7 @@ from .base import (
     TempFileManagerMixin,
     CancellableWorkerMixin,
     build_drawtext_filter,
+    get_overlay_position_xy,
 )
 
 
@@ -68,6 +69,7 @@ class SplitExportWorker(QThread, TempFileManagerMixin, CancellableWorkerMixin):
                  colorspace: Optional[ColorspaceInfo] = None,
                  is_audio_only: bool = False,
                  overlay_title: bool = False,
+                 overlay_position: str = "top_left",
                  source_bases: Optional[List[str]] = None,
                  source_files: Optional[List[str]] = None,
                  source_durations: Optional[List[int]] = None,
@@ -85,6 +87,7 @@ class SplitExportWorker(QThread, TempFileManagerMixin, CancellableWorkerMixin):
         self.colorspace = colorspace or ColorspaceInfo()
         self.is_audio_only = is_audio_only
         self.overlay_title = overlay_title
+        self.overlay_position = overlay_position
         self.source_bases = source_bases  # 複数ソース時の各ソースベース名
         self.source_files = source_files  # 複数ソースファイルパス（オリジナル保持用）
         self.source_durations = source_durations  # 各ソースのduration（ms）
@@ -159,11 +162,14 @@ class SplitExportWorker(QThread, TempFileManagerMixin, CancellableWorkerMixin):
     def _create_title_overlay_filter(self, title: str, duration_sec: float) -> str:
         """チャプタータイトル焼き込み用のフィルターを生成"""
         textfile = self._create_title_textfile(title)
+        pos_x, pos_y = get_overlay_position_xy(self.overlay_position)
         # セグメント全体にタイトル表示
         drawtext = build_drawtext_filter(
             fontfile=self.font_path,
             textfile=textfile,
             fontsize_ratio=self.FONT_SIZE_RATIO,
+            x=pos_x,
+            y=pos_y,
             enable_start=0,
             enable_end=duration_sec,
         )

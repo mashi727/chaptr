@@ -9,6 +9,9 @@ from .base import (
     SegmentInfo,
     calculate_extraction_plan,
     build_drawtext_filter,
+    get_overlay_position_xy,
+    OVERLAY_POSITION_PRESETS,
+    DEFAULT_OVERLAY_POSITION,
     TempFileManagerMixin,
     CancellableWorkerMixin,
 )
@@ -40,6 +43,9 @@ __all__ = [
     "SegmentInfo",
     "calculate_extraction_plan",
     "build_drawtext_filter",
+    "get_overlay_position_xy",
+    "OVERLAY_POSITION_PRESETS",
+    "DEFAULT_OVERLAY_POSITION",
     "TempFileManagerMixin",
     "CancellableWorkerMixin",
     # Export

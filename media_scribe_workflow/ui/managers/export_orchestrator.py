@@ -57,6 +57,7 @@ class ExportSettings:
     crf: int = 23
     embed_chapters: bool = True
     overlay_titles: bool = True
+    overlay_position: str = "top_left"
     cut_excluded: bool = True
     split_chapters: bool = False
 
@@ -68,6 +69,7 @@ class ExportSettings:
             quality_index=settings.get("quality_index", 0),
             embed_chapters=settings.get("embed_chapters", True),
             overlay_titles=settings.get("overlay_titles", True),
+            overlay_position=settings.get("overlay_position", "top_left"),
             cut_excluded=settings.get("cut_excluded", True),
             split_chapters=settings.get("split_chapters", False),
         )
@@ -289,6 +291,7 @@ class ExportOrchestrator(QObject):
             embed_chapters=settings.embed_chapters,
             embed_title=True,
             overlay_chapter_titles=settings.overlay_titles,
+            overlay_position=settings.overlay_position,
             total_duration_ms=job.total_duration_ms,
             encoder_id=settings.encoder_id,
             bitrate_kbps=settings.bitrate_kbps,
@@ -333,6 +336,7 @@ class ExportOrchestrator(QObject):
             colorspace=job.colorspace,
             is_audio_only=job.is_audio_only,
             overlay_title=settings.overlay_titles,
+            overlay_position=settings.overlay_position,
             source_bases=source_bases
         )
 
@@ -372,6 +376,7 @@ class ExportOrchestrator(QObject):
             cut_excluded=settings.cut_excluded,
             cover_image=job.cover_image_path,
             overlay_title=settings.overlay_titles,
+            overlay_position=settings.overlay_position,
             parent=self
         )
 
