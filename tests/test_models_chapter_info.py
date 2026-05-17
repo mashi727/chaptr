@@ -5,7 +5,7 @@
 
 import pytest
 
-from media_scribe_workflow.ui.models import (
+from chaptr.ui.models import (
     ChapterInfo,
     _format_time_ms,
     _parse_time_str,

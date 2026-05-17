@@ -18,7 +18,7 @@ from ..ffmpeg_utils import get_ffmpeg_path, get_ffprobe_path, get_subprocess_kwa
 class WaveformWorker(QObject):
     """波形データ生成ワーカー（別スレッドで実行）
 
-    video_chapter_editor.py と同じ処理:
+    chaptr.py と同じ処理:
     - パイプ経由で直接データ読み込み（ディスクI/O回避）
     - 98パーセンタイル正規化（上位2%のスパイクを無視）
     - ソフトクリッピング（tanh）

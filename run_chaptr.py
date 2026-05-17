@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-PyInstaller entry point for Video Chapter Editor.
+PyInstaller entry point for Chaptr.
 
 This script provides a non-relative import entry point for PyInstaller.
 """
@@ -14,7 +14,7 @@ if str(package_dir) not in sys.path:
     sys.path.insert(0, str(package_dir))
 
 # Import and run the main function
-from media_scribe_workflow.ui.app import main
+from chaptr.ui.app import main
 
 if __name__ == "__main__":
     main()

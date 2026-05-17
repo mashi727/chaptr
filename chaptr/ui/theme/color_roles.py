@@ -1,5 +1,5 @@
 """
-Semantic color roles for Video Chapter Editor.
+Semantic color roles for Chaptr.
 
 Defines abstract color roles that map to Base16 palette colors.
 """

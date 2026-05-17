@@ -41,16 +41,16 @@ jobs:
         env:
           MACOSX_DEPLOYMENT_TARGET: '10.15'
         run: |
-          pyinstaller video_chapter_editor.spec
+          pyinstaller chaptr.spec
 
       - name: Create DMG
         run: |
           VERSION="${{ github.event.inputs.version || github.ref_name }}"
           mkdir -p dmg_contents
-          cp -r "dist/Video Chapter Editor.app" dmg_contents/
+          cp -r "dist/Chaptr.app" dmg_contents/
           sync
           sleep 2
-          hdiutil create -volname "Video Chapter Editor" \
+          hdiutil create -volname "Chaptr" \
             -srcfolder dmg_contents \
             -ov -format UDZO \
             "Video-Chapter-Editor-${VERSION}-macOS-Intel.dmg"
@@ -87,16 +87,16 @@ jobs:
         env:
           MACOSX_DEPLOYMENT_TARGET: '11.0'
         run: |
-          pyinstaller video_chapter_editor.spec
+          pyinstaller chaptr.spec
 
       - name: Create DMG
         run: |
           VERSION="${{ github.event.inputs.version || github.ref_name }}"
           mkdir -p dmg_contents
-          cp -r "dist/Video Chapter Editor.app" dmg_contents/
+          cp -r "dist/Chaptr.app" dmg_contents/
           sync
           sleep 2
-          hdiutil create -volname "Video Chapter Editor" \
+          hdiutil create -volname "Chaptr" \
             -srcfolder dmg_contents \
             -ov -format UDZO \
             "Video-Chapter-Editor-${VERSION}-macOS-AppleSilicon.dmg"
@@ -149,21 +149,21 @@ jobs:
             --windows-console-mode=disable `
             --windows-icon-from-ico=assets/icon.ico `
             --enable-plugin=pyside6 `
-            --include-package=media_scribe_workflow `
+            --include-package=chaptr `
             --include-module=cv2 `
             --include-module=psutil `
             --include-data-dir="${{ steps.ffmpeg-path.outputs.FFMPEG_BIN_DIR }}=static_ffmpeg/bin" `
-            --output-filename=VideoChapterEditor.exe `
+            --output-filename=Chaptr.exe `
             --output-dir=dist `
-            run_video_chapter_editor.py
+            run_chaptr.py
 
       - name: Create ZIP
         run: |
           $version = "${{ github.event.inputs.version }}"
           if (-not $version) { $version = "${{ github.ref_name }}" }
-          # VideoChapterEditor.exeとyt-dlp.exeを同梱
+          # Chaptr.exeとyt-dlp.exeを同梱
           New-Item -ItemType Directory -Path "dist/package" -Force
-          Copy-Item "dist/VideoChapterEditor.exe" "dist/package/"
+          Copy-Item "dist/Chaptr.exe" "dist/package/"
           Copy-Item "yt-dlp.exe" "dist/package/"
           Compress-Archive -Path "dist/package/*" `
             -DestinationPath "Video-Chapter-Editor-${version}-Windows.zip"

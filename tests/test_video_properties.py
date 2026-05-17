@@ -2,7 +2,7 @@
 
 import pytest
 
-from media_scribe_workflow.ui.models import (
+from chaptr.ui.models import (
     VideoProperties,
     calculate_target_properties,
     build_scaling_filter,

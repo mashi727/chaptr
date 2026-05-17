@@ -10,7 +10,7 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 
-from media_scribe_workflow.ui.ffmpeg_utils import (
+from chaptr.ui.ffmpeg_utils import (
     reset_ffmpeg_cache,
     get_ffmpeg_path,
     get_ffprobe_path,
@@ -108,7 +108,7 @@ class TestSubprocessKwargs:
         kwargs = get_subprocess_kwargs()
         assert kwargs.get("errors") == "replace"
 
-    @patch('media_scribe_workflow.ui.ffmpeg_utils.is_windows')
+    @patch('chaptr.ui.ffmpeg_utils.is_windows')
     def test_get_subprocess_kwargs_windows(self, mock_is_windows):
         """Windows環境でのkwargs"""
         import sys
@@ -120,7 +120,7 @@ class TestSubprocessKwargs:
 
         assert "creationflags" in kwargs
 
-    @patch('media_scribe_workflow.ui.ffmpeg_utils.is_windows')
+    @patch('chaptr.ui.ffmpeg_utils.is_windows')
     def test_get_subprocess_kwargs_non_windows(self, mock_is_windows):
         """非Windows環境でのkwargs"""
         mock_is_windows.return_value = False
@@ -133,7 +133,7 @@ class TestSubprocessKwargs:
         kwargs = get_popen_kwargs()
         assert isinstance(kwargs, dict)
 
-    @patch('media_scribe_workflow.ui.ffmpeg_utils.is_windows')
+    @patch('chaptr.ui.ffmpeg_utils.is_windows')
     def test_get_popen_kwargs_windows(self, mock_is_windows):
         """Windows環境でのPopen kwargs"""
         import sys
@@ -145,7 +145,7 @@ class TestSubprocessKwargs:
 
         assert "creationflags" in kwargs
 
-    @patch('media_scribe_workflow.ui.ffmpeg_utils.is_windows')
+    @patch('chaptr.ui.ffmpeg_utils.is_windows')
     def test_get_popen_kwargs_non_windows(self, mock_is_windows):
         """非Windows環境でのPopen kwargs"""
         mock_is_windows.return_value = False
@@ -257,7 +257,7 @@ Chapter #0:0: start 0.000000, end 60.000000
         # 空の出力ではチャプターなし
         assert len(chapters) == 0
 
-    @patch('media_scribe_workflow.ui.ffmpeg_utils.get_ffmpeg_path')
+    @patch('chaptr.ui.ffmpeg_utils.get_ffmpeg_path')
     @patch('subprocess.run')
     def test_extract_chapters_with_ffmpeg_mock(self, mock_run, mock_ffmpeg):
         """extract_chapters_with_ffmpeg のモックテスト"""
@@ -294,7 +294,7 @@ class TestFFmpegAvailability:
         result = check_ffprobe_available()
         assert isinstance(result, bool)
 
-    @patch('media_scribe_workflow.ui.ffmpeg_utils.get_ffmpeg_path')
+    @patch('chaptr.ui.ffmpeg_utils.get_ffmpeg_path')
     def test_check_ffmpeg_available_not_found(self, mock_get_path):
         """FFmpegが見つからない場合"""
         mock_get_path.side_effect = RuntimeError("FFmpegが見つかりません")
@@ -302,7 +302,7 @@ class TestFFmpegAvailability:
         result = check_ffmpeg_available()
         assert result is False
 
-    @patch('media_scribe_workflow.ui.ffmpeg_utils.get_ffprobe_path')
+    @patch('chaptr.ui.ffmpeg_utils.get_ffprobe_path')
     def test_check_ffprobe_available_not_found(self, mock_get_path):
         """FFprobeが見つからない場合"""
         mock_get_path.side_effect = RuntimeError("FFprobeが見つかりません")
@@ -323,7 +323,7 @@ class TestFFmpegVersion:
             assert isinstance(version, str)
             assert "ffmpeg" in version.lower()
 
-    @patch('media_scribe_workflow.ui.ffmpeg_utils.get_ffmpeg_path')
+    @patch('chaptr.ui.ffmpeg_utils.get_ffmpeg_path')
     @patch('subprocess.run')
     def test_get_ffmpeg_version_mock(self, mock_run, mock_ffmpeg):
         """バージョン取得のモックテスト"""
@@ -346,7 +346,7 @@ class TestBundledBinaryDir:
     def test_platform_directory_names(self):
         """プラットフォーム別ディレクトリ名"""
         # ロジックのテスト
-        from media_scribe_workflow.utils import is_macos, is_windows
+        from chaptr.utils import is_macos, is_windows
 
         if is_macos():
             expected_dir = 'darwin'

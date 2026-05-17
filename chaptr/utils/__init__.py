@@ -1,5 +1,5 @@
 """
-media_scribe_workflow.utils - クロスプラットフォームユーティリティ
+chaptr.utils - クロスプラットフォームユーティリティ
 """
 
 from .compat import (

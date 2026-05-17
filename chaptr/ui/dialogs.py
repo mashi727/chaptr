@@ -1786,7 +1786,7 @@ class ExportSettingsDialog(QDialog):
         self._cover_image = cover_image  # QImage or None
         self._work_dir = work_dir or Path.cwd()  # デフォルトのwork_dir
         self._output_dir = None  # ユーザー選択の出力ディレクトリ
-        self._settings = QSettings("mashi727", "VideoChapterEditor")
+        self._settings = QSettings("mashi727", "Chaptr")
         self._setup_ui()
         self._load_settings()
         self._update_cover_preview()
@@ -2175,7 +2175,7 @@ class ExportSettingsDialog(QDialog):
     @staticmethod
     def load_settings_static() -> dict:
         """静的メソッド: QSettingsから設定を読み込み (ダイアログを開かずに)"""
-        settings = QSettings("mashi727", "VideoChapterEditor")
+        settings = QSettings("mashi727", "Chaptr")
         output_dir_str = settings.value(ExportSettingsDialog.SETTINGS_KEY_OUTPUT_DIR, "")
         output_dir = Path(output_dir_str) if output_dir_str and Path(output_dir_str).exists() else None
         return {
@@ -2191,7 +2191,7 @@ class ExportSettingsDialog(QDialog):
     @staticmethod
     def save_settings_static(encode_settings: dict):
         """静的メソッド: QSettingsに設定を保存 (ダイアログを開かずに)"""
-        settings = QSettings("mashi727", "VideoChapterEditor")
+        settings = QSettings("mashi727", "Chaptr")
         if "encoder" in encode_settings:
             settings.setValue(ExportSettingsDialog.SETTINGS_KEY_ENCODER, encode_settings["encoder"])
         if "quality_index" in encode_settings:

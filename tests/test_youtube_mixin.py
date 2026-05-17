@@ -5,7 +5,7 @@ GUIに依存しない純粋関数部分のみをテスト。
 
 import pytest
 
-from media_scribe_workflow.ui.youtube_mixin import YouTubeDownloadMixin
+from chaptr.ui.youtube_mixin import YouTubeDownloadMixin
 
 
 class TestYouTubeDownloadMixin:

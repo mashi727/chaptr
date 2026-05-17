@@ -6,12 +6,12 @@ import pytest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from media_scribe_workflow.ui.managers import (
+from chaptr.ui.managers import (
     ExportOrchestrator,
     ExportSettings,
     ExportState,
 )
-from media_scribe_workflow.ui.models import SourceFile, ChapterInfo
+from chaptr.ui.models import SourceFile, ChapterInfo
 
 
 class TestExportOrchestratorImport:
@@ -144,7 +144,7 @@ class TestExportOrchestratorIntegration:
     def test_main_workspace_has_export_orchestrator(self):
         """MainWorkspaceにExportOrchestratorがある"""
         # This test requires QApplication, so we just check the import
-        from media_scribe_workflow.ui.main_workspace import MainWorkspace
+        from chaptr.ui.main_workspace import MainWorkspace
         # The class should have the attribute defined in __init__
         # We can't instantiate without QApplication, but we can check the code
         import inspect
@@ -155,7 +155,7 @@ class TestExportOrchestratorIntegration:
     @pytest.mark.skip(reason="ExportOrchestrator統合は未実装 - Phase 3.4残作業")
     def test_main_workspace_has_extra_project_data(self):
         """MainWorkspaceに_extra_project_data属性がある"""
-        from media_scribe_workflow.ui.main_workspace import MainWorkspace
+        from chaptr.ui.main_workspace import MainWorkspace
         import inspect
         source = inspect.getsource(MainWorkspace.__init__)
         assert "_extra_project_data" in source
@@ -163,7 +163,7 @@ class TestExportOrchestratorIntegration:
     @pytest.mark.skip(reason="ExportOrchestrator統合は未実装 - Phase 3.4残作業")
     def test_main_workspace_load_project_preserves_extra_sections(self):
         """load_projectがVCE管理外のセクションを保持する"""
-        from media_scribe_workflow.ui.main_workspace import MainWorkspace
+        from chaptr.ui.main_workspace import MainWorkspace
         import inspect
         source = inspect.getsource(MainWorkspace.load_project)
         assert "vce_managed_keys" in source
@@ -172,7 +172,7 @@ class TestExportOrchestratorIntegration:
     @pytest.mark.skip(reason="ExportOrchestrator統合は未実装 - Phase 3.4残作業")
     def test_main_workspace_save_project_merges_extra_sections(self):
         """save_projectが外部セクションをマージする"""
-        from media_scribe_workflow.ui.main_workspace import MainWorkspace
+        from chaptr.ui.main_workspace import MainWorkspace
         import inspect
         source = inspect.getsource(MainWorkspace.save_project)
         assert "_extra_project_data" in source

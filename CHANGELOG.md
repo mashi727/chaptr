@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **Rebrand to Chaptr**: GUI を `media-scribe-workflow` から本リポジトリ `chaptr` として分離・改名
+- Python パッケージ名を `media_scribe_workflow` から `chaptr` に変更
+- エントリポイントスクリプトを `run_chaptr.py`、PyInstaller spec を `chaptr.spec` に rename
+- README を GUI 専用に書き直し（CLI ツール群への言及を関連プロジェクトとして整理）
+
+### Removed
+
+- 壊れた `scribe-workflow` script エントリポイント（`pyproject.toml`）
+
 ## [2.1.34] - 2026-01-12
 
 ### Fixed
@@ -29,7 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Windows版Nuitkaビルドのメモリ不足エラーを解決
   - yt-dlpを外部実行ファイルとして同梱（yt-dlp.exe）
-  - VideoChapterEditor.exeとyt-dlp.exeの2ファイル構成
+  - Chaptr.exeとyt-dlp.exeの2ファイル構成
 
 ---
 
@@ -88,8 +101,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- リポジトリ名を `rehearsal-workflow` から `media-scribe-workflow` に変更
-- パッケージ名を `rehearsal_workflow` から `media_scribe_workflow` に変更
+- リポジトリ名を `rehearsal-workflow` から `media-scribe-workflow` に変更（後に GUI を `chaptr` リポジトリへ分離）
+- パッケージ名を `rehearsal_workflow` から `media_scribe_workflow` に変更（後に `chaptr` にリネーム）
 - アプリアイコンをTokyoNightテーマに更新
 - 開発ログを `dev_logs/` と `dev_logs_tex/` に整理
 
@@ -106,7 +119,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 | コマンド | モジュール | 説明 |
 |----------|-----------|------|
-| video-chapter-editor | video_chapter_editor.py | 動画チャプター編集・書出 |
+| chaptr | chaptr.py | 動画チャプター編集・書出 |
 | report-workflow | report_workflow.py | レポート生成ワークフロー |
 
 ### インストール
@@ -124,7 +137,7 @@ pip install rehearsal-workflow
 ##### pip installサポート
 - `pyproject.toml`追加（hatchlingビルドシステム）
 - `pip install rehearsal-workflow`でインストール可能
-- エントリーポイント: `video-chapter-editor`, `report-workflow`
+- エントリーポイント: `chaptr`, `report-workflow`
 
 ##### GitHub Actionsリリース自動化
 - `.github/workflows/release.yml`追加
@@ -139,7 +152,7 @@ pip install rehearsal-workflow
 
 ---
 
-### video-chapter-editor（旧 prep_gui.py）
+### chaptr（旧 prep_gui.py）
 
 #### 2025-12-27
 

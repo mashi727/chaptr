@@ -1,5 +1,5 @@
 """
-media_scribe_workflow.utils.compat - クロスプラットフォーム互換性ユーティリティ
+chaptr.utils.compat - クロスプラットフォーム互換性ユーティリティ
 
 プラットフォーム判定、フォント検出、パス処理を統一的に提供する。
 """

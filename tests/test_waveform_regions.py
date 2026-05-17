@@ -4,7 +4,7 @@
 GUIコンポーネントに依存しない純粋なロジックテスト。
 """
 
-from media_scribe_workflow.ui.models import ChapterInfo
+from chaptr.ui.models import ChapterInfo
 
 
 class TestExcludedRegionsCalculation:

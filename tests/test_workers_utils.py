@@ -4,8 +4,8 @@ import pytest
 from dataclasses import dataclass
 from pathlib import Path
 
-from media_scribe_workflow.ui.workers import build_drawtext_filter, calculate_extraction_plan, SegmentInfo
-from media_scribe_workflow.ui.models import ChapterInfo, SourceFile
+from chaptr.ui.workers import build_drawtext_filter, calculate_extraction_plan, SegmentInfo
+from chaptr.ui.models import ChapterInfo, SourceFile
 
 
 class TestBuildDrawtextFilter:

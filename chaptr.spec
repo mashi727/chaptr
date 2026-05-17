@@ -1,9 +1,9 @@
 # -*- mode: python ; coding: utf-8 -*-
 """
-PyInstaller spec file for Video Chapter Editor
+PyInstaller spec file for Chaptr
 
 Usage:
-    pyinstaller video_chapter_editor.spec
+    pyinstaller chaptr.spec
 """
 
 import sys
@@ -32,11 +32,11 @@ block_cipher = None
 static_ffmpeg_datas = get_static_ffmpeg_binaries()
 
 a = Analysis(
-    ['run_video_chapter_editor.py'],
+    ['run_chaptr.py'],
     pathex=[],
     binaries=[],
     datas=[
-        ('media_scribe_workflow', 'media_scribe_workflow'),
+        ('chaptr', 'chaptr'),
     ] + static_ffmpeg_datas,
     hiddenimports=[
         'PySide6.QtCore',
@@ -57,19 +57,19 @@ a = Analysis(
         'yt_dlp.utils',
         'yt_dlp.version',
         # アプリモジュール
-        'media_scribe_workflow',
-        'media_scribe_workflow.ui',
-        'media_scribe_workflow.ui.app',
-        'media_scribe_workflow.ui.main_workspace',
-        'media_scribe_workflow.ui.dialogs',
-        'media_scribe_workflow.ui.models',
-        'media_scribe_workflow.ui.log_panel',
-        'media_scribe_workflow.ui.ffmpeg_utils',
-        'media_scribe_workflow.ui.workers',
-        'media_scribe_workflow.ui.widgets',
-        'media_scribe_workflow.ui.widgets.waveform',
-        'media_scribe_workflow.ui.widgets.file_dialog',
-        'media_scribe_workflow.ui.updater',
+        'chaptr',
+        'chaptr.ui',
+        'chaptr.ui.app',
+        'chaptr.ui.main_workspace',
+        'chaptr.ui.dialogs',
+        'chaptr.ui.models',
+        'chaptr.ui.log_panel',
+        'chaptr.ui.ffmpeg_utils',
+        'chaptr.ui.workers',
+        'chaptr.ui.widgets',
+        'chaptr.ui.widgets.waveform',
+        'chaptr.ui.widgets.file_dialog',
+        'chaptr.ui.updater',
     ],
     hookspath=[],
     hooksconfig={},
@@ -137,7 +137,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='Video Chapter Editor',
+    name='Chaptr',
     debug=False,
     bootloader_ignore_signals=False,
     strip=True,  # Strip symbols to reduce size
@@ -158,16 +158,16 @@ coll = COLLECT(
     strip=True,  # Strip symbols
     upx=True,
     upx_exclude=[],
-    name='Video Chapter Editor',
+    name='Chaptr',
 )
 
 # macOS app bundle
 if sys.platform == 'darwin':
     app = BUNDLE(
         coll,
-        name='Video Chapter Editor.app',
+        name='Chaptr.app',
         icon='assets/icon.icns',
-        bundle_identifier='com.mashi727.video-chapter-editor',
+        bundle_identifier='com.mashi727.chaptr',
         info_plist={
             'CFBundleShortVersionString': '2.1.27',
             'CFBundleVersion': '2.1.27',

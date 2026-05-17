@@ -12,14 +12,14 @@ class TestChapterTableSignals:
 
     def test_chapter_table_controller_exists(self):
         """ChapterTableController が存在する"""
-        from media_scribe_workflow.ui.controllers.chapter_table_controller import (
+        from chaptr.ui.controllers.chapter_table_controller import (
             ChapterTableController
         )
         assert ChapterTableController is not None
 
     def test_chapter_table_controller_has_selection_changed_signal(self):
         """ChapterTableController に selection_changed シグナルがある"""
-        from media_scribe_workflow.ui.controllers.chapter_table_controller import (
+        from chaptr.ui.controllers.chapter_table_controller import (
             ChapterTableController
         )
         assert hasattr(ChapterTableController, 'selection_changed')
@@ -30,7 +30,7 @@ class TestChapterClickSeekBehavior:
 
     def test_on_chapter_clicked_performs_seek(self):
         """_on_chapter_clicked でシーク操作が行われる"""
-        from media_scribe_workflow.ui.main_workspace import MainWorkspace
+        from chaptr.ui.main_workspace import MainWorkspace
         source = inspect.getsource(MainWorkspace._on_chapter_clicked)
 
         # シーク関連のコードがあることを確認
@@ -42,7 +42,7 @@ class TestChapterClickSeekBehavior:
         Note: 現在の実装はテーブルから直接取得している。
         将来的には ChapterManager 経由で取得すべき。
         """
-        from media_scribe_workflow.ui.main_workspace import MainWorkspace
+        from chaptr.ui.main_workspace import MainWorkspace
         source = inspect.getsource(MainWorkspace._on_chapter_clicked)
 
         # テーブルから時間を取得
@@ -50,7 +50,7 @@ class TestChapterClickSeekBehavior:
 
     def test_on_chapter_clicked_parses_time_with_chapter_info(self):
         """_on_chapter_clicked は ChapterInfo を使って時間をパースする"""
-        from media_scribe_workflow.ui.main_workspace import MainWorkspace
+        from chaptr.ui.main_workspace import MainWorkspace
         source = inspect.getsource(MainWorkspace._on_chapter_clicked)
 
         # ChapterInfo.from_time_str を使用
@@ -62,7 +62,7 @@ class TestChapterSelectionBehavior:
 
     def test_selection_changed_does_not_trigger_seek(self):
         """選択変更だけではシークしない"""
-        from media_scribe_workflow.ui.main_workspace import MainWorkspace
+        from chaptr.ui.main_workspace import MainWorkspace
         source = inspect.getsource(MainWorkspace._on_chapter_selection_changed)
 
         # シーク関連のコードがないことを確認
@@ -71,7 +71,7 @@ class TestChapterSelectionBehavior:
 
     def test_selection_and_click_are_separate(self):
         """選択とクリックは別のハンドラで処理される"""
-        from media_scribe_workflow.ui.main_workspace import MainWorkspace
+        from chaptr.ui.main_workspace import MainWorkspace
 
         # 両方のメソッドが存在する
         assert hasattr(MainWorkspace, '_on_chapter_selection_changed')
@@ -88,12 +88,12 @@ class TestChapterHighlighting:
 
     def test_highlight_current_chapter_exists(self):
         """_highlight_current_chapter メソッドが存在する"""
-        from media_scribe_workflow.ui.main_workspace import MainWorkspace
+        from chaptr.ui.main_workspace import MainWorkspace
         assert hasattr(MainWorkspace, '_highlight_current_chapter')
 
     def test_highlight_current_chapter_uses_time(self):
         """_highlight_current_chapter は時間（ミリ秒）を使用する"""
-        from media_scribe_workflow.ui.main_workspace import MainWorkspace
+        from chaptr.ui.main_workspace import MainWorkspace
         source = inspect.getsource(MainWorkspace._highlight_current_chapter)
 
         # position パラメータが時間として扱われている
@@ -105,17 +105,17 @@ class TestChapterManagerIntegration:
 
     def test_chapter_manager_get_chapter_method(self):
         """ChapterManager.get_chapter メソッドが存在する"""
-        from media_scribe_workflow.ui.managers.chapter_manager import ChapterManager
+        from chaptr.ui.managers.chapter_manager import ChapterManager
         assert hasattr(ChapterManager, 'get_chapter')
 
     def test_chapter_manager_get_chapter_infos_method(self):
         """ChapterManager.get_chapter_infos メソッドが存在する"""
-        from media_scribe_workflow.ui.managers.chapter_manager import ChapterManager
+        from chaptr.ui.managers.chapter_manager import ChapterManager
         assert hasattr(ChapterManager, 'get_chapter_infos')
 
     def test_main_workspace_has_chapter_manager(self):
         """MainWorkspace は _chapter_manager を持つ"""
-        from media_scribe_workflow.ui.main_workspace import MainWorkspace
+        from chaptr.ui.main_workspace import MainWorkspace
         source = inspect.getsource(MainWorkspace.__init__)
         assert "_chapter_manager" in source
 
@@ -125,12 +125,12 @@ class TestChapterSeekVirtual:
 
     def test_seek_virtual_exists(self):
         """_seek_virtual メソッドが存在する"""
-        from media_scribe_workflow.ui.main_workspace import MainWorkspace
+        from chaptr.ui.main_workspace import MainWorkspace
         assert hasattr(MainWorkspace, '_seek_virtual')
 
     def test_seek_virtual_handles_sources(self):
         """_seek_virtual はソースを処理する"""
-        from media_scribe_workflow.ui.main_workspace import MainWorkspace
+        from chaptr.ui.main_workspace import MainWorkspace
         source = inspect.getsource(MainWorkspace._seek_virtual)
 
         # ソースに関連する処理がある
@@ -138,7 +138,7 @@ class TestChapterSeekVirtual:
 
     def test_seek_virtual_switches_source_if_needed(self):
         """_seek_virtual は必要に応じてソースを切り替える"""
-        from media_scribe_workflow.ui.main_workspace import MainWorkspace
+        from chaptr.ui.main_workspace import MainWorkspace
         source = inspect.getsource(MainWorkspace._seek_virtual)
 
         # ソース切り替えのロジックがある
@@ -150,7 +150,7 @@ class TestChapterTimeCalculation:
 
     def test_get_source_offsets_returns_list(self):
         """_get_source_offsets はリストを返す"""
-        from media_scribe_workflow.ui.main_workspace import MainWorkspace
+        from chaptr.ui.main_workspace import MainWorkspace
         source = inspect.getsource(MainWorkspace._get_source_offsets)
 
         # リストを返す
@@ -159,7 +159,7 @@ class TestChapterTimeCalculation:
 
     def test_get_source_offsets_calculates_offsets(self):
         """_get_source_offsets はオフセットを計算する"""
-        from media_scribe_workflow.ui.main_workspace import MainWorkspace
+        from chaptr.ui.main_workspace import MainWorkspace
         source = inspect.getsource(MainWorkspace._get_source_offsets)
 
         # オフセット計算がある
@@ -174,7 +174,7 @@ class TestChapterTableRowIndexVsTime:
 
     def test_on_chapter_clicked_row_parameter(self):
         """_on_chapter_clicked は row パラメータを受け取る"""
-        from media_scribe_workflow.ui.main_workspace import MainWorkspace
+        from chaptr.ui.main_workspace import MainWorkspace
         sig = inspect.signature(MainWorkspace._on_chapter_clicked)
         params = list(sig.parameters.keys())
 
@@ -183,7 +183,7 @@ class TestChapterTableRowIndexVsTime:
 
     def test_on_chapter_clicked_converts_row_to_time(self):
         """_on_chapter_clicked は行から時間を取得する"""
-        from media_scribe_workflow.ui.main_workspace import MainWorkspace
+        from chaptr.ui.main_workspace import MainWorkspace
         source = inspect.getsource(MainWorkspace._on_chapter_clicked)
 
         # 行インデックスからテーブルアイテムを取得し、時間に変換
@@ -196,12 +196,12 @@ class TestEmbeddedChapters:
 
     def test_load_embedded_chapters_exists(self):
         """_load_embedded_chapters メソッドが存在する"""
-        from media_scribe_workflow.ui.main_workspace import MainWorkspace
+        from chaptr.ui.main_workspace import MainWorkspace
         assert hasattr(MainWorkspace, '_load_embedded_chapters')
 
     def test_load_embedded_chapters_called_for_single_video(self):
         """単一動画読み込み時に埋め込みチャプターが読み込まれる"""
-        from media_scribe_workflow.ui.main_workspace import MainWorkspace
+        from chaptr.ui.main_workspace import MainWorkspace
         source = inspect.getsource(MainWorkspace._load_source_media)
 
         # 単一ファイル時に _load_embedded_chapters が呼ばれる
@@ -227,7 +227,7 @@ class TestChapterAddRemove:
 
     def test_add_chapter_at_position_exists(self):
         """_add_chapter_at_position メソッドが存在する"""
-        from media_scribe_workflow.ui.main_workspace import MainWorkspace
+        from chaptr.ui.main_workspace import MainWorkspace
         assert hasattr(MainWorkspace, '_add_chapter_at_position')
 
     def test_add_chapter_updates_table(self):
@@ -236,7 +236,7 @@ class TestChapterAddRemove:
         Note: 現在の実装はテーブルを直接更新。
         将来的には ChapterManager 経由で管理すべき。
         """
-        from media_scribe_workflow.ui.main_workspace import MainWorkspace
+        from chaptr.ui.main_workspace import MainWorkspace
         source = inspect.getsource(MainWorkspace._add_chapter_at_position)
 
         # テーブルへの行挿入
@@ -244,7 +244,7 @@ class TestChapterAddRemove:
 
     def test_remove_chapter_exists(self):
         """_remove_chapter メソッドが存在する"""
-        from media_scribe_workflow.ui.main_workspace import MainWorkspace
+        from chaptr.ui.main_workspace import MainWorkspace
         assert hasattr(MainWorkspace, '_remove_chapter')
 
 
@@ -253,7 +253,7 @@ class TestChapterTableUIConsistency:
 
     def test_table_row_count_matches_chapter_count(self):
         """テーブル行数とチャプター数の整合性を取るメソッドがある"""
-        from media_scribe_workflow.ui.main_workspace import MainWorkspace
+        from chaptr.ui.main_workspace import MainWorkspace
 
         # _load_chapters_to_table または同等のメソッドが存在
         assert hasattr(MainWorkspace, '_load_chapters_to_table') or \
@@ -261,7 +261,7 @@ class TestChapterTableUIConsistency:
 
     def test_main_workspace_initializes_chapter_manager(self):
         """MainWorkspace は ChapterManager を初期化する"""
-        from media_scribe_workflow.ui.main_workspace import MainWorkspace
+        from chaptr.ui.main_workspace import MainWorkspace
         source = inspect.getsource(MainWorkspace.__init__)
 
         # ChapterManager の初期化
@@ -278,22 +278,22 @@ class TestChapterManagerExpectedUsage:
 
     def test_chapter_manager_has_add_chapter(self):
         """ChapterManager には add_chapter メソッドがある"""
-        from media_scribe_workflow.ui.managers.chapter_manager import ChapterManager
+        from chaptr.ui.managers.chapter_manager import ChapterManager
         assert hasattr(ChapterManager, 'add_chapter')
 
     def test_chapter_manager_has_remove_chapter(self):
         """ChapterManager には remove_chapter メソッドがある"""
-        from media_scribe_workflow.ui.managers.chapter_manager import ChapterManager
+        from chaptr.ui.managers.chapter_manager import ChapterManager
         assert hasattr(ChapterManager, 'remove_chapter')
 
     def test_chapter_manager_has_clear(self):
         """ChapterManager には clear メソッドがある"""
-        from media_scribe_workflow.ui.managers.chapter_manager import ChapterManager
+        from chaptr.ui.managers.chapter_manager import ChapterManager
         assert hasattr(ChapterManager, 'clear')
 
     def test_chapter_manager_emits_signals(self):
         """ChapterManager はシグナルを発行する"""
-        from media_scribe_workflow.ui.managers.chapter_manager import ChapterManager
+        from chaptr.ui.managers.chapter_manager import ChapterManager
 
         # シグナルが定義されている
         assert hasattr(ChapterManager, 'chapter_added')

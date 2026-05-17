@@ -3,7 +3,7 @@
 WaveformWidgetの除外区間計算、ExportWorkerの除外処理など。
 """
 
-from media_scribe_workflow.ui.models import ChapterInfo
+from chaptr.ui.models import ChapterInfo
 
 
 class TestExcludedRegionsCalculation:

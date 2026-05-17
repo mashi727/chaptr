@@ -2,7 +2,7 @@
 
 import pytest
 
-from media_scribe_workflow.ui.styles import Colors, ButtonStyles
+from chaptr.ui.styles import Colors, ButtonStyles
 
 
 class TestColors:

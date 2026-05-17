@@ -6,7 +6,7 @@ import sys
 import pytest
 from pathlib import Path
 
-from media_scribe_workflow.utils import (
+from chaptr.utils import (
     is_macos,
     is_windows,
     is_linux,

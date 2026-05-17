@@ -3,7 +3,7 @@
 コピー/ペースト、フォーマット変換など。
 """
 
-from media_scribe_workflow.ui.models import ChapterInfo, _parse_time_str
+from chaptr.ui.models import ChapterInfo, _parse_time_str
 
 
 class TestYouTubeTimeFormat:

@@ -743,7 +743,7 @@ class ExportWorker(QThread, TempFileManagerMixin, CancellableWorkerMixin):
     def _export_audio_with_cover(self):
         """音声ファイル + カバー画像 → 動画としてエクスポート
 
-        video_chapter_editor.py と同じ処理:
+        chaptr.py と同じ処理:
         - 除外区間（--で始まるチャプター）のカット
         - 調整後チャプター時間の使用
         - チャプター埋め込み、タイトル焼き込み
@@ -1161,7 +1161,7 @@ class ExportWorker(QThread, TempFileManagerMixin, CancellableWorkerMixin):
 class WaveformWorker(QObject):
     """波形データ生成ワーカー（別スレッドで実行）
 
-    video_chapter_editor.py と同じ処理:
+    chaptr.py と同じ処理:
     - パイプ経由で直接データ読み込み（ディスクI/O回避）
     - 98パーセンタイル正規化（上位2%のスパイクを無視）
     - ソフトクリッピング（tanh）

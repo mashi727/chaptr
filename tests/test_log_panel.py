@@ -14,17 +14,17 @@ class TestLogPanelImport:
 
     def test_import_log_panel(self):
         """LogPanelがインポートできる"""
-        from media_scribe_workflow.ui.log_panel import LogPanel
+        from chaptr.ui.log_panel import LogPanel
         assert LogPanel is not None
 
     def test_import_log_level(self):
         """LogLevelがインポートできる"""
-        from media_scribe_workflow.ui.log_panel import LogLevel
+        from chaptr.ui.log_panel import LogLevel
         assert LogLevel is not None
 
     def test_import_log_entry(self):
         """LogEntryがインポートできる"""
-        from media_scribe_workflow.ui.log_panel import LogEntry
+        from chaptr.ui.log_panel import LogEntry
         assert LogEntry is not None
 
 
@@ -33,7 +33,7 @@ class TestLogLevel:
 
     def test_log_levels_exist(self):
         """全ログレベルが存在する"""
-        from media_scribe_workflow.ui.log_panel import LogLevel
+        from chaptr.ui.log_panel import LogLevel
         assert LogLevel.DEBUG is not None
         assert LogLevel.INFO is not None
         assert LogLevel.WARNING is not None
@@ -41,7 +41,7 @@ class TestLogLevel:
 
     def test_log_level_ordering(self):
         """ログレベルは昇順（DEBUG < INFO < WARNING < ERROR）"""
-        from media_scribe_workflow.ui.log_panel import LogLevel
+        from chaptr.ui.log_panel import LogLevel
         assert LogLevel.DEBUG < LogLevel.INFO
         assert LogLevel.INFO < LogLevel.WARNING
         assert LogLevel.WARNING < LogLevel.ERROR
@@ -52,7 +52,7 @@ class TestLogEntry:
 
     def test_log_entry_creation(self):
         """LogEntryが正しく作成される"""
-        from media_scribe_workflow.ui.log_panel import LogEntry, LogLevel
+        from chaptr.ui.log_panel import LogEntry, LogLevel
 
         now = datetime.now()
         entry = LogEntry(
@@ -69,7 +69,7 @@ class TestLogEntry:
 
     def test_log_entry_default_source(self):
         """sourceはデフォルトで空文字列"""
-        from media_scribe_workflow.ui.log_panel import LogEntry, LogLevel
+        from chaptr.ui.log_panel import LogEntry, LogLevel
 
         entry = LogEntry(
             timestamp=datetime.now(),
@@ -88,7 +88,7 @@ class TestLogPanelReentryPrevention:
 
     def test_is_logging_flag_initially_false(self):
         """_is_loggingフラグは初期状態でFalse"""
-        from media_scribe_workflow.ui.log_panel import LogPanel
+        from chaptr.ui.log_panel import LogPanel
         # LogPanelクラスの__init__を検査
         import inspect
         source = inspect.getsource(LogPanel.__init__)
@@ -96,7 +96,7 @@ class TestLogPanelReentryPrevention:
 
     def test_log_method_has_reentry_guard(self):
         """logメソッドに再入防止ガードがある"""
-        from media_scribe_workflow.ui.log_panel import LogPanel
+        from chaptr.ui.log_panel import LogPanel
         import inspect
         source = inspect.getsource(LogPanel.log)
         assert "if self._is_logging:" in source
@@ -106,7 +106,7 @@ class TestLogPanelReentryPrevention:
 
     def test_log_returns_early_when_logging(self):
         """_is_logging=Trueの場合、logメソッドは即座にreturnする"""
-        from media_scribe_workflow.ui.log_panel import LogPanel
+        from chaptr.ui.log_panel import LogPanel
         import inspect
         source = inspect.getsource(LogPanel.log)
         # _is_loggingチェック後にreturnがあることを確認
@@ -126,13 +126,13 @@ class TestLogPanelMaxEntries:
 
     def test_max_entries_constant_exists(self):
         """MAX_ENTRIES定数が定義されている"""
-        from media_scribe_workflow.ui.log_panel import LogPanel
+        from chaptr.ui.log_panel import LogPanel
         assert hasattr(LogPanel, 'MAX_ENTRIES')
         assert LogPanel.MAX_ENTRIES > 0
 
     def test_max_entries_default_value(self):
         """MAX_ENTRIESは5000"""
-        from media_scribe_workflow.ui.log_panel import LogPanel
+        from chaptr.ui.log_panel import LogPanel
         assert LogPanel.MAX_ENTRIES == 5000
 
 
@@ -141,7 +141,7 @@ class TestLogPanelLevelColors:
 
     def test_level_colors_defined(self):
         """全ログレベルのカラーが定義されている"""
-        from media_scribe_workflow.ui.log_panel import LogPanel, LogLevel
+        from chaptr.ui.log_panel import LogPanel, LogLevel
 
         assert LogLevel.DEBUG in LogPanel.LEVEL_COLORS
         assert LogLevel.INFO in LogPanel.LEVEL_COLORS
@@ -150,7 +150,7 @@ class TestLogPanelLevelColors:
 
     def test_level_names_defined(self):
         """全ログレベルの名前が定義されている"""
-        from media_scribe_workflow.ui.log_panel import LogPanel, LogLevel
+        from chaptr.ui.log_panel import LogPanel, LogLevel
 
         assert LogLevel.DEBUG in LogPanel.LEVEL_NAMES
         assert LogLevel.INFO in LogPanel.LEVEL_NAMES
@@ -163,24 +163,24 @@ class TestLogPanelConvenienceMethods:
 
     def test_debug_method_exists(self):
         """debugメソッドが存在する"""
-        from media_scribe_workflow.ui.log_panel import LogPanel
+        from chaptr.ui.log_panel import LogPanel
         assert hasattr(LogPanel, 'debug')
         assert callable(getattr(LogPanel, 'debug'))
 
     def test_info_method_exists(self):
         """infoメソッドが存在する"""
-        from media_scribe_workflow.ui.log_panel import LogPanel
+        from chaptr.ui.log_panel import LogPanel
         assert hasattr(LogPanel, 'info')
         assert callable(getattr(LogPanel, 'info'))
 
     def test_warning_method_exists(self):
         """warningメソッドが存在する"""
-        from media_scribe_workflow.ui.log_panel import LogPanel
+        from chaptr.ui.log_panel import LogPanel
         assert hasattr(LogPanel, 'warning')
         assert callable(getattr(LogPanel, 'warning'))
 
     def test_error_method_exists(self):
         """errorメソッドが存在する"""
-        from media_scribe_workflow.ui.log_panel import LogPanel
+        from chaptr.ui.log_panel import LogPanel
         assert hasattr(LogPanel, 'error')
         assert callable(getattr(LogPanel, 'error'))

@@ -1,5 +1,5 @@
 """
-Theme manager for Video Chapter Editor.
+Theme manager for Chaptr.
 
 Manages Base16 color schemes, semantic color roles, and spectrogram settings.
 Provides a singleton interface for theme access throughout the application.

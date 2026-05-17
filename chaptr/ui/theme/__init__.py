@@ -1,5 +1,5 @@
 """
-Theme module for Video Chapter Editor.
+Theme module for Chaptr.
 
 Provides Base16 color scheme support and Matplotlib colormaps for spectrogram.
 """

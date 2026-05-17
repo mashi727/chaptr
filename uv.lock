@@ -444,7 +444,7 @@ wheels = [
 ]
 
 [[package]]
-name = "media-scribe-workflow"
+name = "chaptr"
 version = "2.1.35"
 source = { editable = "." }
 dependencies = [

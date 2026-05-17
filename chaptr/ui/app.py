@@ -1,7 +1,7 @@
 """
 app.py - アプリケーションメインウィンドウ
 
-Video Chapter Editor v2.0 エントリーポイント。
+Chaptr v2.0 エントリーポイント。
 クロスプラットフォーム対応（macOS / Windows）
 """
 
@@ -99,9 +99,9 @@ def get_ui_font(size: int = 13) -> QFont:
     return font
 
 
-class VideoChapterEditor(QMainWindow):
+class Chaptr(QMainWindow):
     """
-    Video Chapter Editor v2.0
+    Chaptr v2.0
 
     単一画面 + ダイアログパターンのメインウィンドウ。
     """
@@ -130,7 +130,7 @@ class VideoChapterEditor(QMainWindow):
 
     def _setup_window(self):
         """ウィンドウ設定"""
-        self.setWindowTitle(f"Video Chapter Editor - {self.VERSION}")
+        self.setWindowTitle(f"Chaptr - {self.VERSION}")
 
         # リサイズ可能（アスペクト比維持）
         self.resize(WINDOW_WIDTH, WINDOW_HEIGHT)
@@ -300,7 +300,7 @@ class VideoChapterEditor(QMainWindow):
 
         # ログパネルにアクセス
         log = self._workspace.get_log_panel()
-        log.info(f"Video Chapter Editor {self.VERSION} started", source="App")
+        log.info(f"Chaptr {self.VERSION} started", source="App")
         log.info(f"Working directory: {self._work_dir}", source="App")
 
     def _setup_statusbar(self):
@@ -370,7 +370,7 @@ class VideoChapterEditor(QMainWindow):
 
     def _batch_export(self):
         """バッチエンコード: 複数のプロジェクトファイルを処理"""
-        from media_scribe_workflow.ui.dialogs import BatchEncodeDialog
+        from chaptr.ui.dialogs import BatchEncodeDialog
 
         dialog = BatchEncodeDialog(
             work_dir=self._work_dir,
@@ -466,7 +466,7 @@ class VideoChapterEditor(QMainWindow):
     def _show_about(self):
         """About表示"""
         about_text = f"""
-<h2>Video Chapter Editor</h2>
+<h2>Chaptr</h2>
 <p><b>Version {self.VERSION}</b></p>
 <p>動画チャプター編集・書出ツール</p>
 
@@ -484,7 +484,7 @@ class VideoChapterEditor(QMainWindow):
 <p><a href="https://github.com/mashi727/rehearsal-workflow">GitHub</a></p>
 """
         msg = QMessageBox(self)
-        msg.setWindowTitle("About Video Chapter Editor")
+        msg.setWindowTitle("About Chaptr")
         msg.setTextFormat(Qt.TextFormat.RichText)
         msg.setText(about_text)
         msg.setIcon(QMessageBox.Icon.Information)
@@ -572,7 +572,7 @@ class VideoChapterEditor(QMainWindow):
 
     def _browse_work_dir(self):
         """作業ディレクトリ選択ダイアログを開く"""
-        from media_scribe_workflow.ui.dialogs import SourceSelectionDialog, QDialog
+        from chaptr.ui.dialogs import SourceSelectionDialog, QDialog
 
         dialog = SourceSelectionDialog(
             parent=self,
@@ -855,7 +855,7 @@ def main():
         if not work_dir.is_dir():
             work_dir = None
 
-    window = VideoChapterEditor(work_dir)
+    window = Chaptr(work_dir)
     window.show()
 
     sys.exit(app.exec())

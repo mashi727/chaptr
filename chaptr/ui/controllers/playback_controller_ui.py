@@ -29,7 +29,7 @@ def get_icon_path(icon_name: str) -> Path:
     """アイコンファイルのパスを取得（開発/バンドル両対応）"""
     if getattr(sys, 'frozen', False):
         # PyInstallerバンドル
-        base = Path(sys._MEIPASS) / 'media_scribe_workflow' / 'ui' / 'icons'
+        base = Path(sys._MEIPASS) / 'chaptr' / 'ui' / 'icons'
     else:
         # 開発環境
         base = Path(__file__).parent.parent / 'icons'

@@ -79,7 +79,7 @@ def get_icon_path(icon_name: str) -> Path:
     import sys
     if getattr(sys, 'frozen', False):
         # PyInstallerバンドル
-        base = Path(sys._MEIPASS) / 'media_scribe_workflow' / 'ui' / 'icons'
+        base = Path(sys._MEIPASS) / 'chaptr' / 'ui' / 'icons'
     else:
         # 開発環境
         base = Path(__file__).parent / 'icons'
@@ -974,7 +974,7 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
 
         # Split Chaptersを起動時に必ずOFFにリセット
         from PySide6.QtCore import QSettings
-        settings = QSettings("mashi727", "VideoChapterEditor")
+        settings = QSettings("mashi727", "Chaptr")
         settings.setValue("export/split_chapters", False)
 
         # 出力プレビューを初期化
@@ -2137,7 +2137,7 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
 
     def _browse_output(self):
         """出力先ディレクトリ選択"""
-        from media_scribe_workflow.ui.dialogs import SourceSelectionDialog
+        from chaptr.ui.dialogs import SourceSelectionDialog
 
         # 現在の出力ディレクトリを初期値に
         start_dir = self._state.output_dir if self._state.output_dir else self._state.work_dir
@@ -3432,7 +3432,7 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
 
     def _open_source_dialog(self):
         """ソース選択ダイアログを開く（ローカルファイル / YouTube対応）"""
-        from media_scribe_workflow.ui.dialogs import SourceSelectionDialog, detect_video_duration
+        from chaptr.ui.dialogs import SourceSelectionDialog, detect_video_duration
 
         dialog = SourceSelectionDialog(
             parent=self,
@@ -3487,7 +3487,7 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
         if not self._state.sources:
             return
 
-        from media_scribe_workflow.ui.dialogs import SourceSelectionDialog
+        from chaptr.ui.dialogs import SourceSelectionDialog
 
         # 現在のファイルタイプに応じたフィルタを決定
         first_ext = self._state.sources[0].path.suffix.lower()
@@ -4929,7 +4929,7 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
         - MM:SS タイトル (例: 23:45 イントロ)
         - YouTube形式: 時間とタイトルがスペースで区切られた形式
         """
-        from media_scribe_workflow.ui.dialogs import SourceSelectionDialog
+        from chaptr.ui.dialogs import SourceSelectionDialog
 
         dialog = SourceSelectionDialog(
             parent=self,
@@ -5496,7 +5496,7 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
         """
         if file_path is None:
             # ファイル選択ダイアログ（SourceSelectionDialogを使用）
-            from media_scribe_workflow.ui.dialogs import SourceSelectionDialog
+            from chaptr.ui.dialogs import SourceSelectionDialog
             dialog = SourceSelectionDialog(
                 parent=self,
                 work_dir=self._state.work_dir,
@@ -7296,7 +7296,7 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
                 self,
                 "Save Project",
                 str(save_dir / default_name),
-                "Video Chapter Editor Project (*.vce.json)"
+                "Chaptr Project (*.vce.json)"
             )
             if not file_path:
                 return False
@@ -7377,7 +7377,7 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
 
         # ファイルを選択
         if file_path is None:
-            from media_scribe_workflow.ui.dialogs import SourceSelectionDialog
+            from chaptr.ui.dialogs import SourceSelectionDialog
             dialog = SourceSelectionDialog(
                 parent=self,
                 work_dir=self._state.work_dir,
@@ -7591,7 +7591,7 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
 
     def _batch_encode(self):
         """Batch Encode: 親ウィンドウのバッチ処理を呼び出す"""
-        # 親ウィンドウ（VideoChapterEditor）の _batch_export メソッドを呼び出す
+        # 親ウィンドウ（Chaptr）の _batch_export メソッドを呼び出す
         parent = self.window()
         if parent and hasattr(parent, '_batch_export'):
             parent._batch_export()

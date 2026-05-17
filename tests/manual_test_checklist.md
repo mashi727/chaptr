@@ -12,7 +12,7 @@
 
 ## 1. アプリケーション起動
 
-- [x] `python -m media_scribe_workflow` で起動できる
+- [x] `python -m chaptr` で起動できる
 - [x] ウィンドウが正常に表示される
 - [x] エラーメッセージなしで起動完了
 

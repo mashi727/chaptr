@@ -335,7 +335,7 @@ class ExportWorker(QThread, TempFileManagerMixin, CancellableWorkerMixin):
     def _export_audio_with_cover(self):
         """音声ファイル + カバー画像 → 動画としてエクスポート
 
-        video_chapter_editor.py と同じ処理:
+        chaptr.py と同じ処理:
         - 除外区間（--で始まるチャプター）のカット
         - 調整後チャプター時間の使用
         - チャプター埋め込み、タイトル焼き込み

@@ -14,12 +14,12 @@ class TestChapterManagerImport:
 
     def test_import_chapter_manager(self):
         """ChapterManagerがインポートできる"""
-        from media_scribe_workflow.ui.managers import ChapterManager
+        from chaptr.ui.managers import ChapterManager
         assert ChapterManager is not None
 
     def test_import_chapter_data(self):
         """ChapterDataがインポートできる"""
-        from media_scribe_workflow.ui.managers.chapter_manager import ChapterData
+        from chaptr.ui.managers.chapter_manager import ChapterData
         assert ChapterData is not None
 
 
@@ -28,7 +28,7 @@ class TestChapterData:
 
     def test_chapter_data_creation(self):
         """ChapterDataが正しく作成される"""
-        from media_scribe_workflow.ui.managers.chapter_manager import ChapterData
+        from chaptr.ui.managers.chapter_manager import ChapterData
 
         data = ChapterData(
             title="Test Chapter",
@@ -46,7 +46,7 @@ class TestChapterData:
 
     def test_chapter_data_to_chapter_info(self):
         """ChapterDataがChapterInfoに変換できる"""
-        from media_scribe_workflow.ui.managers.chapter_manager import ChapterData
+        from chaptr.ui.managers.chapter_manager import ChapterData
 
         data = ChapterData(
             title="Test",
@@ -61,8 +61,8 @@ class TestChapterData:
 
     def test_chapter_data_from_chapter_info(self):
         """ChapterInfoからChapterDataが作成できる"""
-        from media_scribe_workflow.ui.managers.chapter_manager import ChapterData
-        from media_scribe_workflow.ui.models import ChapterInfo
+        from chaptr.ui.managers.chapter_manager import ChapterData
+        from chaptr.ui.models import ChapterInfo
 
         info = ChapterInfo(local_time_ms=3000, title="From Info", source_index=2)
         data = ChapterData.from_chapter_info(info, color="#ff0000")
@@ -78,7 +78,7 @@ class TestChapterManagerBasics:
 
     def test_initial_state(self):
         """初期状態が正しい"""
-        from media_scribe_workflow.ui.managers import ChapterManager
+        from chaptr.ui.managers import ChapterManager
 
         manager = ChapterManager()
         assert manager.chapter_count == 0
@@ -87,7 +87,7 @@ class TestChapterManagerBasics:
 
     def test_clear(self):
         """clearでチャプターがクリアされる"""
-        from media_scribe_workflow.ui.managers import ChapterManager
+        from chaptr.ui.managers import ChapterManager
 
         manager = ChapterManager()
         # Add some chapters
@@ -101,7 +101,7 @@ class TestChapterManagerBasics:
 
     def test_add_chapter(self):
         """チャプターが追加される"""
-        from media_scribe_workflow.ui.managers import ChapterManager
+        from chaptr.ui.managers import ChapterManager
 
         manager = ChapterManager()
         index = manager.add_chapter(0, "First Chapter", 0)
@@ -117,7 +117,7 @@ class TestChapterManagerBasics:
 
     def test_remove_chapter(self):
         """チャプターが削除される"""
-        from media_scribe_workflow.ui.managers import ChapterManager
+        from chaptr.ui.managers import ChapterManager
 
         manager = ChapterManager()
         manager.add_chapter(0, "Chapter 1", 0)
@@ -131,7 +131,7 @@ class TestChapterManagerBasics:
 
     def test_remove_chapter_invalid_index(self):
         """無効なインデックスでの削除はFalseを返す"""
-        from media_scribe_workflow.ui.managers import ChapterManager
+        from chaptr.ui.managers import ChapterManager
 
         manager = ChapterManager()
         result = manager.remove_chapter(0)
@@ -139,7 +139,7 @@ class TestChapterManagerBasics:
 
     def test_update_chapter(self):
         """チャプターが更新される"""
-        from media_scribe_workflow.ui.managers import ChapterManager
+        from chaptr.ui.managers import ChapterManager
 
         manager = ChapterManager()
         manager.add_chapter(0, "Original", 0)
@@ -150,7 +150,7 @@ class TestChapterManagerBasics:
 
     def test_chapters_sorted_by_time(self):
         """チャプターは時間順にソートされる"""
-        from media_scribe_workflow.ui.managers import ChapterManager
+        from chaptr.ui.managers import ChapterManager
 
         manager = ChapterManager()
         # Add chapters out of order
@@ -172,7 +172,7 @@ class TestChapterManagerZeroChapter:
 
     def test_load_from_file_adds_zero_chapter_if_missing(self):
         """ファイル読み込み時、0:00チャプターがなければ追加"""
-        from media_scribe_workflow.ui.managers import ChapterManager
+        from chaptr.ui.managers import ChapterManager
 
         # The logic is in load_from_file method
         # Check that the code properly adds Chapter 0 when missing
@@ -184,8 +184,8 @@ class TestChapterManagerZeroChapter:
 
     def test_generate_from_sources_creates_zero_chapters(self):
         """generate_from_sourcesは各ソースの0:00にチャプターを作成"""
-        from media_scribe_workflow.ui.managers import ChapterManager
-        from media_scribe_workflow.ui.models import SourceFile
+        from chaptr.ui.managers import ChapterManager
+        from chaptr.ui.models import SourceFile
 
         manager = ChapterManager()
 
@@ -215,8 +215,8 @@ class TestChapterManagerZeroChapter:
 
     def test_generate_from_sources_uses_filename_as_title(self):
         """generate_from_sourcesはファイル名をチャプタータイトルに使用"""
-        from media_scribe_workflow.ui.managers import ChapterManager
-        from media_scribe_workflow.ui.models import SourceFile
+        from chaptr.ui.managers import ChapterManager
+        from chaptr.ui.models import SourceFile
 
         manager = ChapterManager()
 
@@ -240,8 +240,8 @@ class TestChapterManagerMultipleSources:
 
     def test_source_offsets_calculation(self):
         """ソースオフセットが正しく計算される"""
-        from media_scribe_workflow.ui.managers import ChapterManager
-        from media_scribe_workflow.ui.models import SourceFile
+        from chaptr.ui.managers import ChapterManager
+        from chaptr.ui.models import SourceFile
 
         manager = ChapterManager()
 
@@ -265,8 +265,8 @@ class TestChapterManagerMultipleSources:
 
     def test_local_to_absolute_conversion(self):
         """ローカル時間から絶対時間への変換"""
-        from media_scribe_workflow.ui.managers import ChapterManager
-        from media_scribe_workflow.ui.models import SourceFile
+        from chaptr.ui.managers import ChapterManager
+        from chaptr.ui.models import SourceFile
 
         manager = ChapterManager()
 
@@ -286,8 +286,8 @@ class TestChapterManagerMultipleSources:
 
     def test_add_chapter_maintains_sort_across_sources(self):
         """複数ソース間でもチャプターは絶対時間順でソートされる"""
-        from media_scribe_workflow.ui.managers import ChapterManager
-        from media_scribe_workflow.ui.models import SourceFile
+        from chaptr.ui.managers import ChapterManager
+        from chaptr.ui.models import SourceFile
 
         manager = ChapterManager()
 
@@ -318,7 +318,7 @@ class TestChapterManagerSignals:
 
     def test_signals_defined(self):
         """必要なシグナルが定義されている"""
-        from media_scribe_workflow.ui.managers import ChapterManager
+        from chaptr.ui.managers import ChapterManager
 
         assert hasattr(ChapterManager, 'chapters_changed')
         assert hasattr(ChapterManager, 'chapter_added')
@@ -331,7 +331,7 @@ class TestChapterManagerSignals:
 
     def test_chapter_added_signal_emitted(self):
         """チャプター追加時にシグナルが発行される"""
-        from media_scribe_workflow.ui.managers import ChapterManager
+        from chaptr.ui.managers import ChapterManager
 
         manager = ChapterManager()
         signal_received = []
@@ -348,7 +348,7 @@ class TestChapterManagerSignals:
 
     def test_chapter_removed_signal_emitted(self):
         """チャプター削除時にシグナルが発行される"""
-        from media_scribe_workflow.ui.managers import ChapterManager
+        from chaptr.ui.managers import ChapterManager
 
         manager = ChapterManager()
         manager.add_chapter(0, "Test", 0)
@@ -370,7 +370,7 @@ class TestChapterManagerExport:
 
     def test_get_chapters_for_export(self):
         """エクスポート用チャプターリストを取得"""
-        from media_scribe_workflow.ui.managers import ChapterManager
+        from chaptr.ui.managers import ChapterManager
 
         manager = ChapterManager()
         manager.add_chapter(0, "Chapter 1", 0)
@@ -388,7 +388,7 @@ class TestChapterManagerExport:
 
     def test_to_dict_list(self):
         """to_dict_listがdict形式のリストを返す"""
-        from media_scribe_workflow.ui.managers import ChapterManager
+        from chaptr.ui.managers import ChapterManager
 
         manager = ChapterManager()
         manager.add_chapter(0, "Test", 0)
@@ -405,7 +405,7 @@ class TestChapterManagerTimeFormatting:
 
     def test_format_time_with_ms(self):
         """ミリ秒付きフォーマット"""
-        from media_scribe_workflow.ui.managers import ChapterManager
+        from chaptr.ui.managers import ChapterManager
 
         manager = ChapterManager()
 
@@ -416,7 +416,7 @@ class TestChapterManagerTimeFormatting:
 
     def test_format_time_without_ms(self):
         """ミリ秒なしフォーマット"""
-        from media_scribe_workflow.ui.managers import ChapterManager
+        from chaptr.ui.managers import ChapterManager
 
         manager = ChapterManager()
 

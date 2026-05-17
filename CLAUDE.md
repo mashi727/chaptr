@@ -10,7 +10,7 @@
 ### スコープ
 
 ```
-[media-scribe-workflow の範囲]
+[chaptr の範囲]
 
 コア: 動画/音声 → SRT取得
 
@@ -35,7 +35,7 @@
 ## ディレクトリ構成（予定）
 
 ```
-media-scribe-workflow/
+chaptr/
 ├── README.md
 ├── CLAUDE.md                # このファイル
 │

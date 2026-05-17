@@ -6,8 +6,8 @@
 import pytest
 from pathlib import Path
 
-from media_scribe_workflow.ui.models import SourceFile
-from media_scribe_workflow.ui.managers.source_manager import (
+from chaptr.ui.models import SourceFile
+from chaptr.ui.managers.source_manager import (
     SourceFileManager,
     ClassifiedFiles,
     AUDIO_EXTENSIONS,

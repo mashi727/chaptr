@@ -13,22 +13,22 @@ class TestModuleImport:
 
     def test_import_main_workspace(self):
         """main_workspace.pyがインポートできる"""
-        from media_scribe_workflow.ui import main_workspace
+        from chaptr.ui import main_workspace
         assert main_workspace is not None
 
     def test_import_drag_drop_table_widget(self):
         """DragDropTableWidgetがインポートできる"""
-        from media_scribe_workflow.ui.main_workspace import DragDropTableWidget
+        from chaptr.ui.main_workspace import DragDropTableWidget
         assert DragDropTableWidget is not None
 
     def test_import_main_workspace_class(self):
         """MainWorkspaceクラスがインポートできる"""
-        from media_scribe_workflow.ui.main_workspace import MainWorkspace
+        from chaptr.ui.main_workspace import MainWorkspace
         assert MainWorkspace is not None
 
     def test_import_video_audio_extensions(self):
         """動画・音声拡張子定数がインポートできる"""
-        from media_scribe_workflow.ui.main_workspace import VIDEO_EXTENSIONS, AUDIO_EXTENSIONS
+        from chaptr.ui.main_workspace import VIDEO_EXTENSIONS, AUDIO_EXTENSIONS
         assert VIDEO_EXTENSIONS is not None
         assert AUDIO_EXTENSIONS is not None
         assert '.mp4' in VIDEO_EXTENSIONS
@@ -40,7 +40,7 @@ class TestDragDropTableWidgetSignal:
 
     def test_external_files_dropped_signal_exists(self):
         """external_files_droppedシグナルが定義されている"""
-        from media_scribe_workflow.ui.main_workspace import DragDropTableWidget
+        from chaptr.ui.main_workspace import DragDropTableWidget
         # クラス属性としてシグナルが定義されていることを確認
         assert hasattr(DragDropTableWidget, 'external_files_dropped')
 
