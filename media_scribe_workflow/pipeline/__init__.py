@@ -1,12 +1,9 @@
-"""MSW Pipeline Module"""
+"""MSW Pipeline Module — GUI repository only ships srt_parser."""
 
-from .report_generator import ReportGenerator, ReportMetadata
 from .srt_parser import SRTParser, Subtitle, format_subtitles_as_text
 
 __all__ = [
     "SRTParser",
     "Subtitle",
     "format_subtitles_as_text",
-    "ReportGenerator",
-    "ReportMetadata",
 ]
