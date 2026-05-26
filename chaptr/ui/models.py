@@ -149,6 +149,43 @@ class ChapterInfo:
         return cls(local_time_ms=max(0, local_time_ms), title=title, source_index=source_index)
 
 
+def compute_excluded_regions(
+    chapters: List[ChapterInfo], duration_ms: int
+) -> List[Tuple[int, int]]:
+    """除外チャプター（--で始まる）の区間 (start_ms, end_ms) を計算
+
+    区間は「-- チャプター開始 → 次の『時刻が大きい』チャプター開始」、無ければ
+    メディア終端まで。同時刻に別チャプターがある場合（例: 0:00:00 に複数）に
+    それを終端へ取ると区間幅0となり、波形では斜線が1pxも描かれず、カットでは
+    潰れた／逆順の区間が生じる。そのため時刻が厳密に大きい最初のチャプターまで
+    飛ばす。
+
+    GUI に依存しない純粋関数。波形表示（WaveformWidget）と結合エンコード
+    （CLI/Mergeワーカー）が共通で使用する Single Source of Truth。
+
+    Note:
+        各 ChapterInfo の time_ms（= local_time_ms）を duration_ms と同一の
+        時間軸として扱う。呼び出し側はあらかじめ整合した時間軸で渡すこと。
+    """
+    if not chapters or duration_ms <= 0:
+        return []
+
+    excluded_regions: List[Tuple[int, int]] = []
+    sorted_chapters = sorted(chapters, key=lambda c: c.time_ms)
+
+    for i, ch in enumerate(sorted_chapters):
+        if ch.title.startswith("--"):
+            start_ms = ch.time_ms
+            end_ms = duration_ms
+            for nxt in sorted_chapters[i + 1:]:
+                if nxt.time_ms > start_ms:
+                    end_ms = nxt.time_ms
+                    break
+            excluded_regions.append((start_ms, end_ms))
+
+    return excluded_regions
+
+
 @dataclass
 class ColorspaceInfo:
     """色空間情報"""

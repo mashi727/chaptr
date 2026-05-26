@@ -5,13 +5,13 @@ min-max法による解像度適応型の波形表示。
 除外チャプター（--プレフィックス）の区間をハッチングで表示。
 """
 
-from typing import List
+from typing import List, Tuple
 
 from PySide6.QtWidgets import QWidget, QSizePolicy
 from PySide6.QtCore import Qt, Signal, QPoint
 from PySide6.QtGui import QPainter, QColor, QPen, QBrush, QImage
 
-from ..models import ChapterInfo
+from ..models import ChapterInfo, compute_excluded_regions
 from ..theme import ColorRole, get_theme_manager
 
 # numpy の有無をチェック
@@ -106,29 +106,13 @@ class WaveformWidget(QWidget):
         self._selected_range = None
         self.update()
 
-    def _get_excluded_regions(self) -> List[tuple]:
+    def _get_excluded_regions(self) -> List[Tuple[int, int]]:
         """除外チャプター（--で始まる）の区間を取得
 
         Returns:
             List of (start_ms, end_ms) tuples
         """
-        if not self._chapters or self._duration_ms <= 0:
-            return []
-
-        excluded_regions = []
-        sorted_chapters = sorted(self._chapters, key=lambda c: c.time_ms)
-
-        for i, ch in enumerate(sorted_chapters):
-            if ch.title.startswith("--"):
-                start_ms = ch.time_ms
-                # 次のチャプターの開始時間、またはメディアの終端
-                if i + 1 < len(sorted_chapters):
-                    end_ms = sorted_chapters[i + 1].time_ms
-                else:
-                    end_ms = self._duration_ms
-                excluded_regions.append((start_ms, end_ms))
-
-        return excluded_regions
+        return compute_excluded_regions(self._chapters, self._duration_ms)
 
     def set_waveform(self, data, duration_ms: int = 0):
         """波形データを設定

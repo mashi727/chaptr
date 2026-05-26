@@ -17,6 +17,7 @@ from PySide6.QtCore import QThread, Signal
 from ..models import (
     ChapterInfo,
     ColorspaceInfo,
+    compute_excluded_regions,
     get_encoder_args,
     detect_system_font,
 )
@@ -99,17 +100,13 @@ class ExportWorker(QThread, TempFileManagerMixin, CancellableWorkerMixin):
         if not self.chapters:
             return
 
-        # 1. 除外区間を特定
-        self._excluded_segments = []
-        for i, ch in enumerate(self.chapters):
-            if ch.title.startswith(self.EXCLUDE_PREFIX):
-                start_ms = ch.time_ms
-                # 次のチャプターの開始時間、または動画終了時間
-                if i + 1 < len(self.chapters):
-                    end_ms = self.chapters[i + 1].time_ms
-                else:
-                    end_ms = self.total_duration_ms
-                self._excluded_segments.append((start_ms, end_ms))
+        # 1. 除外区間を特定（波形表示と共通ロジック）
+        # 時刻ソート＋「時刻が厳密に大きい次チャプターまで」で区間を取るため、
+        # 同時刻の重複チャプター（例: 0:00:00 に複数）による潰れ/逆順区間を防ぐ。
+        # 整形済み（時刻順・重複なし）のプロジェクトでは従来結果と一致する。
+        self._excluded_segments = compute_excluded_regions(
+            self.chapters, self.total_duration_ms
+        )
 
         # 除外区間がない場合は通常処理
         if not self._excluded_segments:

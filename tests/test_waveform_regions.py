@@ -4,38 +4,15 @@
 GUIコンポーネントに依存しない純粋なロジックテスト。
 """
 
-from chaptr.ui.models import ChapterInfo
+from chaptr.ui.models import ChapterInfo, compute_excluded_regions
 
 
 class TestExcludedRegionsCalculation:
-    """除外領域計算のテスト（WaveformWidgetのロジック再現）"""
+    """除外領域計算のテスト（本番ロジック compute_excluded_regions を直接検証）"""
 
     def _get_excluded_regions(self, chapters, duration_ms):
-        """除外区間を計算（WaveformWidget._get_excluded_regions のロジック）
-
-        Args:
-            chapters: ChapterInfoのリスト
-            duration_ms: 動画の長さ（ミリ秒）
-
-        Returns:
-            List of (start_ms, end_ms) tuples
-        """
-        if not chapters or duration_ms <= 0:
-            return []
-
-        excluded_regions = []
-        sorted_chapters = sorted(chapters, key=lambda c: c.time_ms)
-
-        for i, ch in enumerate(sorted_chapters):
-            if ch.title.startswith("--"):
-                start_ms = ch.time_ms
-                if i + 1 < len(sorted_chapters):
-                    end_ms = sorted_chapters[i + 1].time_ms
-                else:
-                    end_ms = duration_ms
-                excluded_regions.append((start_ms, end_ms))
-
-        return excluded_regions
+        """本番の純粋関数へ委譲（ロジックを複製しない）"""
+        return compute_excluded_regions(chapters, duration_ms)
 
     def test_no_chapters(self):
         """チャプターなしの場合"""
@@ -363,23 +340,8 @@ class TestExcludedRegionEdgeCases:
     """除外領域のエッジケーステスト"""
 
     def _get_excluded_regions(self, chapters, duration_ms):
-        """テスト用のヘルパーメソッド"""
-        if not chapters or duration_ms <= 0:
-            return []
-
-        excluded_regions = []
-        sorted_chapters = sorted(chapters, key=lambda c: c.time_ms)
-
-        for i, ch in enumerate(sorted_chapters):
-            if ch.title.startswith("--"):
-                start_ms = ch.time_ms
-                if i + 1 < len(sorted_chapters):
-                    end_ms = sorted_chapters[i + 1].time_ms
-                else:
-                    end_ms = duration_ms
-                excluded_regions.append((start_ms, end_ms))
-
-        return excluded_regions
+        """本番の純粋関数へ委譲（ロジックを複製しない）"""
+        return compute_excluded_regions(chapters, duration_ms)
 
     def test_very_short_excluded_region(self):
         """非常に短い除外区間"""
@@ -430,3 +392,30 @@ class TestExcludedRegionEdgeCases:
         ]
         regions = self._get_excluded_regions(chapters, 60000)
         assert regions == [(10000, 20000)]
+
+    def test_duplicate_timestamp_does_not_collapse_region(self):
+        """同時刻に別チャプターが重複しても区間幅が0にならない（回帰テスト）
+
+        実バグ: 0:00:00 に `--捨て` と通常チャプターが共存すると、時刻ソート後に
+        通常チャプターが `--` の直後へ並び、区間が 0→0 に潰れて斜線が描かれなかった。
+        同時刻を飛ばし、時刻が厳密に大きい次チャプターまでを区間とすること。
+        """
+        chapters = [
+            ChapterInfo(local_time_ms=0, title="--捨て"),
+            ChapterInfo(local_time_ms=4437, title="[card=title]"),
+            ChapterInfo(local_time_ms=10000, title="本編"),
+            ChapterInfo(local_time_ms=0, title="ヴォカリーズ"),  # 末尾に同時刻の重複
+        ]
+        regions = self._get_excluded_regions(chapters, 60000)
+        assert regions == [(0, 4437)]
+
+    def test_excluded_followed_by_same_timestamp_chapters(self):
+        """-- の直後に同時刻の通常チャプターが複数あっても区間が潰れない"""
+        chapters = [
+            ChapterInfo(local_time_ms=10000, title="--Break"),
+            ChapterInfo(local_time_ms=10000, title="Marker A"),
+            ChapterInfo(local_time_ms=10000, title="Marker B"),
+            ChapterInfo(local_time_ms=30000, title="Resume"),
+        ]
+        regions = self._get_excluded_regions(chapters, 60000)
+        assert regions == [(10000, 30000)]
