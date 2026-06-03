@@ -20,6 +20,7 @@
 !docs/**/*.png
 !assets/*.png
 !dev_logs_tex/*.png
+!chaptr/ui/icons/*.png
 
 # 字幕ファイル（プライバシー保護）
 *.srt
