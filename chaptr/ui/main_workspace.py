@@ -86,6 +86,39 @@ def get_icon_path(icon_name: str) -> Path:
     return base / icon_name
 
 
+_OVERLAY_FONT_FAMILY_CACHE: Optional[str] = None
+
+
+def get_overlay_font_family() -> str:
+    """チャプタータイトル用フォント（同梱 Noto Sans JP Bold）を登録しファミリ名を返す。
+
+    焼き込み(ffmpeg)と同一フォントをプレビューにも使うための単一情報源。
+    QApplication 生成後に呼ぶこと。登録に失敗した場合は空文字を返し、
+    呼び出し側のスタイルシートで既定フォントへフォールバックする。
+    結果はプロセス内でキャッシュする。
+    """
+    global _OVERLAY_FONT_FAMILY_CACHE
+    if _OVERLAY_FONT_FAMILY_CACHE is not None:
+        return _OVERLAY_FONT_FAMILY_CACHE
+    family = ""
+    try:
+        from PySide6.QtGui import QFontDatabase
+        from .models import get_overlay_font_path
+        path = get_overlay_font_path()
+        if path:
+            font_id = QFontDatabase.addApplicationFont(str(path))
+            families = (
+                QFontDatabase.applicationFontFamilies(font_id)
+                if font_id != -1 else []
+            )
+            if families:
+                family = families[0]
+    except Exception:
+        family = ""
+    _OVERLAY_FONT_FAMILY_CACHE = family
+    return family
+
+
 class FileBoundaryDelegate(QStyledItemDelegate):
     """
     ファイル境界線を描画するデリゲート
@@ -2048,17 +2081,9 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
             container_height = rect.height()
             # 音声モード設定: 上部寄り中央（32.5%）- エンコード時と同じ位置
             font_size = max(10, int(container_height * 0.04))
-            self._chapter_overlay_label.setStyleSheet(f"""
-                QLabel {{
-                    color: white;
-                    font-size: {font_size}px;
-                    font-weight: bold;
-                    background-color: rgba(0, 0, 0, 0.6);
-                    border: 1px solid rgba(255, 255, 255, 0.3);
-                    padding: 8px 12px;
-                    border-radius: 4px;
-                }}
-            """)
+            self._chapter_overlay_label.setStyleSheet(
+                self._chapter_overlay_stylesheet(font_size)
+            )
             self._chapter_overlay_label.adjustSize()
             label_size = self._chapter_overlay_label.size()
             x = (rect.width() - label_size.width()) // 2
@@ -2933,6 +2958,28 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
                         item.setBackground(default_bg)
                         item.setForeground(default_fg)
 
+    def _chapter_overlay_stylesheet(self, font_size: int) -> str:
+        """チャプター名オーバーレイのスタイルシートを生成。
+
+        焼き込み(ffmpeg drawtext)と同一の Noto Sans JP Bold をプレビューにも
+        適用し、見た目を一致させる（WYSIWYG）。フォント登録に失敗した場合は
+        font-family を省略し既定フォントへフォールバックする。
+        """
+        family = get_overlay_font_family()
+        family_css = f"font-family: '{family}';" if family else ""
+        return f"""
+            QLabel {{
+                color: white;
+                {family_css}
+                font-size: {font_size}px;
+                font-weight: bold;
+                background-color: rgba(0, 0, 0, 0.6);
+                border: 1px solid rgba(255, 255, 255, 0.3);
+                padding: 8px 12px;
+                border-radius: 4px;
+            }}
+        """
+
     def _update_chapter_overlay(self, title: str):
         """チャプター名オーバーレイを更新（音声モードのみ）
 
@@ -2961,17 +3008,9 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
 
             # 音声モード用設定: 上部寄り中央（32.5%）- エンコード時と同じ位置
             font_size = max(10, int(container_height * 0.04))
-            self._chapter_overlay_label.setStyleSheet(f"""
-                QLabel {{
-                    color: white;
-                    font-size: {font_size}px;
-                    font-weight: bold;
-                    background-color: rgba(0, 0, 0, 0.6);
-                    border: 1px solid rgba(255, 255, 255, 0.3);
-                    padding: 8px 12px;
-                    border-radius: 4px;
-                }}
-            """)
+            self._chapter_overlay_label.setStyleSheet(
+                self._chapter_overlay_stylesheet(font_size)
+            )
             self._chapter_overlay_label.setText(title)
             self._chapter_overlay_label.adjustSize()
 

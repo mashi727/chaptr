@@ -19,7 +19,7 @@ from ..models import (
     ColorspaceInfo,
     compute_excluded_regions,
     get_encoder_args,
-    detect_system_font,
+    get_overlay_font_path,
 )
 from ..ffmpeg_utils import get_ffmpeg_path, get_popen_kwargs
 from .base import (
@@ -80,7 +80,7 @@ class ExportWorker(QThread, TempFileManagerMixin, CancellableWorkerMixin):
         self.is_audio_only = is_audio_only  # 音声のみ入力フラグ
         self._init_temp_manager()  # TempFileManagerMixin
         self._init_cancellable()  # CancellableWorkerMixin
-        self.font_path = detect_system_font()  # プラットフォーム別フォント
+        self.font_path = get_overlay_font_path()  # 同梱 Noto Sans JP Bold（プレビューと共通）
 
         # 除外チャプターの処理
         self._excluded_segments: List[Tuple[int, int]] = []  # (start_ms, end_ms)

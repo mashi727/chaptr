@@ -19,7 +19,7 @@ from ..models import (
     SourceFile,
     VideoProperties,
     get_encoder_args,
-    detect_system_font,
+    get_overlay_font_path,
     detect_video_properties,
     calculate_target_properties,
     build_scaling_filter,
@@ -93,7 +93,7 @@ class SplitExportWorker(QThread, TempFileManagerMixin, CancellableWorkerMixin):
         self.source_durations = source_durations  # 各ソースのduration（ms）
         self._init_cancellable()  # CancellableWorkerMixin
         self._init_temp_manager()  # TempFileManagerMixin
-        self.font_path = detect_system_font()
+        self.font_path = get_overlay_font_path()  # 同梱 Noto Sans JP Bold（プレビューと共通）
 
     def _get_chapter_segments(self) -> List[Tuple[int, int, int, str, Optional[int]]]:
         """
