@@ -253,6 +253,8 @@ class SplitExportWorker(QThread, TempFileManagerMixin, CancellableWorkerMixin):
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     text=True,
+                    encoding='utf-8',
+                    errors='replace',
                     **popen_kwargs
                 )
 
@@ -557,6 +559,8 @@ class SegmentExtractWorker(QThread, TempFileManagerMixin, CancellableWorkerMixin
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            encoding='utf-8',
+            errors='replace',
             **get_popen_kwargs()
         )
 
@@ -598,7 +602,9 @@ class SegmentExtractWorker(QThread, TempFileManagerMixin, CancellableWorkerMixin
         # concat demuxer用のファイルリストを作成
         with open(list_file, 'w', encoding='utf-8') as f:
             for seg_file in segment_files:
-                escaped_path = str(seg_file).replace("'", "'\\''")
+                # concat demuxer 用にバックスラッシュをスラッシュへ（Windows対応）
+                normalized = str(seg_file).replace("\\", "/")
+                escaped_path = normalized.replace("'", "'\\''")
                 f.write(f"file '{escaped_path}'\n")
 
         self._temp_files.append(str(list_file))
@@ -621,6 +627,8 @@ class SegmentExtractWorker(QThread, TempFileManagerMixin, CancellableWorkerMixin
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            encoding='utf-8',
+            errors='replace',
             **get_popen_kwargs()
         )
 

@@ -11,7 +11,7 @@ from typing import Optional
 
 from PySide6.QtCore import QThread, Signal
 
-from ..ffmpeg_utils import get_popen_kwargs
+from ..ffmpeg_utils import get_popen_kwargs, get_subprocess_kwargs
 
 
 class CLIEncodeWorker(QThread):
@@ -68,36 +68,63 @@ class CLIEncodeWorker(QThread):
             return
 
         try:
-            import signal
-            import os
-
             pid = self._process.pid
             if pid is None:
                 return
 
-            # プロセスグループ全体にSIGTERM
+            if sys.platform == "win32":
+                self._kill_process_windows(pid)
+            else:
+                self._kill_process_posix(pid)
+
+        except Exception as e:
+            self.log_message.emit(f"Process cleanup error: {e}")
+
+    def _kill_process_posix(self, pid: int):
+        """POSIX: プロセスグループ全体を終了 (子のffmpegも確実に殺す)"""
+        import signal
+        import os
+
+        # プロセスグループ全体にSIGTERM
+        try:
+            os.killpg(os.getpgid(pid), signal.SIGTERM)
+        except (ProcessLookupError, PermissionError):
+            pass
+
+        # 少し待ってからSIGKILL
+        try:
+            self._process.wait(timeout=2)
+        except subprocess.TimeoutExpired:
             try:
-                os.killpg(os.getpgid(pid), signal.SIGTERM)
+                os.killpg(os.getpgid(pid), signal.SIGKILL)
             except (ProcessLookupError, PermissionError):
                 pass
 
-            # 少し待ってからSIGKILL
-            try:
-                self._process.wait(timeout=2)
-            except subprocess.TimeoutExpired:
-                try:
-                    os.killpg(os.getpgid(pid), signal.SIGKILL)
-                except (ProcessLookupError, PermissionError):
-                    pass
+        # 最終確認
+        try:
+            self._process.kill()
+        except Exception:
+            pass
 
-            # 最終確認
+    def _kill_process_windows(self, pid: int):
+        """Windows: taskkill /T でプロセスツリー全体を終了 (子のffmpegも殺す)"""
+        # os.killpg/SIGKILL はWindowsに存在しないため taskkill を使用
+        try:
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(pid)],
+                **get_subprocess_kwargs(timeout=10, capture_output=True),
+            )
+        except Exception:
+            pass
+
+        # フォールバック: Popen.kill() (TerminateProcess)
+        try:
+            self._process.wait(timeout=2)
+        except subprocess.TimeoutExpired:
             try:
                 self._process.kill()
             except Exception:
                 pass
-
-        except Exception as e:
-            self.log_message.emit(f"Process cleanup error: {e}")
 
     def run(self):
         """CLIツールを実行"""
@@ -141,15 +168,23 @@ class CLIEncodeWorker(QThread):
             env['PYTHONUNBUFFERED'] = '1'
 
             # プロセスグループを新規作成（子プロセスも同じグループに）
+            # POSIX: os.setsid で新セッション、Windows: get_popen_kwargs が
+            # CREATE_NO_WINDOW を設定する（taskkill /T で子ツリーを終了するため
+            # プロセスグループ作成は不要）
+            popen_kwargs = dict(get_popen_kwargs())
+            if sys.platform != "win32":
+                popen_kwargs["preexec_fn"] = os.setsid  # 新しいプロセスグループ
+
             self._process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
                 bufsize=1,
+                encoding="utf-8",
+                errors="replace",
                 env=env,
-                preexec_fn=os.setsid,  # 新しいプロセスグループ
-                **get_popen_kwargs()
+                **popen_kwargs
             )
 
             output_file = None

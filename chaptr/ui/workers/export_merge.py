@@ -84,9 +84,12 @@ class LegacyAudioMergeWorker(QThread):
             temp_audio, codec_args, strategy_desc = self._detect_encoding_strategy()
             concat_file = os.path.join(tempfile.gettempdir(), "concat_list.txt")
 
-            with open(concat_file, 'w') as f:
+            with open(concat_file, 'w', encoding='utf-8') as f:
                 for path in self.ordered_files:
-                    escaped_path = path.replace("'", "'\\''")
+                    # ffmpeg concat demuxer はバックスラッシュをエスケープ文字として
+                    # 扱うため、Windowsのパスはスラッシュに変換する
+                    normalized = path.replace("\\", "/")
+                    escaped_path = normalized.replace("'", "'\\''")
                     f.write(f"file '{escaped_path}'\n")
 
             self.log_message.emit(f"結合方式: {strategy_desc}")
@@ -95,9 +98,9 @@ class LegacyAudioMergeWorker(QThread):
                           '-i', concat_file] + codec_args + [temp_audio]
             self.log_message.emit(f"コマンド: {' '.join(concat_cmd)}")
 
-            # タイムアウトなし（長時間処理の可能性）
-            popen_kwargs = get_popen_kwargs()
-            result = subprocess.run(concat_cmd, capture_output=True, text=True, **popen_kwargs)
+            # タイムアウトなし（長時間処理の可能性）。Windowsでのcp932誤デコードを
+            # 避けるためUTF-8を明示し、コンソール非表示フラグを付与する。
+            result = subprocess.run(concat_cmd, **get_subprocess_kwargs(timeout=None))
             if result.stdout:
                 self.log_message.emit(f"[stdout]\n{result.stdout}")
             if result.stderr:
@@ -153,7 +156,9 @@ class MergeWorker(QThread, CancellableWorkerMixin):
             # concat demuxer用のファイルリストを作成
             with open(list_file, 'w', encoding='utf-8') as f:
                 for src in self.source_files:
-                    escaped_path = str(src).replace("'", "'\\''")
+                    # concat demuxer 用にバックスラッシュをスラッシュへ（Windows対応）
+                    normalized = str(src).replace("\\", "/")
+                    escaped_path = normalized.replace("'", "'\\''")
                     f.write(f"file '{escaped_path}'\n")
 
             self.progress.emit(f"Merging {len(self.source_files)} files...")
@@ -176,6 +181,8 @@ class MergeWorker(QThread, CancellableWorkerMixin):
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
+                encoding='utf-8',
+                errors='replace',
                 **get_popen_kwargs()
             )
 
