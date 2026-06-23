@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Optional, List, Tuple
 from dataclasses import dataclass, field
 
-from .ffmpeg_utils import get_ffmpeg_path, get_ffprobe_path
+from .ffmpeg_utils import get_ffmpeg_path, get_ffprobe_path, get_subprocess_kwargs
 
 
 def _format_time_ms(time_ms: int, include_ms: bool = True) -> str:
@@ -260,9 +260,7 @@ def detect_video_colorspace(file_path: str) -> ColorspaceInfo:
                 "-of", "default=noprint_wrappers=1",
                 file_path
             ],
-            capture_output=True,
-            text=True,
-            timeout=10
+            **get_subprocess_kwargs(timeout=10)
         )
 
         for line in result.stdout.strip().split('\n'):
@@ -301,9 +299,7 @@ def detect_video_bitrate(file_path: str) -> Optional[int]:
                 "-of", "default=noprint_wrappers=1:nokey=1",
                 file_path
             ],
-            capture_output=True,
-            text=True,
-            timeout=10
+            **get_subprocess_kwargs(timeout=10)
         )
         bitrate_str = result.stdout.strip()
 
@@ -319,9 +315,7 @@ def detect_video_bitrate(file_path: str) -> Optional[int]:
                 "-of", "default=noprint_wrappers=1:nokey=1",
                 file_path
             ],
-            capture_output=True,
-            text=True,
-            timeout=10
+            **get_subprocess_kwargs(timeout=10)
         )
         bitrate_str = result.stdout.strip()
 
@@ -353,9 +347,7 @@ def detect_video_duration(file_path: str) -> Optional[int]:
                 "-of", "default=noprint_wrappers=1:nokey=1",
                 file_path
             ],
-            capture_output=True,
-            text=True,
-            timeout=10
+            **get_subprocess_kwargs(timeout=10)
         )
         duration_str = result.stdout.strip()
 
