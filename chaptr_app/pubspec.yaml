@@ -1,0 +1,25 @@
+name: chaptr_app
+description: "Chaptr — マルチプラットフォーム チャプター編集（Flutter UI + Rust コア）"
+publish_to: 'none'
+version: 0.1.0
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+  flutter: '>=3.19.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.6
+  # --- 将来追加（dev マシンで `flutter pub add`）---
+  # flutter_rust_bridge: ^2.0.0   # native/chaptr_core を呼ぶ
+  # video_player: ^2.8.0          # 動画プレビュー（ミュート追従, §4.1）
+  # file_picker: ^8.0.0           # Files 経由で Dropbox/iCloud/Drive（§4.2 Tier1）
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true

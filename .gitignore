@@ -77,3 +77,14 @@ settings.xml
 # Rust (native/chaptr_core)
 /native/**/target/
 Cargo.lock
+
+# Flutter (chaptr_app)
+/chaptr_app/.dart_tool/
+/chaptr_app/build/
+/chaptr_app/.flutter-plugins*
+/chaptr_app/ios/
+/chaptr_app/android/
+/chaptr_app/macos/
+/chaptr_app/windows/
+/chaptr_app/linux/
+/chaptr_app/web/
