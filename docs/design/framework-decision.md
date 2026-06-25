@@ -5,8 +5,10 @@
 
 ## 0. 結論
 
-> **推奨: Flutter（UI = Skia/Impeller）＋ 共有 Rust コア（flutter_rust_bridge 経由で symphonia/rustfft/cpal）。**
-> Tauri は「web フロントエンド志向／デスクトップ最小バイナリ」を強く優先する場合の対抗。
+> **確定（2026-06-25, ユーザー承認）: Flutter（UI = Skia/Impeller）＋ 共有 Rust コア（flutter_rust_bridge 経由で symphonia/rustfft/cpal）。**
+> Tauri は「web フロントエンド志向／デスクトップ最小バイナリ」を強く優先する場合の対抗だった。
+>
+> 実装計画は `flutter-implementation-plan.md`、Rust コアは `native/chaptr_core`（実装・テスト済 `cargo test` 11 PASS）。
 
 決め手は2つの検証結果:
 

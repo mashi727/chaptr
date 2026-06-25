@@ -73,3 +73,7 @@ settings.xml
 
 # Logs
 *.log
+
+# Rust (native/chaptr_core)
+/native/**/target/
+Cargo.lock

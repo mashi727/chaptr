@@ -1,0 +1,14 @@
+[package]
+name = "chaptr_core"
+version = "0.1.0"
+edition = "2021"
+description = "Chaptr のプラットフォーム非依存コアエンジン（波形/STFT/再生クロック/チャプター）"
+license = "MIT"
+
+# 依存ゼロ（この環境でオフライン検証できるよう、FFT も自前 radix-2 実装）。
+# 本番では fft を rustfft に、デコードを symphonia に差し替える前提。
+[dependencies]
+
+[lib]
+name = "chaptr_core"
+crate-type = ["lib"]
