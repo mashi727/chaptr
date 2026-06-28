@@ -20,12 +20,13 @@ from PySide6.QtWidgets import (
     QSplitter, QComboBox, QLineEdit, QGroupBox, QProgressBar,
     QSizePolicy, QAbstractItemView, QSlider, QFileDialog, QDialog,
     QCheckBox, QSpinBox, QApplication, QStackedLayout, QAbstractButton,
-    QStyledItemDelegate, QStyleOptionViewItem, QMenu
+    QStyledItemDelegate, QStyleOptionViewItem, QMenu,
+    QGraphicsView, QGraphicsScene
 )
-from PySide6.QtCore import Qt, Signal, QUrl, QThread, QObject, QTimer, QEvent, QMimeData, QPoint
-from PySide6.QtGui import QFont, QFontDatabase, QPainter, QColor, QPen, QBrush, QPixmap, QIcon, QPolygon, QKeyEvent
+from PySide6.QtCore import Qt, Signal, QUrl, QThread, QObject, QTimer, QEvent, QMimeData, QPoint, QSizeF
+from PySide6.QtGui import QFont, QFontDatabase, QPainter, QColor, QPen, QBrush, QPixmap, QIcon, QPolygon, QKeyEvent, QTransform
 from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput, QMediaDevices
-from PySide6.QtMultimediaWidgets import QVideoWidget
+from PySide6.QtMultimediaWidgets import QVideoWidget, QGraphicsVideoItem
 
 import json
 import platform
@@ -117,6 +118,27 @@ def get_overlay_font_family() -> str:
         family = ""
     _OVERLAY_FONT_FAMILY_CACHE = family
     return family
+
+
+class VideoGraphicsView(QGraphicsView):
+    """動画表示用 QGraphicsView
+
+    リサイズ時に必ず最新の viewport サイズで再フィットするため、
+    resizeEvent でコールバックを呼ぶ。setGeometry 直後に外部から
+    fitInView しても viewport サイズが未確定で誤フィットする問題を回避する。
+    """
+
+    def __init__(self, scene, parent=None):
+        super().__init__(scene, parent)
+        self._fit_callback = None
+
+    def set_fit_callback(self, callback):
+        self._fit_callback = callback
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if self._fit_callback is not None:
+            self._fit_callback()
 
 
 class FileBoundaryDelegate(QStyledItemDelegate):
@@ -1384,6 +1406,15 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
         self._next_chapter_btn.setEnabled(False)
         ctrl_row.addWidget(self._next_chapter_btn)
 
+        # 回転（現在チャプターを90°ずつ。Shiftで逆回転）
+        self._rotate_btn = QPushButton("⟳")
+        self._rotate_btn.setStyleSheet(chapter_btn_style)
+        self._rotate_btn.setFixedSize(50, 45)
+        self._rotate_btn.setToolTip("現在チャプターを90°回転 (Shiftで逆回転)")
+        self._rotate_btn.clicked.connect(self._on_rotate_clicked)
+        self._rotate_btn.setEnabled(False)
+        ctrl_row.addWidget(self._rotate_btn)
+
         # +1f
         self._btn_p1f = QPushButton("+1f")
         self._btn_p1f.setStyleSheet(forward_btn_style)
@@ -1587,11 +1618,37 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
         self._video_container.setObjectName("video_container")
         self._video_container.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
-        # 動画ウィジェット（最下層）
-        self._video_widget = QVideoWidget(self._video_container)
-        self._video_widget.setObjectName("video_widget")
-        self._video_widget.setStyleSheet("background: #0f0f0f; border-radius: 4px;")
-        self._video_widget.setMinimumSize(400, 300)
+        # 動画表示（最下層）: QGraphicsView + QGraphicsVideoItem
+        # QVideoWidget はネイティブ surface のため回転/重ね合わせができない。
+        # チャプター単位のライブ回転プレビューのために QGraphicsVideoItem を使う。
+        self._video_scene = QGraphicsScene(self._video_container)
+        self._video_item = QGraphicsVideoItem()
+        self._video_scene.addItem(self._video_item)
+        self._video_view = VideoGraphicsView(self._video_scene, self._video_container)
+        self._video_view.set_fit_callback(self._fit_video_item)
+        self._video_view.setObjectName("video_widget")
+        self._video_view.setStyleSheet("background: #0f0f0f; border: none; border-radius: 4px;")
+        self._video_view.setMinimumSize(400, 300)
+        self._video_view.setFrameStyle(0)  # NoFrame
+        self._video_view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._video_view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        # 動画は毎フレーム全体が変わるため、最小領域更新だと一部しか再描画されず
+        # 古いフレームが残る。ビューポート全体を毎回更新して描画崩れを防ぐ。
+        self._video_view.setViewportUpdateMode(
+            QGraphicsView.ViewportUpdateMode.FullViewportUpdate
+        )
+        self._video_view.setCacheMode(QGraphicsView.CacheModeFlag.CacheNone)
+        self._video_view.setRenderHints(
+            QPainter.RenderHint.SmoothPixmapTransform | QPainter.RenderHint.Antialiasing
+        )
+        # ビューポート背景（回転/レターボックスの余白）を黒に
+        self._video_view.setBackgroundBrush(QColor("#0f0f0f"))
+        # 現在チャプターの回転角（プレビュー用、度・時計回り）
+        self._preview_rotation = 0
+        # ネイティブ解像度が判明したら fit し直す
+        self._video_item.nativeSizeChanged.connect(lambda _s: self._fit_video_item())
+        # 既存コード（show/hide/lower/setGeometry）との互換のため view を指す
+        self._video_widget = self._video_view
 
         # Cover Image表示用（音声のみの場合）
         self._cover_image_label = QLabel(self._video_container)
@@ -1654,7 +1711,7 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
         main_layout.addWidget(playback_section)
 
         # メディアプレイヤーの出力先を設定
-        self._media_player.setVideoOutput(self._video_widget)
+        self._media_player.setVideoOutput(self._video_item)
 
         return container
 
@@ -2068,6 +2125,8 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
         rect = self._video_container.rect()
 
         # 全ウィジェットをコンテナサイズに合わせる
+        # （ビューの setGeometry は VideoGraphicsView.resizeEvent を発火し、
+        #  確定後の viewport サイズで _fit_video_item が呼ばれる）
         self._video_widget.setGeometry(rect)
         self._cover_image_label.setGeometry(rect)
         self._drop_overlay.setGeometry(rect)
@@ -2090,6 +2149,142 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
             y = int(container_height * 0.325 - label_size.height() / 2)
             self._chapter_overlay_label.move(x, y)
             self._chapter_overlay_label.raise_()
+
+    def _fit_video_item(self):
+        """動画アイテムをビューに最大フィット（現在の回転角を反映・クロップなし）
+
+        fitInView は「回転でアイテムが sceneRect 外にはみ出す」状態や viewport
+        サイズ確定タイミングに敏感で過小フィットすることがあるため、回転後の
+        コンテンツ寸法と viewport 実寸から決定論的にスケールを算出して
+        ビュー変換に直接適用する。
+        """
+        if not hasattr(self, '_video_item') or not hasattr(self, '_video_view'):
+            return
+
+        # アイテムサイズ＝実表示アスペクト。回転メタデータ付き動画では
+        # nativeSize が「格納寸法（自動回転前）」を返すことがあり、実フレーム
+        # （AVFoundation 自動回転後）と食い違って入れ子レターボックスになる。
+        # そのため ffprobe で検出した「自動回転後寸法」を優先的に使う。
+        disp = self._get_source_display_size()
+        if disp is not None:
+            self._video_item.setSize(QSizeF(disp[0], disp[1]))
+        else:
+            native = self._video_item.nativeSize()
+            if native.isValid() and not native.isEmpty():
+                self._video_item.setSize(native)
+            elif self._video_item.size().isEmpty():
+                # フレーム未到着時の暫定サイズ（16:9）
+                self._video_item.setSize(QSizeF(1920, 1080))
+
+        size = self._video_item.size()
+        vw, vh = size.width(), size.height()
+        if vw <= 0 or vh <= 0:
+            return
+
+        deg = self._preview_rotation % 360
+        # 回転後の外接コンテンツ寸法（90/270でアスペクト入替）
+        content_w, content_h = (vh, vw) if deg in (90, 270) else (vw, vh)
+
+        viewport = self._video_view.viewport().size()
+        pw, ph = viewport.width(), viewport.height()
+        if pw <= 0 or ph <= 0:
+            return
+
+        # 見切れない最大スケール（短い側に合わせる）
+        scale = min(pw / content_w, ph / content_h)
+
+        # 回転をアイテムに適用（中心を原点に）
+        center = self._video_item.boundingRect().center()
+        self._video_item.setTransformOriginPoint(center)
+        self._video_item.setRotation(deg)
+
+        # シーン矩形を回転後の外接矩形に合わせ、ビュー変換を直接設定
+        self._video_scene.setSceneRect(self._video_item.sceneBoundingRect())
+        self._video_view.setTransform(QTransform.fromScale(scale, scale))
+        self._video_view.centerOn(self._video_item)
+
+    def _apply_preview_rotation(self, degrees: int):
+        """プレビューの回転角（度・時計回り）を設定して即時反映"""
+        self._preview_rotation = int(degrees) % 360
+        self._fit_video_item()
+
+    def _get_source_display_size(self):
+        """現在の動画の「実表示寸法」(コンテナ自動回転後)を返す。
+
+        回転メタデータ付き動画で nativeSize が格納寸法を返す問題を回避するため、
+        ffprobe 検出値（auto_rotated_width/height）を使う。video_path 単位で
+        キャッシュし、ffprobe の繰り返し呼び出しを避ける。取得不可なら None。
+        """
+        path = getattr(self._state, 'video_path', None)
+        if not path:
+            return None
+        if getattr(self, '_source_display_path', None) == path:
+            return getattr(self, '_source_display_size', None)
+        # 新しいソース → 検出してキャッシュ
+        self._source_display_path = path
+        self._source_display_size = None
+        try:
+            from .models import detect_video_properties
+            props = detect_video_properties(str(path))
+            if props and props.width > 0 and props.height > 0:
+                self._source_display_size = (
+                    props.auto_rotated_width,
+                    props.auto_rotated_height,
+                )
+        except Exception:
+            self._source_display_size = None
+        return self._source_display_size
+
+    def _on_rotate_clicked(self):
+        """回転ボタン押下（Shiftで逆回転）"""
+        mods = QApplication.keyboardModifiers()
+        ccw = bool(mods & Qt.KeyboardModifier.ShiftModifier)
+        self._rotate_current_chapter(ccw=ccw)
+
+    def _rotate_current_chapter(self, ccw: bool = False):
+        """現在のチャプターを90°回転（ccw=Trueで逆回転）
+
+        対象は再生中チャプター。無ければ選択中の行にフォールバック。
+        """
+        row = self._current_chapter_row
+        if row is None or row < 0:
+            row = self._table.currentRow()
+        if row < 0 or row >= self._table.rowCount():
+            self._log_panel.info("回転対象のチャプターがありません", source="Rotate")
+            return
+
+        # 変更前に「再生中チャプターか」を確定（setData の itemChanged 連鎖で
+        # _current_chapter_row が変化する前に捕捉する）
+        is_current = (row == self._current_chapter_row)
+
+        cur = self._get_row_rotation(row)
+        delta = -90 if ccw else 90
+        new_rot = (cur + delta) % 360
+
+        # ROLE_ROTATION / ツールチップの setData は表示に無関係なので、
+        # itemChanged 連鎖（再ハイライト・再構築）を避けるためシグナルを抑止
+        self._table.blockSignals(True)
+        self._set_row_rotation(row, new_rot)
+        self._update_rotation_indicator(row, new_rot)
+        self._table.blockSignals(False)
+
+        # 再生中チャプターならプレビューへ即時反映
+        if is_current:
+            self._apply_preview_rotation(new_rot)
+
+        # 編集フラグ（未保存変更として扱う）
+        self._chapters_edited = True
+        self._log_panel.info(f"チャプター {row + 1}: 回転 {new_rot}°", source="Rotate")
+
+    def _update_rotation_indicator(self, row: int, rotation: int):
+        """テーブル行に回転状態を示す（タイトル列のツールチップ）"""
+        title_item = self._table.item(row, 1)
+        if title_item is None:
+            return
+        if rotation % 360 != 0:
+            title_item.setToolTip(f"回転 {rotation % 360}°")
+        else:
+            title_item.setToolTip("")
 
     def _update_cover_image_display(self):
         """Cover Image表示を更新"""
@@ -2889,6 +3084,11 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
         # チャプター名オーバーレイを更新
         self._update_chapter_overlay(current_chapter_title)
 
+        # プレビュー回転を現在チャプターに合わせて更新（WYSIWYG）
+        self._apply_preview_rotation(
+            self._get_row_rotation(current_row) if current_row >= 0 else 0
+        )
+
     def _set_current_chapter_row(self, row: int):
         """指定した行を現在のチャプターとして設定しハイライト
 
@@ -2932,6 +3132,9 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
         title_item = self._table.item(row, 1)
         if title_item:
             self._update_chapter_overlay(title_item.text())
+
+        # プレビュー回転を現在チャプターに合わせて更新
+        self._apply_preview_rotation(self._get_row_rotation(row) if row >= 0 else 0)
 
     def _refresh_chapter_colors(self):
         """テーマ変更時にチャプターテーブルの色を再描画"""
@@ -3710,6 +3913,7 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
             source_idx = ch['source_index']
             local_time_ms = ch.get('local_time_ms', 0)
             title = ch['title']
+            rotation = ch.get('rotation', 0)
             color = ch.get('color') or default_color
 
             # ChapterInfoを作成（ローカル時間）
@@ -3733,6 +3937,10 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
             title_item.setData(Qt.ItemDataRole.UserRole + 1, source_idx)
             # ローカル時間も保存（UserRole + 2）
             time_item.setData(Qt.ItemDataRole.UserRole + 2, local_time_ms)
+            # 回転角も保存（ROLE_ROTATION）
+            time_item.setData(self.ROLE_ROTATION, int(rotation) % 360)
+            if int(rotation) % 360 != 0:
+                title_item.setToolTip(f"回転 {int(rotation) % 360}°")
 
             self._table.setItem(row, 0, time_item)
             self._table.setItem(row, 1, title_item)
@@ -3744,7 +3952,8 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
             ChapterInfo(
                 local_time_ms=ch.get('local_time_ms', 0),
                 title=ch['title'],
-                source_index=ch['source_index']
+                source_index=ch['source_index'],
+                rotation=ch.get('rotation', 0)
             )
             for ch in chapters_data
         ]
@@ -4533,6 +4742,7 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
                 'local_time_ms': local_time_ms,
                 'title': title,
                 'color': color,
+                'rotation': self._get_row_rotation(row),
             })
 
         # source_indexのマッピングを計算
@@ -4571,6 +4781,7 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
                 'source_index': new_idx,
                 'local_time_ms': ch['local_time_ms'],
                 'color': ch['color'],
+                'rotation': ch.get('rotation', 0),
             })
 
         # source_index順、その中でlocal_time順にソート
@@ -4945,6 +5156,11 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
         enabled = has_chapters and has_media and self._chapters_edited
         self._prev_chapter_btn.setEnabled(enabled)
         self._next_chapter_btn.setEnabled(enabled)
+        # 回転は動画かつチャプターがあれば可（音声のみは不可）
+        if hasattr(self, '_rotate_btn'):
+            self._rotate_btn.setEnabled(
+                bool(has_chapters and has_media and not self._is_audio_only)
+            )
 
     def _update_seek_buttons(self, enabled: bool):
         """時間移動ボタンの有効/無効を更新"""
@@ -5474,7 +5690,8 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
                 chapters_data.append({
                     "local_time_ms": local_time_ms,
                     "source_index": source_index,
-                    "title": title_item.text()
+                    "title": title_item.text(),
+                    "rotation": self._get_row_rotation(row)
                 })
 
         # エンコード設定を取得
@@ -5772,6 +5989,29 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
 
     # === エクスポート ===
 
+    # チャプター行の回転角を保持する ItemDataRole
+    # (UserRole=color, +1=source_index, +2=local_time_ms は使用済み)
+    ROLE_ROTATION = Qt.ItemDataRole.UserRole + 3
+
+    def _get_row_rotation(self, row: int) -> int:
+        """指定行のチャプター回転角（度）を取得（未設定は0）"""
+        time_item = self._table.item(row, 0)
+        if time_item is None:
+            return 0
+        value = time_item.data(self.ROLE_ROTATION)
+        try:
+            return int(value) % 360 if value is not None else 0
+        except (TypeError, ValueError):
+            return 0
+
+    def _set_row_rotation(self, row: int, degrees: int):
+        """指定行のチャプター回転角（度）を設定（0/90/180/270 に正規化）"""
+        time_item = self._table.item(row, 0)
+        if time_item is None:
+            return
+        normalized = round((int(degrees) % 360) / 90) * 90 % 360
+        time_item.setData(self.ROLE_ROTATION, normalized)
+
     def _get_table_chapters(self) -> List[ChapterInfo]:
         """テーブルからチャプター情報を取得"""
         chapters = []
@@ -5783,6 +6023,7 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
                 title = title_item.text()
                 try:
                     chapter = ChapterInfo.from_time_str(time_str, title)
+                    chapter.rotation = self._get_row_rotation(row)
                     chapters.append(chapter)
                 except ValueError:
                     continue
@@ -5957,7 +6198,8 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
                 chapters_data.append({
                     "local_time_ms": local_time_ms,
                     "source_index": source_index,
-                    "title": title_item.text()
+                    "title": title_item.text(),
+                    "rotation": self._get_row_rotation(row)
                 })
 
         # エンコード設定
@@ -6696,6 +6938,7 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
                         'source_index': time_item.data(Qt.ItemDataRole.UserRole + 1) or 0,
                         'local_time_ms': time_item.data(Qt.ItemDataRole.UserRole + 2) or 0,
                         'color': time_item.data(Qt.ItemDataRole.UserRole) or default_color,
+                        'rotation': self._get_row_rotation(row),
                     })
 
             # 新しいチャプターを追加
@@ -7371,7 +7614,8 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
                 chapters.append({
                     "local_time_ms": local_time_ms,
                     "source_index": source_index,
-                    "title": title_item.text()
+                    "title": title_item.text(),
+                    "rotation": self._get_row_rotation(row)
                 })
 
         # 出力ディレクトリ（相対パスで保存）
@@ -7524,6 +7768,7 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
             local_time_ms = ch.get("local_time_ms", 0)
             source_index = ch.get("source_index", 0)
             title = ch.get("title", "")
+            rotation = ch.get("rotation", 0)
 
             # 絶対時間を計算
             absolute_time_ms = local_time_ms
@@ -7545,6 +7790,9 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
             time_item.setData(Qt.ItemDataRole.UserRole + 1, source_index)
             title_item.setData(Qt.ItemDataRole.UserRole + 1, source_index)
             time_item.setData(Qt.ItemDataRole.UserRole + 2, local_time_ms)
+            time_item.setData(self.ROLE_ROTATION, int(rotation) % 360)
+            if int(rotation) % 360 != 0:
+                title_item.setToolTip(f"回転 {int(rotation) % 360}°")
 
             self._table.setItem(row, 0, time_item)
             self._table.setItem(row, 1, title_item)

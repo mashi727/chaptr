@@ -20,6 +20,8 @@ from ..models import (
     compute_excluded_regions,
     get_encoder_args,
     get_overlay_font_path,
+    build_rotation_filter,
+    detect_video_properties,
 )
 from ..ffmpeg_utils import get_ffmpeg_path, get_popen_kwargs
 from .base import (
@@ -81,6 +83,12 @@ class ExportWorker(QThread, TempFileManagerMixin, CancellableWorkerMixin):
         self._init_temp_manager()  # TempFileManagerMixin
         self._init_cancellable()  # CancellableWorkerMixin
         self.font_path = get_overlay_font_path()  # 同梱 Noto Sans JP Bold（プレビューと共通）
+
+        # チャプター単位の回転（いずれかが非0なら回転処理を有効化）
+        self._has_rotation = any(
+            (ch.rotation % 360) != 0 for ch in self.chapters
+        )
+        self._rotation_canvas: Optional[Tuple[int, int]] = None  # 正規化先キャンバス(W,H)
 
         # 除外チャプターの処理
         self._excluded_segments: List[Tuple[int, int]] = []  # (start_ms, end_ms)
@@ -156,9 +164,82 @@ class ExportWorker(QThread, TempFileManagerMixin, CancellableWorkerMixin):
         """除外区間があり、かつカットが有効かどうか"""
         return self.cut_excluded and len(self._excluded_segments) > 0
 
+    def _sorted_chapters(self) -> List[ChapterInfo]:
+        """時刻順にソートしたチャプター（回転境界の判定用）"""
+        return sorted(self.chapters, key=lambda c: c.time_ms)
+
+    def _rotation_at(self, time_ms: int) -> int:
+        """指定時刻を含むチャプターの回転角（度）を返す"""
+        rot = 0
+        for ch in self._sorted_chapters():
+            if ch.time_ms <= time_ms:
+                rot = ch.rotation
+            else:
+                break
+        return rot % 360
+
+    def _build_rotated_keep_segments(self) -> List[Tuple[int, int, int]]:
+        """keep_segments を回転が変わるチャプター境界で再分割
+
+        Returns:
+            List of (start_ms, end_ms, rotation)
+        """
+        result: List[Tuple[int, int, int]] = []
+        sorted_ch = self._sorted_chapters()
+        for seg_start, seg_end in self._keep_segments:
+            # この保持区間内のチャプター境界を抽出
+            boundaries = [seg_start]
+            for ch in sorted_ch:
+                if seg_start < ch.time_ms < seg_end:
+                    boundaries.append(ch.time_ms)
+            boundaries.append(seg_end)
+            boundaries = sorted(set(boundaries))
+            # 連続する同一回転のサブ区間は結合
+            for i in range(len(boundaries) - 1):
+                sub_s, sub_e = boundaries[i], boundaries[i + 1]
+                if sub_e <= sub_s:
+                    continue
+                rot = self._rotation_at(sub_s)
+                if result and result[-1][1] == sub_s and result[-1][2] == rot:
+                    # 直前と同一回転かつ連続 → 結合
+                    result[-1] = (result[-1][0], sub_e, rot)
+                else:
+                    result.append((sub_s, sub_e, rot))
+        return result
+
+    def _compute_rotation_canvas(self, rotations) -> Optional[Tuple[int, int]]:
+        """回転後セグメントを収める共通キャンバス(W,H)を最大包絡で算出
+
+        ソース解像度を ffprobe で取得し、使用される各回転後の寸法から
+        W=max(width), H=max(height) を求める（縦横混在はレターボックス）。
+        取得失敗時は None。
+        """
+        props = detect_video_properties(self.input_file)
+        if not props or not props.width or not props.height:
+            return None
+        # ffmpeg はコンテナ回転メタデータを自動適用(autorotate)してから
+        # フィルタに渡すため、キャンバスは「自動回転後」の寸法を基準にする。
+        # （格納寸法 1920x1080 + rotation=-90 → 実フレームは 1080x1920）
+        w, h = props.auto_rotated_width, props.auto_rotated_height
+        max_w = max_h = 0
+        for rot in rotations:
+            r = rot % 360
+            pw, ph = (h, w) if r in (90, 270) else (w, h)
+            max_w = max(max_w, pw)
+            max_h = max(max_h, ph)
+        # 偶数化（エンコーダ要件）
+        max_w += max_w % 2
+        max_h += max_h % 2
+        return (max_w, max_h)
+
     def _create_trim_concat_filter(self) -> str:
         """
         除外区間をカットして結合するffmpegフィルターを生成
+
+        回転（チャプター単位）がある場合は、映像を回転境界で再分割し、各
+        セグメントを回転 → 共通キャンバスへ scale+pad で正規化してから結合
+        する。これにより回転混在でも concat の寸法要件を満たす。音声は
+        keep_segments 単位のまま（回転は映像のみ）。
 
         Returns:
             複合フィルター文字列
@@ -166,36 +247,52 @@ class ExportWorker(QThread, TempFileManagerMixin, CancellableWorkerMixin):
         if not self._keep_segments:
             return ""
 
-        video_parts = []
-        audio_parts = []
-        video_labels = []
-        audio_labels = []
+        # --- 映像セグメント（回転対応） ---
+        if self._has_rotation:
+            video_segments = self._build_rotated_keep_segments()
+            rotations = {r for (_, _, r) in video_segments}
+            self._rotation_canvas = self._compute_rotation_canvas(rotations)
+        else:
+            video_segments = [(s, e, 0) for (s, e) in self._keep_segments]
+            self._rotation_canvas = None
 
+        video_parts = []
+        video_labels = []
+        for i, (start_ms, end_ms, rotation) in enumerate(video_segments):
+            start_sec = start_ms / 1000.0
+            end_sec = end_ms / 1000.0
+            chain = f"[0:v]trim=start={start_sec:.3f}:end={end_sec:.3f},setpts=PTS-STARTPTS"
+            rot_filter = build_rotation_filter(rotation)
+            if rot_filter:
+                chain += f",{rot_filter}"
+            if self._rotation_canvas:
+                cw, ch_ = self._rotation_canvas
+                chain += (
+                    f",scale={cw}:{ch_}:force_original_aspect_ratio=decrease"
+                    f",pad={cw}:{ch_}:(ow-iw)/2:(oh-ih)/2,setsar=1"
+                )
+            chain += f"[v{i}]"
+            video_parts.append(chain)
+            video_labels.append(f"[v{i}]")
+
+        nv = len(video_segments)
+        video_filter = ";".join(video_parts)
+        video_filter += f";{''.join(video_labels)}concat=n={nv}:v=1:a=0[outv]"
+
+        # --- 音声セグメント（keep_segments 単位、回転非依存） ---
+        audio_parts = []
+        audio_labels = []
         for i, (start_ms, end_ms) in enumerate(self._keep_segments):
             start_sec = start_ms / 1000.0
             end_sec = end_ms / 1000.0
-
-            # 映像のtrimフィルター
-            video_parts.append(
-                f"[0:v]trim=start={start_sec:.3f}:end={end_sec:.3f},setpts=PTS-STARTPTS[v{i}]"
-            )
-            video_labels.append(f"[v{i}]")
-
-            # 音声のatrimフィルター
             audio_parts.append(
                 f"[0:a]atrim=start={start_sec:.3f}:end={end_sec:.3f},asetpts=PTS-STARTPTS[a{i}]"
             )
             audio_labels.append(f"[a{i}]")
 
-        n = len(self._keep_segments)
-
-        # 映像のconcat
-        video_filter = ";".join(video_parts)
-        video_filter += f";{''.join(video_labels)}concat=n={n}:v=1:a=0[outv]"
-
-        # 音声のconcat
+        na = len(self._keep_segments)
         audio_filter = ";".join(audio_parts)
-        audio_filter += f";{''.join(audio_labels)}concat=n={n}:v=0:a=1[outa]"
+        audio_filter += f";{''.join(audio_labels)}concat=n={na}:v=0:a=1[outa]"
 
         # 映像と音声を結合
         full_filter = video_filter + ";" + audio_filter
@@ -623,12 +720,13 @@ class ExportWorker(QThread, TempFileManagerMixin, CancellableWorkerMixin):
             if metadata_file:
                 cmd.extend(['-i', metadata_file, '-map_metadata', '1'])
 
-            # 除外区間がある場合は複合フィルターを使用
+            # 除外区間 または 回転がある場合は複合フィルターを使用
             has_excluded = self._has_excluded_segments()
+            needs_concat = has_excluded or self._has_rotation
             chapters_to_use = self._adjusted_chapters if has_excluded else self.chapters
 
-            if has_excluded:
-                # 除外区間をカット＆結合するフィルター
+            if needs_concat:
+                # カット/回転を適用して結合するフィルター（回転対応）
                 trim_concat_filter = self._create_trim_concat_filter()
 
                 if self.overlay_chapter_titles and chapters_to_use:
@@ -690,7 +788,7 @@ class ExportWorker(QThread, TempFileManagerMixin, CancellableWorkerMixin):
             cmd.append(self.output_file)
 
             self.progress_update.emit(f"コマンド: {' '.join(cmd[:10])}...")  # 長すぎるので省略
-            if has_excluded or self.overlay_chapter_titles:
+            if needs_concat or self.overlay_chapter_titles:
                 self.progress_update.emit("再エンコード中...")
             else:
                 self.progress_update.emit("ffmpeg実行中...")

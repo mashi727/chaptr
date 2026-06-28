@@ -23,6 +23,7 @@ from ..models import (
     detect_video_properties,
     calculate_target_properties,
     build_scaling_filter,
+    build_rotation_filter,
 )
 from ..ffmpeg_utils import get_ffmpeg_path, get_popen_kwargs
 from .base import (
@@ -95,12 +96,13 @@ class SplitExportWorker(QThread, TempFileManagerMixin, CancellableWorkerMixin):
         self._init_temp_manager()  # TempFileManagerMixin
         self.font_path = get_overlay_font_path()  # 同梱 Noto Sans JP Bold（プレビューと共通）
 
-    def _get_chapter_segments(self) -> List[Tuple[int, int, int, str, Optional[int]]]:
+    def _get_chapter_segments(self) -> List[Tuple[int, int, int, str, Optional[int], int]]:
         """
         有効なチャプターセグメントのリストを返す
-        Returns: List of (index, start_ms, end_ms, title, source_index)
+        Returns: List of (index, start_ms, end_ms, title, source_index, rotation)
                  複数ソースモード時: start_ms, end_ms はソース内ローカル時間
                  単一ソースモード時: start_ms, end_ms は絶対時間
+                 rotation: チャプター単位の回転角（度・時計回り）
         """
         segments = []
         valid_index = 0
@@ -145,7 +147,8 @@ class SplitExportWorker(QThread, TempFileManagerMixin, CancellableWorkerMixin):
 
             # 有効な長さがある場合のみ追加
             if end_ms > start_ms:
-                segments.append((valid_index, start_ms, end_ms, chapter.title, source_idx))
+                segments.append((valid_index, start_ms, end_ms, chapter.title,
+                                 source_idx, chapter.rotation))
                 valid_index += 1
 
         return segments
@@ -159,22 +162,41 @@ class SplitExportWorker(QThread, TempFileManagerMixin, CancellableWorkerMixin):
         self._temp_files.append(tmpfile)
         return tmpfile
 
-    def _create_title_overlay_filter(self, title: str, duration_sec: float) -> str:
-        """チャプタータイトル焼き込み用のフィルターを生成"""
-        textfile = self._create_title_textfile(title)
-        pos_x, pos_y = get_overlay_position_xy(self.overlay_position)
-        # セグメント全体にタイトル表示
-        drawtext = build_drawtext_filter(
-            fontfile=self.font_path,
-            textfile=textfile,
-            fontsize_ratio=self.FONT_SIZE_RATIO,
-            x=pos_x,
-            y=pos_y,
-            enable_start=0,
-            enable_end=duration_sec,
-        )
-        # パディング追加（偶数サイズ保証）
-        return f"{drawtext},pad=ceil(iw/2)*2:ceil(ih/2)*2"
+    def _build_video_filter(self, title: str, duration_sec: float, rotation: int) -> str:
+        """セグメントのビデオフィルタ（回転 → タイトル焼き込み → 偶数pad）を生成
+
+        回転はタイトルより前に適用し、タイトルが回転後フレームに正立するようにする。
+        回転もタイトルも無ければ空文字を返す（-vf 不要）。
+        """
+        parts: List[str] = []
+
+        # 1. 回転（タイトルより前）
+        rot = build_rotation_filter(rotation)
+        if rot:
+            parts.append(rot)
+
+        # 2. タイトル焼き込み
+        if self.overlay_title:
+            textfile = self._create_title_textfile(title)
+            pos_x, pos_y = get_overlay_position_xy(self.overlay_position)
+            # セグメント全体にタイトル表示
+            drawtext = build_drawtext_filter(
+                fontfile=self.font_path,
+                textfile=textfile,
+                fontsize_ratio=self.FONT_SIZE_RATIO,
+                x=pos_x,
+                y=pos_y,
+                enable_start=0,
+                enable_end=duration_sec,
+            )
+            parts.append(drawtext)
+
+        if not parts:
+            return ""
+
+        # 3. パディング追加（偶数サイズ保証）
+        parts.append("pad=ceil(iw/2)*2:ceil(ih/2)*2")
+        return ",".join(parts)
 
     def run(self):
         """チャプターごとに分割エクスポート"""
@@ -187,7 +209,7 @@ class SplitExportWorker(QThread, TempFileManagerMixin, CancellableWorkerMixin):
             total_segments = len(segments)
             completed = 0
 
-            for idx, start_ms, end_ms, title, source_index in segments:
+            for idx, start_ms, end_ms, title, source_index, rotation in segments:
                 if self._cancelled:
                     self.progress_update.emit("Export cancelled")
                     return
@@ -233,9 +255,9 @@ class SplitExportWorker(QThread, TempFileManagerMixin, CancellableWorkerMixin):
                     )
                     colorspace_args = self.colorspace.get_ffmpeg_args()
 
-                    # タイトル焼き込み
-                    if self.overlay_title:
-                        vf = self._create_title_overlay_filter(title, duration_sec)
+                    # ビデオフィルタ（回転 + タイトル焼き込み）
+                    vf = self._build_video_filter(title, duration_sec, rotation)
+                    if vf:
                         cmd += ['-vf', vf]
 
                     cmd += encoder_args + colorspace_args

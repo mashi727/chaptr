@@ -30,13 +30,15 @@ class ChapterData:
     local_time_ms: int
     color: Optional[str] = None  # hex color string, e.g. "#f0f0f0"
     is_added: bool = False  # ユーザーが追加したチャプターか（赤色表示用）
+    rotation: int = 0  # チャプター単位の回転角（度・時計回り、0/90/180/270）
 
     def to_chapter_info(self) -> ChapterInfo:
         """ChapterInfoに変換"""
         return ChapterInfo(
             local_time_ms=self.local_time_ms,
             title=self.title,
-            source_index=self.source_index
+            source_index=self.source_index,
+            rotation=self.rotation
         )
 
     @classmethod
@@ -46,7 +48,8 @@ class ChapterData:
             title=info.title,
             source_index=info.source_index or 0,
             local_time_ms=info.local_time_ms,
-            color=color
+            color=color,
+            rotation=info.rotation
         )
 
 
@@ -188,7 +191,8 @@ class ChapterManager(QObject):
                 source_index=ch.get('source_index', 0),
                 local_time_ms=ch.get('local_time_ms', 0),
                 color=ch.get('color'),
-                is_added=ch.get('is_added', False)
+                is_added=ch.get('is_added', False),
+                rotation=ch.get('rotation', 0)
             ))
 
         self._sort_by_absolute_time()
@@ -637,6 +641,7 @@ class ChapterManager(QObject):
                 'title': ch.title,
                 'source_index': ch.source_index,
                 'local_time_ms': ch.local_time_ms,
+                'rotation': ch.rotation,
             })
         return result
 
@@ -649,5 +654,6 @@ class ChapterManager(QObject):
                 'source_index': ch.get('source_index', 0),
                 'local_time_ms': ch.get('local_time_ms', 0),
                 'color': self._default_color,
+                'rotation': ch.get('rotation', 0),
             })
         self.set_chapters(chapters_data)

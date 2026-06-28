@@ -64,6 +64,7 @@ class ChapterInfo:
     local_time_ms: int  # ソースファイル内のローカル時間（ミリ秒）
     title: str
     source_index: Optional[int] = None  # 所属するソースファイルのインデックス
+    rotation: int = 0  # チャプター単位の回転角（度・時計回り、0/90/180/270）
 
     @property
     def local_time_str(self) -> str:
@@ -374,6 +375,17 @@ class VideoProperties:
     fps_den: int = 1   # フレームレート分母
     is_interlaced: bool = False  # インターレース
     field_order: str = "progressive"  # field_order
+    rotation: int = 0  # コンテナの表示回転メタデータ（度。ffmpeg/プレイヤーが自動適用）
+
+    @property
+    def auto_rotated_width(self) -> int:
+        """コンテナ回転を適用した後の幅（ffmpeg autorotate 後・プレイヤー表示と同じ）"""
+        return self.height if (self.rotation % 180) != 0 else self.width
+
+    @property
+    def auto_rotated_height(self) -> int:
+        """コンテナ回転を適用した後の高さ"""
+        return self.width if (self.rotation % 180) != 0 else self.height
 
     @property
     def display_width(self) -> int:
@@ -422,7 +434,7 @@ def detect_video_properties(file_path: str) -> Optional[VideoProperties]:
             [
                 get_ffprobe_path(), "-v", "quiet",
                 "-select_streams", "v:0",
-                "-show_entries", "stream=width,height,sample_aspect_ratio,display_aspect_ratio,r_frame_rate,field_order",
+                "-show_entries", "stream=width,height,sample_aspect_ratio,display_aspect_ratio,r_frame_rate,field_order:stream_side_data=rotation",
                 "-of", "default=noprint_wrappers=1",
                 file_path
             ],
@@ -466,6 +478,12 @@ def detect_video_properties(file_path: str) -> Optional[VideoProperties]:
                 props.field_order = value
                 # インターレース判定: progressive以外はインターレース
                 props.is_interlaced = value not in ("progressive", "unknown", "")
+            elif key == "rotation" and value and value != "N/A":
+                # コンテナ表示回転（side_data）。負値もあり得る（例: -90）
+                try:
+                    props.rotation = int(value) % 360
+                except ValueError:
+                    pass
 
         if props.width > 0 and props.height > 0:
             return props
@@ -529,6 +547,36 @@ def calculate_target_properties(sources_props: List[VideoProperties]) -> Optiona
         is_interlaced=False,
         field_order="progressive"
     )
+
+
+def build_rotation_filter(rotation: int) -> str:
+    """回転角（度・時計回り）から ffmpeg のビデオフィルタ文字列を生成
+
+    チャプター（セグメント）単位の回転で、プレビューと出力を一致させるための
+    単一情報源。90°単位のみ対応し、端数は最近接の90°にスナップする。
+
+    対応（時計回りCWを正方向とする）:
+        0°   → ""（no-op）
+        90°  → "transpose=1"            （90° CW）
+        180° → "transpose=1,transpose=1"
+        270° → "transpose=2"            （90° CCW）
+
+    ffmpeg transpose: 1=90°CW, 2=90°CCW。
+
+    Args:
+        rotation: 回転角（度）。任意の整数を 0/90/180/270 に正規化する。
+
+    Returns:
+        ffmpeg フィルタ文字列（回転不要なら空文字）
+    """
+    r = round((rotation % 360) / 90) * 90 % 360
+    if r == 90:
+        return "transpose=1"
+    if r == 180:
+        return "transpose=1,transpose=1"
+    if r == 270:
+        return "transpose=2"
+    return ""
 
 
 def build_scaling_filter(
