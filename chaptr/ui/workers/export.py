@@ -232,36 +232,43 @@ class ExportWorker(QThread, TempFileManagerMixin, CancellableWorkerMixin):
         max_h += max_h % 2
         return (max_w, max_h)
 
-    def _create_trim_concat_filter(self) -> str:
-        """
-        除外区間をカットして結合するffmpegフィルターを生成
+    def _build_concat_inputs_and_filter(self):
+        """各保持区間（回転境界で再分割）を高速シーク入力として開く構成を生成。
 
-        回転（チャプター単位）がある場合は、映像を回転境界で再分割し、各
-        セグメントを回転 → 共通キャンバスへ scale+pad で正規化してから結合
-        する。これにより回転混在でも concat の寸法要件を満たす。音声は
-        keep_segments 単位のまま（回転は映像のみ）。
+        従来の `[0:v]trim=start=...`（先頭から全編デコードして窓を切り出す）方式は
+        長尺ファイルで非常に遅い。代わりに区間ごとに `-ss …-t …-i` で高速シーク
+        した入力を開き、1パスで rotate → 共通キャンバス正規化 → concat する。
+        これにより長尺でも実用速度になる（再エンコードは1回）。
+
+        映像・音声とも同じ区間（= 同じ入力）を使う。回転混在は各区間を
+        max-envelope キャンバスへ scale+pad で正規化して concat の寸法要件を満たす。
 
         Returns:
-            複合フィルター文字列
+            (input_args, filter_complex, n_segments)
+            - input_args: 各区間の入力オプション（-ss/-t/-i）のリスト
+            - filter_complex: [outv]/[outa] を出力する複合フィルター
+            - n_segments: 区間数（= 入力数。メタデータ入力インデックス算出用）
         """
-        if not self._keep_segments:
-            return ""
-
-        # --- 映像セグメント（回転対応） ---
         if self._has_rotation:
-            video_segments = self._build_rotated_keep_segments()
-            rotations = {r for (_, _, r) in video_segments}
+            segments = self._build_rotated_keep_segments()
+            rotations = {r for (_, _, r) in segments}
             self._rotation_canvas = self._compute_rotation_canvas(rotations)
         else:
-            video_segments = [(s, e, 0) for (s, e) in self._keep_segments]
+            segments = [(s, e, 0) for (s, e) in self._keep_segments]
             self._rotation_canvas = None
 
-        video_parts = []
-        video_labels = []
-        for i, (start_ms, end_ms, rotation) in enumerate(video_segments):
+        input_args = []
+        v_parts, v_labels = [], []
+        a_parts, a_labels = [], []
+        for i, (start_ms, end_ms, rotation) in enumerate(segments):
             start_sec = start_ms / 1000.0
-            end_sec = end_ms / 1000.0
-            chain = f"[0:v]trim=start={start_sec:.3f}:end={end_sec:.3f},setpts=PTS-STARTPTS"
+            dur_sec = (end_ms - start_ms) / 1000.0
+            # -ss/-t を -i の前に置く＝入力オプション（高速シーク＋区間長制限）
+            input_args += [
+                '-ss', f'{start_sec:.3f}', '-t', f'{dur_sec:.3f}', '-i', self.input_file
+            ]
+
+            chain = f"[{i}:v]setpts=PTS-STARTPTS"
             rot_filter = build_rotation_filter(rotation)
             if rot_filter:
                 chain += f",{rot_filter}"
@@ -272,32 +279,16 @@ class ExportWorker(QThread, TempFileManagerMixin, CancellableWorkerMixin):
                     f",pad={cw}:{ch_}:(ow-iw)/2:(oh-ih)/2,setsar=1"
                 )
             chain += f"[v{i}]"
-            video_parts.append(chain)
-            video_labels.append(f"[v{i}]")
+            v_parts.append(chain)
+            v_labels.append(f"[v{i}]")
 
-        nv = len(video_segments)
-        video_filter = ";".join(video_parts)
-        video_filter += f";{''.join(video_labels)}concat=n={nv}:v=1:a=0[outv]"
+            a_parts.append(f"[{i}:a]asetpts=PTS-STARTPTS[a{i}]")
+            a_labels.append(f"[a{i}]")
 
-        # --- 音声セグメント（keep_segments 単位、回転非依存） ---
-        audio_parts = []
-        audio_labels = []
-        for i, (start_ms, end_ms) in enumerate(self._keep_segments):
-            start_sec = start_ms / 1000.0
-            end_sec = end_ms / 1000.0
-            audio_parts.append(
-                f"[0:a]atrim=start={start_sec:.3f}:end={end_sec:.3f},asetpts=PTS-STARTPTS[a{i}]"
-            )
-            audio_labels.append(f"[a{i}]")
-
-        na = len(self._keep_segments)
-        audio_filter = ";".join(audio_parts)
-        audio_filter += f";{''.join(audio_labels)}concat=n={na}:v=0:a=1[outa]"
-
-        # 映像と音声を結合
-        full_filter = video_filter + ";" + audio_filter
-
-        return full_filter
+        n = len(segments)
+        video_filter = ";".join(v_parts) + f";{''.join(v_labels)}concat=n={n}:v=1:a=0[outv]"
+        audio_filter = ";".join(a_parts) + f";{''.join(a_labels)}concat=n={n}:v=0:a=1[outa]"
+        return input_args, video_filter + ";" + audio_filter, n
 
     def _escape_ffmetadata(self, text: str) -> str:
         """FFMETADATA形式用のエスケープ処理
@@ -713,77 +704,68 @@ class ExportWorker(QThread, TempFileManagerMixin, CancellableWorkerMixin):
                 metadata_file = self._create_metadata_file()
                 self.progress_update.emit(f"メタデータファイル生成: {metadata_file}")
 
-            # ffmpegコマンドを構築
-            cmd = [get_ffmpeg_path(), '-y', '-i', self.input_file]
-
-            # メタデータファイルがある場合は追加
-            if metadata_file:
-                cmd.extend(['-i', metadata_file, '-map_metadata', '1'])
-
-            # 除外区間 または 回転がある場合は複合フィルターを使用
+            # 除外区間 または 回転がある場合は複合フィルター＋区間別高速シーク入力
             has_excluded = self._has_excluded_segments()
             needs_concat = has_excluded or self._has_rotation
             chapters_to_use = self._adjusted_chapters if has_excluded else self.chapters
 
+            encoder_args = get_encoder_args(self.encoder_id, self.bitrate_kbps, self.crf)
+            colorspace_args = self.colorspace.get_ffmpeg_args()
+
+            # ffmpegコマンドを構築
+            cmd = [get_ffmpeg_path(), '-y']
+            metadata_input_index = None  # メタデータ/チャプター入力のインデックス
+
             if needs_concat:
-                # カット/回転を適用して結合するフィルター（回転対応）
-                trim_concat_filter = self._create_trim_concat_filter()
+                # 各保持区間を -ss/-t/-i で高速シーク入力として開く（trim 全編デコード回避）
+                seg_inputs, base_filter, n_seg = self._build_concat_inputs_and_filter()
+                cmd.extend(seg_inputs)
+                if metadata_file:
+                    metadata_input_index = n_seg
+                    cmd.extend(['-i', metadata_file, '-map_metadata', str(metadata_input_index)])
 
                 if self.overlay_chapter_titles and chapters_to_use:
-                    # drawtextフィルターを取得（調整後の時間で生成される）
+                    # concat 後の（正規化済み）映像に drawtext を適用
                     drawtext_filter = self._create_drawtext_filter()
-                    # trim/concat後の映像にdrawtextを適用
-                    combined_filter = trim_concat_filter + f";[outv]{drawtext_filter}[finalv]"
+                    full_filter = base_filter + f";[outv]{drawtext_filter}[finalv]"
+                    video_map = '[finalv]'
                     self.progress_update.emit(f"チャプタータイトル: {len(chapters_to_use)}件を映像に焼き込み")
-
-                    encoder_args = get_encoder_args(
-                        self.encoder_id, self.bitrate_kbps, self.crf
-                    )
-                    colorspace_args = self.colorspace.get_ffmpeg_args()
-                    cmd.extend([
-                        '-filter_complex', combined_filter,
-                        '-map', '[finalv]',
-                        '-map', '[outa]',
-                    ] + encoder_args + colorspace_args + [
-                        '-c:a', 'aac', '-b:a', '192k',
-                        '-movflags', '+faststart'
-                    ])
                 else:
-                    # カット＆結合のみ（オーバーレイなし）
-                    encoder_args = get_encoder_args(
-                        self.encoder_id, self.bitrate_kbps, self.crf
-                    )
-                    colorspace_args = self.colorspace.get_ffmpeg_args()
-                    cmd.extend([
-                        '-filter_complex', trim_concat_filter,
-                        '-map', '[outv]',
-                        '-map', '[outa]',
-                    ] + encoder_args + colorspace_args + [
-                        '-c:a', 'aac', '-b:a', '192k',
-                        '-movflags', '+faststart'
-                    ])
-            elif self.overlay_chapter_titles and self.chapters:
-                # 除外区間なし、オーバーレイあり
-                vf = self._create_drawtext_filter()
-                self.progress_update.emit(f"チャプタータイトル: {len(self.chapters)}件を映像に焼き込み")
+                    full_filter = base_filter
+                    video_map = '[outv]'
 
-                encoder_args = get_encoder_args(
-                        self.encoder_id, self.bitrate_kbps, self.crf
-                    )
-                colorspace_args = self.colorspace.get_ffmpeg_args()
                 cmd.extend([
-                    '-vf', vf,
+                    '-filter_complex', full_filter,
+                    '-map', video_map,
+                    '-map', '[outa]',
                 ] + encoder_args + colorspace_args + [
                     '-c:a', 'aac', '-b:a', '192k',
                     '-movflags', '+faststart'
                 ])
             else:
-                # ストリームコピー（再エンコードなし）
-                cmd.extend(['-c', 'copy'])
+                # 単一入力（カット/回転なし）
+                cmd.extend(['-i', self.input_file])
+                if metadata_file:
+                    metadata_input_index = 1
+                    cmd.extend(['-i', metadata_file, '-map_metadata', '1'])
+
+                if self.overlay_chapter_titles and self.chapters:
+                    # 除外区間なし、オーバーレイあり
+                    vf = self._create_drawtext_filter()
+                    self.progress_update.emit(f"チャプタータイトル: {len(self.chapters)}件を映像に焼き込み")
+                    cmd.extend([
+                        '-vf', vf,
+                    ] + encoder_args + colorspace_args + [
+                        '-c:a', 'aac', '-b:a', '192k',
+                        '-movflags', '+faststart'
+                    ])
+                else:
+                    # ストリームコピー（再エンコードなし）
+                    cmd.extend(['-c', 'copy'])
 
             # チャプターのコピー設定
-            if self.embed_chapters and chapters_to_use:
-                cmd.extend(['-map_chapters', '1'])
+            if self.embed_chapters and chapters_to_use and metadata_input_index is not None:
+                cmd.extend(['-map_chapters', str(metadata_input_index)])
 
             cmd.append(self.output_file)
 
