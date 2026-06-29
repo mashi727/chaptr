@@ -8,6 +8,7 @@ import re
 import subprocess
 import tempfile
 import time
+import unicodedata
 from pathlib import Path
 from typing import Optional, List, Tuple, Dict
 
@@ -158,7 +159,9 @@ class SplitExportWorker(QThread, TempFileManagerMixin, CancellableWorkerMixin):
         import os
         fd, tmpfile = tempfile.mkstemp(suffix='.txt', prefix='chapter_title_')
         with os.fdopen(fd, 'w', encoding='utf-8') as f:
-            f.write(title)
+            # NFC 正規化（macOS の NFD だと drawtext が濁点等の結合文字を
+            # 合成せず離れて焼き込まれるため）
+            f.write(unicodedata.normalize('NFC', title))
         self._temp_files.append(tmpfile)
         return tmpfile
 

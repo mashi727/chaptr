@@ -9,6 +9,7 @@ import os
 import re
 import subprocess
 import tempfile
+import unicodedata
 from pathlib import Path
 from typing import Optional, List, Tuple
 
@@ -345,7 +346,9 @@ class ExportWorker(QThread, TempFileManagerMixin, CancellableWorkerMixin):
         for i, ch in enumerate(chapters_to_use):
             tmpfile = os.path.join(tempfile.gettempdir(), f"chapter_title_{i}.txt")
             with open(tmpfile, 'w', encoding='utf-8') as f:
-                f.write(ch.title)
+                # NFC 正規化（macOS の NFD だと drawtext が濁点等の結合文字を
+                # 合成せず離れて焼き込まれるため）
+                f.write(unicodedata.normalize('NFC', ch.title))
             textfiles.append(tmpfile)
             self._temp_files.append(tmpfile)
         return textfiles
