@@ -24,6 +24,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 from . import hls, chapters as chap
 from .jobs import HlsJobManager
+from .runner import JobRunner, JobType, load_job_types, TemplateError
 
 
 VIDEO_EXTS = {".mp4", ".mov", ".avi", ".mkv", ".m4v", ".mts", ".m2ts", ".ts"}
@@ -38,6 +39,32 @@ def _key_is_safe(key: str) -> bool:
     return bool(key) and all(c in _KEY_OK for c in key) and ".." not in key
 
 
+def _job_json(rec) -> dict:
+    """JobRecord を API 応答用 dict に（ログ本文は含めない）"""
+    return {
+        "id": rec.id,
+        "type": rec.type,
+        "params": rec.params,
+        "state": rec.state,
+        "returncode": rec.returncode,
+        "created": rec.created,
+        "started": rec.started,
+        "finished": rec.finished,
+        "error": rec.error,
+    }
+
+
+def _template_params(job_type) -> List[str]:
+    """ジョブ種別の argv テンプレートから必要な param 名を抽出"""
+    import re
+    names: List[str] = []
+    for elem in job_type.command:
+        for m in re.finditer(r"\{([A-Za-z0-9_]+)\}", elem):
+            if m.group(1) not in names:
+                names.append(m.group(1))
+    return names
+
+
 def create_app(
     root: Path,
     cache_dir: Path,
@@ -45,11 +72,17 @@ def create_app(
     ffprobe: str = "ffprobe",
     height: int = 480,
     video_kbps: int = 800,
+    jobs_config: Optional[Path] = None,
+    job_types: Optional[dict] = None,
 ) -> FastAPI:
     root = Path(root).resolve()
     cache_dir = Path(cache_dir).resolve()
     cache_dir.mkdir(parents=True, exist_ok=True)
     jobs = HlsJobManager(cache_dir, ffmpeg, ffprobe)
+
+    # 重い処理を Zeus 上で fire-and-forget 実行するジョブランナー（任意）
+    types = dict(job_types) if job_types else load_job_types(jobs_config)
+    runner = JobRunner(cache_dir / "jobs", types, root=root) if types else None
 
     app = FastAPI(title="Chaptr Web", docs_url=None, redoc_url=None)
 
@@ -191,6 +224,57 @@ def create_app(
         return JSONResponse({
             "dir": str(base), "parent": parent, "dirs": dirs, "videos": vids,
         })
+
+    # ---- ジョブ（重い処理を Zeus 上で fire-and-forget） ----
+
+    def _require_runner() -> JobRunner:
+        if runner is None:
+            raise HTTPException(503, "job runner not configured (--jobs-config)")
+        return runner
+
+    @app.get("/api/jobs/types")
+    def job_types_list() -> JSONResponse:
+        r = _require_runner()
+        return JSONResponse({"types": [
+            {"name": t.name, "description": t.description,
+             "params": _template_params(t)}
+            for t in r.job_types()
+        ]})
+
+    @app.get("/api/jobs")
+    def jobs_list() -> JSONResponse:
+        r = _require_runner()
+        return JSONResponse({"jobs": [_job_json(j) for j in r.list()]})
+
+    @app.post("/api/jobs")
+    def jobs_submit(payload: dict = Body(...)) -> JSONResponse:
+        r = _require_runner()
+        type_name = str(payload.get("type", ""))
+        params = payload.get("params", {}) or {}
+        if not isinstance(params, dict):
+            raise HTTPException(400, "params must be an object")
+        try:
+            rec = r.submit(type_name, {k: str(v) for k, v in params.items()})
+        except TemplateError as e:
+            raise HTTPException(400, str(e))
+        return JSONResponse(_job_json(rec))
+
+    @app.get("/api/jobs/{job_id}")
+    def jobs_get(job_id: str) -> JSONResponse:
+        r = _require_runner()
+        rec = r.get(job_id)
+        if rec is None:
+            raise HTTPException(404, "job not found")
+        data = _job_json(rec)
+        data["log"] = r.log_tail(job_id)
+        return JSONResponse(data)
+
+    @app.post("/api/jobs/{job_id}/cancel")
+    def jobs_cancel(job_id: str) -> JSONResponse:
+        r = _require_runner()
+        if r.get(job_id) is None:
+            raise HTTPException(404, "job not found")
+        return JSONResponse({"cancelled": r.cancel(job_id)})
 
     # ---- チャプター読み出し ----
 

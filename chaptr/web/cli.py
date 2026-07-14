@@ -37,6 +37,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--ffprobe", default="ffprobe", help="ffprobe 実行パス")
     p.add_argument("--height", type=int, default=480, help="プロキシの高さ px（既定 480）")
     p.add_argument("--vkbps", type=int, default=800, help="プロキシ動画ビットレート kbps（既定 800）")
+    p.add_argument("--jobs-config", default="",
+                   help="重い処理のジョブ定義 JSON（vce-encode 等を登録）")
     return p
 
 
@@ -65,6 +67,7 @@ def main(argv=None) -> int:
         ffprobe=args.ffprobe,
         height=args.height,
         video_kbps=args.vkbps,
+        jobs_config=Path(args.jobs_config).expanduser() if args.jobs_config else None,
     )
     print(f"chaptr-web: root={root} cache={cache_dir}", file=sys.stderr)
     print(f"open  http://<this-host>:{args.port}/  from iPhone/iPad Safari", file=sys.stderr)

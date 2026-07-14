@@ -172,6 +172,23 @@ chaptr/
 - 未対応（Phase 2 候補）: 波形表示（peaks 生成）、認証、複数同時ジョブの上限管理
 - スコープ: チャプター付けのみ（One app, one thing）。エンコードは別コマンド。
 
+### リモート・ジョブランナー（重い処理を Zeus 上で fire-and-forget）
+
+「PC を開きっぱなしにしないと重い処理が進まない」問題への回答。音声結合→同期→
+正規化→差し替えや、切り出し＋再エンコード＋結合のような重い処理を、サーバ上で
+バックグラウンド実行し、出先（iPhone 含む）から投入・監視する。
+
+- `chaptr/web/runner.py`: ジョブランナー本体（Qt 非依存・テスト済）
+  - `JobType`（argv テンプレート・`path_params` で root 制約）、`render_argv`（shell 不使用）、
+    `JobRunner`（submit/list/get/log_tail/cancel、`jobs_dir/<id>/` に永続化＝再起動後も履歴復元）
+  - 処理本体は持たず、**ユーザーの既存コマンド**（vce-encode / video-replace-audio 等）を
+    設定（`examples/jobs.example.json`）で登録して呼ぶだけ。
+- API（`server.py`）: `GET/POST /api/jobs`, `GET /api/jobs/{id}`(+log), `/api/jobs/{id}/cancel`,
+  `GET /api/jobs/types`。起動時に `--jobs-config <json>` を渡すと有効化。
+- テスト: `tests/test_web_runner.py`（14件）。
+- 未確定（要ユーザー確認）: ダッシュボード UI の形、各コマンドの実引数、
+  チャプター付け→エンコードの自動連携。
+
 ## 未実装タスク
 
 - [ ] bin/advanced/ の作成（音声処理ツール群）

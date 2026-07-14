@@ -134,3 +134,56 @@ def test_status_bad_key(env):
 
 def test_chapters_unknown_key(env):
     assert env["client"].get("/api/chapters/nonexistent.key").status_code == 404
+
+
+# ---- ジョブランナー API ----
+
+def test_jobs_disabled_without_config(env):
+    # ジョブ設定なしの env では 503
+    assert env["client"].get("/api/jobs").status_code == 503
+
+
+@pytest.fixture
+def job_env(tmp_path):
+    from chaptr.web.runner import JobType
+    root = tmp_path / "media"; root.mkdir()
+    cache = tmp_path / "cache"
+    types = {
+        "echo": JobType(name="echo", command=["sh", "-c", "printf '{msg}'"],
+                        description="echo test"),
+    }
+    app = create_app(root=root, cache_dir=cache, job_types=types)
+    return {"client": TestClient(app), "root": root}
+
+
+def test_job_types_listed(job_env):
+    r = job_env["client"].get("/api/jobs/types")
+    assert r.status_code == 200
+    types = r.json()["types"]
+    assert types[0]["name"] == "echo"
+    assert types[0]["params"] == ["msg"]
+
+
+def test_job_submit_and_poll(job_env):
+    import time
+    r = job_env["client"].post("/api/jobs", json={"type": "echo", "params": {"msg": "hi"}})
+    assert r.status_code == 200
+    job_id = r.json()["id"]
+    for _ in range(100):
+        got = job_env["client"].get(f"/api/jobs/{job_id}").json()
+        if got["state"] in ("done", "error"):
+            break
+        time.sleep(0.02)
+    assert got["state"] == "done"
+    assert "hi" in got["log"]
+    # 一覧に出る
+    assert any(j["id"] == job_id for j in job_env["client"].get("/api/jobs").json()["jobs"])
+
+
+def test_job_submit_unknown_type(job_env):
+    r = job_env["client"].post("/api/jobs", json={"type": "ghost", "params": {}})
+    assert r.status_code == 400
+
+
+def test_job_get_not_found(job_env):
+    assert job_env["client"].get("/api/jobs/nope").status_code == 404

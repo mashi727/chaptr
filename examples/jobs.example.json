@@ -1,0 +1,26 @@
+{
+  "_comment": [
+    "chaptr-web の重い処理ジョブ定義。あなたの既存コマンドをそのまま登録する。",
+    "command は argv（shell を介さない）。要素中の {name} が送信時の params[name] で置換される。",
+    "path_params に挙げた param は --root 配下に解決されることを強制（安全性）。",
+    "使い方: chaptr-web --root /data --jobs-config examples/jobs.example.json"
+  ],
+
+  "encode": {
+    "description": "チャプター(.txt)に従い不要区間をカットして再エンコード・結合し1本のMP4に",
+    "command": ["vce-encode", "{project}", "-o", "{output}"],
+    "path_params": ["project", "output"]
+  },
+
+  "split": {
+    "description": "チャプターごとに分割",
+    "command": ["vce-split", "{project}"],
+    "path_params": ["project"]
+  },
+
+  "audio-replace": {
+    "description": "L/R結合・同期・正規化した音声で動画の音声を差し替え",
+    "command": ["video-replace-audio", "{video}", "{audio}", "-o", "{output}"],
+    "path_params": ["video", "audio", "output"]
+  }
+}
