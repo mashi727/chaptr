@@ -151,6 +151,27 @@ chaptr/
 - 設計: 原本と尺・fps 同一のプロキシを掴ませるため、既存のローカル前提コードは無改修で再利用。
   エンコード（チャプター焼き込み等）はスコープ外（別コマンドの担当）。
 
+## Web 版（iPhone / iPad 向け・`chaptr-web`）
+
+手元操作が iOS の場合、PySide6 デスクトップ版は動かない（Qt は iOS 非対応）。
+そこで原本のあるサーバ上で動く**ブラウザ版**を別フロントエンドとして用意。
+
+- 方式: iOS Safari がネイティブ対応する **HLS** で低解像度プロキシをストリーム
+  再生（原本は不動・DL 不要）。タイムラインをタップしてチャプター付け、保存で
+  原本の隣に `<原本名>.txt`（デスクトップ版と同形式）を書き出す。
+- コア（FastAPI / Qt 非依存・単体テスト済）:
+  - `chaptr/web/chapters.py`: チャプター .txt の parse / format（デスクトップ互換）
+  - `chaptr/web/hls.py`: HLS ffmpeg コマンド生成、キャッシュキー、`resolve_within_root`（パストラバーサル防止）
+- 実行:
+  - `chaptr/web/jobs.py`: HLS 生成ジョブ（スレッド + 進捗）
+  - `chaptr/web/server.py`: FastAPI `create_app(root, cache_dir, ...)`
+  - `chaptr/web/static/index.html`: 単一ページのタッチ UI（依存なし・`<video>` で HLS 再生）
+  - `chaptr/web/cli.py`: `chaptr-web --root <dir>` で uvicorn 起動
+- 依存: `pip install 'chaptr[web]'`（fastapi / uvicorn）
+- テスト: `tests/test_web_chapters.py`, `tests/test_web_hls.py`, `tests/test_web_server.py`
+- 未対応（Phase 2 候補）: 波形表示（peaks 生成）、認証、複数同時ジョブの上限管理
+- スコープ: チャプター付けのみ（One app, one thing）。エンコードは別コマンド。
+
 ## 未実装タスク
 
 - [ ] bin/advanced/ の作成（音声処理ツール群）

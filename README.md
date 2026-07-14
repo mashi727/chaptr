@@ -134,6 +134,32 @@ chaptr-remote push /home/you/.cache/msw/proxies/big.<hash>.txt
 前提: クライアントからリモートへ `ssh` / `scp` が鍵認証で通ること（公開 IP /
 Tailscale / VPN 等）。リモート側に `ffmpeg` / `ffprobe` があること。
 
+> 上記の GUI / CLI は **PC クライアント（Mac / Windows / Linux）** 向けです。
+> iPhone / iPad からは次の Web 版を使います。
+
+### iPhone / iPad から（Web 版 `chaptr-web`）
+
+デスクトップ版（PySide6）は iOS では動きません。iPhone / iPad からは、原本の
+あるサーバ上で **`chaptr-web`** を起動し、Safari でアクセスします。
+
+- 原本はサーバに置いたまま、iOS Safari が**ネイティブ対応する HLS**で
+  低解像度プロキシを**ストリーム再生**（原本のダウンロード不要）。
+- タイムラインをタップして「現在位置にチャプター」。除外は `--` 始まり。
+- 「サーバへ保存」で、原本の隣に `<原本名>.txt` を書き出し（デスクトップ版と同形式）。
+
+```bash
+# サーバ（原本のあるマシン）で起動。--root 配下の動画だけ公開
+pip install 'chaptr[web]'
+chaptr-web --root /data/recordings --host 0.0.0.0 --port 8080
+
+# iPhone / iPad の Safari で:
+#   http://<server>:8080/
+# → 「参照」で動画を選ぶか、パスを入力 → 「開く」→ チャプター付け → 「サーバへ保存」
+```
+
+前提: iOS 端末からサーバへ **HTTP で到達**できること（同一 LAN / Tailscale /
+リバースプロキシ等）。サーバに `ffmpeg` / `ffprobe` があること。波形表示は今後対応予定。
+
 ## Development
 
 ```bash

@@ -46,6 +46,11 @@ dev = [
     "black>=23.0",
     "ruff>=0.1.0",
 ]
+# iOS ブラウザ版チャプター付けサーバ（chaptr-web）用
+web = [
+    "fastapi>=0.110",
+    "uvicorn>=0.27",
+]
 
 [project.urls]
 Homepage = "https://github.com/mashi727/chaptr"
@@ -54,6 +59,7 @@ Repository = "https://github.com/mashi727/chaptr"
 [project.scripts]
 chaptr = "chaptr.ui.app:main"
 chaptr-remote = "chaptr.remote.cli:main"
+chaptr-web = "chaptr.web.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["chaptr"]

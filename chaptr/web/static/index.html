@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Chaptr Web</title>
+<style>
+  :root {
+    --bg: #1d1f21; --panel: #2a2d30; --line: #3a3d40; --fg: #eaeaea;
+    --muted: #9aa0a6; --accent: #1e50a2; --accent2: #c3d825; --danger: #ef4444;
+    --excluded: #c53d43;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; background: var(--bg); color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Kaku Gothic ProN", sans-serif; }
+  body { padding: env(safe-area-inset-top) 12px calc(env(safe-area-inset-bottom) + 12px); }
+  h1 { font-size: 17px; margin: 12px 4px; font-weight: 600; }
+  .panel { background: var(--panel); border: 1px solid var(--line);
+    border-radius: 10px; padding: 12px; margin-bottom: 12px; }
+  .row { display: flex; gap: 8px; align-items: center; }
+  input[type=text] { flex: 1; min-width: 0; background: #17181a; color: var(--fg);
+    border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; font-size: 16px; }
+  button { background: var(--accent); color: #fff; border: none; border-radius: 8px;
+    padding: 11px 14px; font-size: 15px; font-weight: 600; cursor: pointer; }
+  button.ghost { background: #33363a; }
+  button.mark { width: 100%; background: var(--accent2); color: #1a1a1a;
+    font-size: 17px; padding: 16px; margin-top: 4px; }
+  button.save { background: var(--accent); }
+  button:disabled { opacity: .45; }
+  button.small { padding: 8px 10px; font-size: 14px; }
+  video { width: 100%; border-radius: 10px; background: #000; margin-top: 4px; }
+  .muted { color: var(--muted); font-size: 13px; }
+  .bar { height: 6px; background: #17181a; border-radius: 3px; overflow: hidden; margin-top: 8px; }
+  .bar > i { display: block; height: 100%; width: 0; background: var(--accent2); transition: width .3s; }
+  ul { list-style: none; margin: 0; padding: 0; }
+  li { display: flex; gap: 8px; align-items: center; padding: 8px 4px; border-bottom: 1px solid var(--line); }
+  li .t { font-variant-numeric: tabular-nums; color: var(--accent2); background: none;
+    border: none; font-size: 14px; padding: 6px 4px; min-width: 92px; text-align: left; }
+  li .ti { flex: 1; min-width: 0; background: #17181a; color: var(--fg);
+    border: 1px solid var(--line); border-radius: 6px; padding: 8px; font-size: 15px; }
+  li.excluded .ti { color: var(--excluded); }
+  li .del { background: transparent; color: var(--danger); padding: 6px 8px; font-size: 18px; }
+  .hidden { display: none !important; }
+  .browse li { cursor: pointer; }
+  .browse .dir::before { content: "📁 "; }
+  .browse .vid::before { content: "🎬 "; }
+  #toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%);
+    background: #000; color: #fff; padding: 10px 16px; border-radius: 20px; font-size: 14px;
+    opacity: 0; transition: opacity .2s; pointer-events: none; }
+  #toast.show { opacity: .92; }
+</style>
+</head>
+<body>
+  <h1>Chaptr <span class="muted">— リモート・チャプター付け</span></h1>
+
+  <div class="panel">
+    <div class="row">
+      <input id="path" type="text" placeholder="動画のパス（例: /data/big.mov）" autocapitalize="off" autocorrect="off" spellcheck="false">
+      <button class="ghost small" id="browseBtn">参照</button>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <button id="openBtn" style="flex:1">開く</button>
+    </div>
+    <div id="prep" class="hidden">
+      <div class="muted" id="prepMsg">プロキシを生成中…</div>
+      <div class="bar"><i id="prepBar"></i></div>
+    </div>
+  </div>
+
+  <div id="browsePanel" class="panel browse hidden">
+    <div class="row"><div class="muted" id="browseDir" style="flex:1"></div>
+      <button class="ghost small" id="browseClose">閉じる</button></div>
+    <ul id="browseList"></ul>
+  </div>
+
+  <div id="player" class="panel hidden">
+    <div class="muted" id="srcName"></div>
+    <video id="video" controls playsinline preload="metadata"></video>
+    <button class="mark" id="markBtn">＋ 現在位置にチャプター</button>
+  </div>
+
+  <div id="editor" class="panel hidden">
+    <div class="row" style="margin-bottom:8px">
+      <div class="muted" id="count" style="flex:1">0 chapters</div>
+      <button class="save small" id="saveBtn">サーバへ保存</button>
+    </div>
+    <ul id="list"></ul>
+    <div class="muted" style="margin-top:8px">タイトル先頭を <b>--</b> にするとその区間は除外扱い（赤）。時刻をタップでその位置へジャンプ。</div>
+  </div>
+
+  <div id="toast"></div>
+
+<script>
+(function () {
+  "use strict";
+  var state = { key: null, chapters: [], duration_ms: 0 };
+  var $ = function (id) { return document.getElementById(id); };
+  var video = $("video");
+
+  function toast(msg) {
+    var t = $("toast"); t.textContent = msg; t.classList.add("show");
+    setTimeout(function () { t.classList.remove("show"); }, 1800);
+  }
+  function fmt(ms) {
+    ms = Math.max(0, Math.round(ms));
+    var s = Math.floor(ms / 1000), mm = ms % 1000;
+    var h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), ss = s % 60;
+    var p2 = function (n) { return (n < 10 ? "0" : "") + n; };
+    var p3 = function (n) { return (n < 100 ? "0" : "") + (n < 10 ? "0" : "") + n; };
+    return h + ":" + p2(m) + ":" + p2(ss) + "." + p3(mm);
+  }
+
+  async function api(method, url, body) {
+    var opt = { method: method, headers: { "Content-Type": "application/json" } };
+    if (body) opt.body = JSON.stringify(body);
+    var r = await fetch(url, opt);
+    if (!r.ok) {
+      var msg = r.status + "";
+      try { var j = await r.json(); if (j.detail) msg = j.detail; } catch (e) {}
+      throw new Error(msg);
+    }
+    return r.json();
+  }
+
+  // ---- 開く / 生成待ち ----
+  $("openBtn").onclick = async function () {
+    var path = $("path").value.trim();
+    if (!path) return;
+    $("openBtn").disabled = true;
+    try {
+      var res = await api("POST", "/api/prepare", { path: path });
+      state.key = res.key; state.duration_ms = res.duration_ms || 0;
+      state.chapters = res.chapters || [];
+      $("srcName").textContent = res.source_name;
+      $("browsePanel").classList.add("hidden");
+      renderChapters();
+      if (res.state === "ready") { startPlayback(res.hls_url); }
+      else { pollStatus(res.key, res.hls_url); }
+    } catch (e) { toast("開けません: " + e.message); }
+    $("openBtn").disabled = false;
+  };
+
+  function pollStatus(key, hlsUrl) {
+    $("prep").classList.remove("hidden");
+    var tick = async function () {
+      try {
+        var st = await api("GET", "/api/status/" + key);
+        $("prepBar").style.width = (st.percent || 0) + "%";
+        $("prepMsg").textContent = "プロキシを生成中… " + (st.percent || 0) + "%";
+        if (st.duration_ms) state.duration_ms = st.duration_ms;
+        if (st.state === "ready") { $("prep").classList.add("hidden"); startPlayback(hlsUrl); return; }
+        if (st.state === "error") { $("prepMsg").textContent = "生成エラー: " + st.error; return; }
+      } catch (e) { $("prepMsg").textContent = "状態取得エラー: " + e.message; }
+      setTimeout(tick, 1500);
+    };
+    tick();
+  }
+
+  function startPlayback(hlsUrl) {
+    // iOS Safari は HLS をネイティブ再生
+    video.src = hlsUrl;
+    $("player").classList.remove("hidden");
+    $("editor").classList.remove("hidden");
+  }
+
+  // ---- チャプター編集 ----
+  $("markBtn").onclick = function () {
+    var ms = Math.round((video.currentTime || 0) * 1000);
+    state.chapters.push({ time_ms: ms, title: "New Chapter" });
+    sortChapters();
+    renderChapters();
+    toast("追加: " + fmt(ms));
+  };
+
+  function sortChapters() { state.chapters.sort(function (a, b) { return a.time_ms - b.time_ms; }); }
+
+  function renderChapters() {
+    sortChapters();
+    var ul = $("list"); ul.innerHTML = "";
+    state.chapters.forEach(function (ch, i) {
+      var li = document.createElement("li");
+      if ((ch.title || "").indexOf("--") === 0) li.className = "excluded";
+      var t = document.createElement("button");
+      t.className = "t"; t.textContent = fmt(ch.time_ms);
+      t.onclick = function () { video.currentTime = ch.time_ms / 1000; };
+      var ti = document.createElement("input");
+      ti.className = "ti"; ti.type = "text"; ti.value = ch.title;
+      ti.oninput = function () {
+        ch.title = ti.value;
+        li.className = ti.value.indexOf("--") === 0 ? "excluded" : "";
+      };
+      var del = document.createElement("button");
+      del.className = "del"; del.textContent = "✕";
+      del.onclick = function () { state.chapters.splice(i, 1); renderChapters(); };
+      li.appendChild(t); li.appendChild(ti); li.appendChild(del);
+      ul.appendChild(li);
+    });
+    $("count").textContent = state.chapters.length + " chapters";
+  }
+
+  $("saveBtn").onclick = async function () {
+    if (!state.key) return;
+    $("saveBtn").disabled = true;
+    try {
+      var res = await api("POST", "/api/chapters/" + state.key, { chapters: state.chapters });
+      state.chapters = res.chapters;
+      renderChapters();
+      toast("保存: " + res.saved);
+    } catch (e) { toast("保存失敗: " + e.message); }
+    $("saveBtn").disabled = false;
+  };
+
+  // ---- ディレクトリ参照 ----
+  $("browseBtn").onclick = function () { loadBrowse(""); };
+  $("browseClose").onclick = function () { $("browsePanel").classList.add("hidden"); };
+  async function loadBrowse(dir) {
+    try {
+      var res = await api("GET", "/api/browse?dir=" + encodeURIComponent(dir || ""));
+      $("browsePanel").classList.remove("hidden");
+      $("browseDir").textContent = res.dir;
+      var ul = $("browseList"); ul.innerHTML = "";
+      if (res.parent) ul.appendChild(mkItem("..", "dir", function () { loadBrowse(res.parent); }));
+      res.dirs.forEach(function (d) { ul.appendChild(mkItem(d.name, "dir", function () { loadBrowse(d.path); })); });
+      res.videos.forEach(function (v) {
+        ul.appendChild(mkItem(v.name, "vid", function () {
+          $("path").value = v.path; $("browsePanel").classList.add("hidden");
+        }));
+      });
+    } catch (e) { toast("参照失敗: " + e.message); }
+  }
+  function mkItem(label, cls, onclick) {
+    var li = document.createElement("li");
+    var span = document.createElement("span"); span.className = cls; span.textContent = label;
+    li.appendChild(span); li.onclick = onclick; return li;
+  }
+})();
+</script>
+</body>
+</html>
