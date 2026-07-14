@@ -7,7 +7,7 @@ preferences_dialog.py - 設定ダイアログ
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QComboBox,
     QPushButton, QGroupBox, QSlider, QFrame, QWidget,
-    QGridLayout, QSizePolicy
+    QGridLayout, QSizePolicy, QLineEdit, QSpinBox
 )
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPen
@@ -180,6 +180,9 @@ class PreferencesDialog(QDialog):
 
         layout.addWidget(spec_group)
 
+        # リモート（SSH）設定グループ
+        layout.addWidget(self._setup_remote_group())
+
         # ボタン
         button_layout = QHBoxLayout()
         button_layout.addStretch()
@@ -197,6 +200,68 @@ class PreferencesDialog(QDialog):
         button_layout.addWidget(self._apply_btn)
 
         layout.addLayout(button_layout)
+
+    def _setup_remote_group(self) -> QGroupBox:
+        """リモート（SSH）設定グループを構築
+
+        大容量の原本をリモート（例: GPU機 Zeus）に置いたまま、軽量プロキシで
+        チャプター付けし、テキストを書き戻すための接続先とプロキシ画質。
+        """
+        group = QGroupBox("Remote (SSH)")
+        grid = QGridLayout(group)
+
+        self._remote_host = QLineEdit()
+        self._remote_host.setPlaceholderText("zeus / 192.168.1.10 / ~/.ssh/config の Host 名")
+        self._remote_user = QLineEdit()
+        self._remote_user.setPlaceholderText("（任意）ssh ユーザー")
+        self._remote_port = QSpinBox()
+        self._remote_port.setRange(1, 65535)
+        self._remote_identity = QLineEdit()
+        self._remote_identity.setPlaceholderText("（任意）秘密鍵パス")
+        self._remote_height = QSpinBox()
+        self._remote_height.setRange(120, 2160)
+        self._remote_height.setSingleStep(60)
+        self._remote_vkbps = QSpinBox()
+        self._remote_vkbps.setRange(100, 20000)
+        self._remote_vkbps.setSingleStep(100)
+        self._remote_vkbps.setSuffix(" kbps")
+
+        rows = [
+            ("Host:", self._remote_host),
+            ("User:", self._remote_user),
+            ("Port:", self._remote_port),
+            ("Identity file:", self._remote_identity),
+            ("Proxy height:", self._remote_height),
+            ("Proxy bitrate:", self._remote_vkbps),
+        ]
+        for i, (label, widget) in enumerate(rows):
+            grid.addWidget(QLabel(label), i, 0)
+            grid.addWidget(widget, i, 1)
+
+        return group
+
+    def _load_remote_settings(self):
+        """RemoteConfig を UI に反映"""
+        from ..remote import RemoteConfig
+        cfg = RemoteConfig.load()
+        self._remote_host.setText(cfg.host)
+        self._remote_user.setText(cfg.user)
+        self._remote_port.setValue(cfg.port)
+        self._remote_identity.setText(cfg.identity_file)
+        self._remote_height.setValue(cfg.proxy_height)
+        self._remote_vkbps.setValue(cfg.proxy_video_kbps)
+
+    def _save_remote_settings(self):
+        """UI から RemoteConfig を保存"""
+        from ..remote import RemoteConfig
+        cfg = RemoteConfig.load()  # 既定値（remote_cache_dir 等）を保持
+        cfg.host = self._remote_host.text().strip()
+        cfg.user = self._remote_user.text().strip()
+        cfg.port = self._remote_port.value()
+        cfg.identity_file = self._remote_identity.text().strip()
+        cfg.proxy_height = self._remote_height.value()
+        cfg.proxy_video_kbps = self._remote_vkbps.value()
+        cfg.save()
 
     def _load_current_settings(self):
         """現在の設定をUIに反映"""
@@ -217,6 +282,9 @@ class PreferencesDialog(QDialog):
         # 彩度・明度
         self._saturation_slider.setValue(int(self._theme_manager.spectrogram_saturation * 100))
         self._brightness_slider.setValue(int(self._theme_manager.spectrogram_brightness * 100))
+
+        # リモート設定
+        self._load_remote_settings()
 
     def _on_scheme_changed(self, index):
         """スキーム変更時"""
@@ -275,4 +343,5 @@ class PreferencesDialog(QDialog):
     def _on_apply(self):
         """適用して閉じる"""
         self._theme_manager.save_settings()
+        self._save_remote_settings()
         self.accept()

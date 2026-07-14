@@ -2022,6 +2022,7 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
             }
         """)
         project_menu.addAction("Load Project...", self._load_project)
+        project_menu.addAction("Open Remote...", self._open_remote)
         project_menu.addSeparator()
         # Complete チェックボックス（QWidgetActionで実装）
         from PySide6.QtWidgets import QWidgetAction, QCheckBox
@@ -5640,8 +5641,116 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
                 source="Chapter"
             )
             self._chapters_edited = False  # 保存後はフラグをリセット
+            # リモート由来（サイドカーあり）ならテキストを書き戻す
+            self._maybe_push_remote(chapter_file_path, source_path)
         except Exception as e:
             self._log_panel.error(f"Failed to save chapters: {e}", source="Chapter")
+
+    # === リモート（プロキシ編集）===
+
+    def _open_remote(self):
+        """リモート原本の軽量プロキシを取得して開く
+
+        大容量の原本はリモート（例: GPU機 Zeus）に置いたまま、480p 等の
+        軽量プロキシだけを取得してチャプター付けする。プロキシは原本と尺・
+        fps が同一なのでタイムスタンプはそのまま原本にも有効。
+        """
+        from PySide6.QtWidgets import QInputDialog
+        from ..remote import RemoteConfig
+        from ..remote.commands import split_remote_arg
+        from ..remote.workers import RemoteProxyWorker
+        from ..utils import get_cache_dir
+
+        cfg = RemoteConfig.load()
+
+        default = f"{cfg.host}:" if cfg.host else ""
+        text, ok = QInputDialog.getText(
+            self,
+            "Open Remote",
+            "リモート原本のパス（[user@host:]/path/to/video）:",
+            text=default,
+        )
+        if not ok or not text.strip():
+            return
+
+        host_arg, remote_src = split_remote_arg(text.strip())
+        if host_arg:
+            if "@" in host_arg:
+                cfg.user, cfg.host = host_arg.split("@", 1)
+            else:
+                cfg.host = host_arg
+
+        if not cfg.is_configured():
+            self._log_panel.error(
+                "Remote host not set. Preferences で設定するか host:path 形式で指定してください。",
+                source="Remote",
+            )
+            return
+        if not remote_src:
+            self._log_panel.error("Remote path is empty.", source="Remote")
+            return
+
+        cache_dir = get_cache_dir() / "proxies"
+        self._log_panel.info(
+            f"Fetching proxy: {cfg.ssh_target()}:{remote_src}", source="Remote"
+        )
+
+        worker = RemoteProxyWorker(cfg, remote_src, cache_dir, parent=self)
+        self._remote_proxy_worker = worker  # GC 防止のため参照を保持
+        worker.log_message.connect(
+            lambda m: self._log_panel.debug(m, source="Remote")
+        )
+        worker.progress.connect(lambda m: self._log_panel.info(m, source="Remote"))
+        if hasattr(self, "_encode_progress"):
+            self._encode_progress.setVisible(True)
+            worker.progress_percent.connect(self._encode_progress.setValue)
+        worker.failed.connect(self._on_remote_proxy_failed)
+        worker.finished_ok.connect(self._on_remote_proxy_ready)
+        worker.start()
+
+    def _on_remote_proxy_failed(self, message: str):
+        if hasattr(self, "_encode_progress"):
+            self._encode_progress.setVisible(False)
+        self._log_panel.error(f"Remote proxy failed: {message}", source="Remote")
+
+    def _on_remote_proxy_ready(self, proxy_path: str):
+        if hasattr(self, "_encode_progress"):
+            self._encode_progress.setVisible(False)
+        self._log_panel.info(
+            f"Proxy ready: {Path(proxy_path).name}", source="Remote"
+        )
+        # 既存のロード導線を再利用（同名 .txt 自動読込・波形生成込み）
+        self._on_files_dropped([proxy_path])
+
+    def _maybe_push_remote(self, text_path: Path, source_path: Path):
+        """保存したテキストを、リモート由来なら原本の隣へ書き戻す
+
+        source_path（=ロード中のプロキシ）の隣にサイドカーがある場合のみ実行。
+        ローカル編集時は何もしない。
+        """
+        from ..remote.config import RemoteOrigin
+        from ..remote.workers import RemotePushWorker
+
+        origin = RemoteOrigin.load_beside(source_path)
+        if origin is None:
+            return
+
+        self._log_panel.info(
+            f"Pushing {Path(text_path).name} to {origin.ssh_target()} ...",
+            source="Remote",
+        )
+        worker = RemotePushWorker(origin, text_path, parent=self)
+        self._remote_push_worker = worker  # GC 防止
+        worker.log_message.connect(
+            lambda m: self._log_panel.debug(m, source="Remote")
+        )
+        worker.failed.connect(
+            lambda m: self._log_panel.error(f"Remote push failed: {m}", source="Remote")
+        )
+        worker.finished_ok.connect(
+            lambda dest: self._log_panel.info(f"Pushed to {dest}", source="Remote")
+        )
+        worker.start()
 
     def _save_project(self):
         """プロジェクトを.vce.jsonファイルに保存

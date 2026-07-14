@@ -53,6 +53,7 @@ Repository = "https://github.com/mashi727/chaptr"
 
 [project.scripts]
 chaptr = "chaptr.ui.app:main"
+chaptr-remote = "chaptr.remote.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["chaptr"]

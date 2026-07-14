@@ -97,6 +97,43 @@ chaptr ~/recordings/2026-05-17/   # 作業ディレクトリ指定
 | Cmd+S | プロジェクト保存 |
 | Cmd+Shift+L | SRT 字幕読み込み |
 
+## リモート編集（プロキシ）
+
+大容量の原本（例: ACE Pro 2 の 50GB 動画）をリモートサーバ（GPU 機など）に
+置いたまま、出先の薄いクライアントで**再生・チャプター付け**し、最終的な
+**テキスト（.txt / .srt）だけをリモートへ書き戻す**ワークフローに対応します。
+
+原本はネットワークを渡りません。往復するのは「軽量プロキシ（下り・キャッシュ）」と
+「テキスト（上り・数 KB）」だけです。プロキシは原本と尺・fps が同一なので、
+プロキシに対して打ったチャプターのタイムスタンプはそのまま原本にも有効です。
+
+### GUI から
+
+1. **Preferences → Remote (SSH)** でホスト / ユーザー / 鍵 / プロキシ画質を設定
+2. **Project メニュー → Open Remote...** でリモート原本のパス（`[user@host:]/path/to/video`）を指定
+   - リモート側で 480p 等の軽量プロキシを生成（既存ならキャッシュ再利用）し、ローカルへ取得して開く
+3. いつも通りチャプター付け → 保存すると、**テキストが自動でリモート原本の隣へ書き戻されます**
+   （原本のベース名 + ローカルの拡張子。例: 原本 `big.mov` → `big.txt`）
+
+### CLI から（`chaptr-remote`）
+
+「One app, one thing」に従い、転送は独立した小さな配管ツールでも実行できます。
+
+```bash
+# リモート原本 → ローカルの軽量プロキシを取得（プロキシのパスを標準出力）
+chaptr-remote pull zeus:/data/ace/big.mov --user mashi --height 480
+#  -> /home/you/.cache/msw/proxies/big.<hash>.mp4
+
+# 取得したプロキシを chaptr で開いてチャプター付け → <name>.txt を保存
+
+# テキストをリモート原本の隣へ書き戻す（サイドカーから宛先を解決）
+chaptr-remote push /home/you/.cache/msw/proxies/big.<hash>.txt
+#  -> /data/ace/big.txt
+```
+
+前提: クライアントからリモートへ `ssh` / `scp` が鍵認証で通ること（公開 IP /
+Tailscale / VPN 等）。リモート側に `ffmpeg` / `ffprobe` があること。
+
 ## Development
 
 ```bash

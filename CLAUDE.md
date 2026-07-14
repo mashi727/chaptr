@@ -135,6 +135,22 @@ chaptr/
 - [x] docs/advanced/ の作成（環境構築ガイド）
 - [x] docs/pad/*.png の生成（PAD図PNG出力）
 
+## リモート編集（プロキシ）
+
+大容量の原本をリモート（GPU 機 Zeus 等）に置いたまま、出先で軽量プロキシを
+再生・チャプター付けし、テキストだけをリモートへ書き戻すワークフロー。
+原本はネットワークを渡らない（往復はプロキシ下り + テキスト上りのみ）。
+
+- コア（Qt 非依存・単体テスト済）: `chaptr/remote/commands.py`, `chaptr/remote/config.py`
+  - `commands.py`: ssh/scp/ffmpeg コマンド生成、キャッシュキー、進捗パース、`host:path` 分解
+  - `config.py`: `RemoteConfig`（QSettings 永続化）、`RemoteOrigin`（サイドカー `*.chaptr-remote.json`）
+- 実行（Qt/subprocess）: `chaptr/remote/workers.py`（`RemoteProxyWorker` / `RemotePushWorker`）
+- CLI（配管ツール）: `chaptr/remote/cli.py` → `chaptr-remote pull|push`
+- GUI 統合: Preferences「Remote (SSH)」、Project メニュー「Open Remote...」、保存時の自動 push
+- テスト: `tests/test_remote_commands.py`, `tests/test_remote_config.py`
+- 設計: 原本と尺・fps 同一のプロキシを掴ませるため、既存のローカル前提コードは無改修で再利用。
+  エンコード（チャプター焼き込み等）はスコープ外（別コマンドの担当）。
+
 ## 未実装タスク
 
 - [ ] bin/advanced/ の作成（音声処理ツール群）
