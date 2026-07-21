@@ -1,0 +1,259 @@
+<title>プロンプトのベストプラクティス — ハンドアウト</title>
+<style>
+  :root {
+    --font-sans: system-ui, -apple-system, "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Noto Sans JP", "Yu Gothic UI", Meiryo, sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    --ground: #e9edf5; --ground-2: #dfe5f0; --panel: #ffffff; --panel-2: #f2f6fc;
+    --ink: #182038; --ink-2: #3c4666; --ink-muted: #616c8c; --hair: #c6d1e5; --hair-strong: #a9b7d3;
+    --accent: #1c6f9c; --accent-ink: #12557a; --accent-soft: rgba(28,111,156,.10); --magenta: #9a3a91;
+    --good: #2c8f57; --good-soft: rgba(44,143,87,.10); --bad: #c2454b; --bad-soft: rgba(194,69,75,.09); --warn: #a86a12;
+    --shadow: 0 1px 2px rgba(24,32,56,.06), 0 6px 24px rgba(24,32,56,.07);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground: #0d1019; --ground-2: #0a0d15; --panel: #151a29; --panel-2: #1a2032;
+      --ink: #ccd3e8; --ink-2: #a7afca; --ink-muted: #7a84a3; --hair: #283150; --hair-strong: #384368;
+      --accent: #5cc2e6; --accent-ink: #8fd6f0; --accent-soft: rgba(92,194,230,.11); --magenta: #c880d8;
+      --good: #6fce8f; --good-soft: rgba(111,206,143,.10); --bad: #e0707a; --bad-soft: rgba(224,112,122,.10); --warn: #d8a657;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 30px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="light"] {
+    --ground: #e9edf5; --ground-2: #dfe5f0; --panel: #ffffff; --panel-2: #f2f6fc;
+    --ink: #182038; --ink-2: #3c4666; --ink-muted: #616c8c; --hair: #c6d1e5; --hair-strong: #a9b7d3;
+    --accent: #1c6f9c; --accent-ink: #12557a; --accent-soft: rgba(28,111,156,.10); --magenta: #9a3a91;
+    --good: #2c8f57; --good-soft: rgba(44,143,87,.10); --bad: #c2454b; --bad-soft: rgba(194,69,75,.09); --warn: #a86a12;
+    --shadow: 0 1px 2px rgba(24,32,56,.06), 0 6px 24px rgba(24,32,56,.07);
+  }
+  :root[data-theme="dark"] {
+    --ground: #0d1019; --ground-2: #0a0d15; --panel: #151a29; --panel-2: #1a2032;
+    --ink: #ccd3e8; --ink-2: #a7afca; --ink-muted: #7a84a3; --hair: #283150; --hair-strong: #384368;
+    --accent: #5cc2e6; --accent-ink: #8fd6f0; --accent-soft: rgba(92,194,230,.11); --magenta: #c880d8;
+    --good: #6fce8f; --good-soft: rgba(111,206,143,.10); --bad: #e0707a; --bad-soft: rgba(224,112,122,.10); --warn: #d8a657;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 30px rgba(0,0,0,.35);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: var(--font-sans); color: var(--ink); background: var(--ground);
+    line-height: 1.6; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+  }
+  .sheet { max-width: 1180px; margin: 0 auto; padding: clamp(20px,4vw,52px) clamp(16px,4vw,44px) 64px; position: relative; }
+  .sheet::before {
+    content: ""; position: absolute; inset: 0; z-index: 0; pointer-events: none; opacity: .16;
+    background-image: linear-gradient(var(--hair) 1px, transparent 1px), linear-gradient(90deg, var(--hair) 1px, transparent 1px);
+    background-size: 46px 46px;
+    -webkit-mask-image: linear-gradient(180deg, transparent, #000 8%, #000 92%, transparent);
+            mask-image: linear-gradient(180deg, transparent, #000 8%, #000 92%, transparent);
+  }
+  .sheet > * { position: relative; z-index: 1; }
+
+  .eyebrow {
+    font-family: var(--font-mono); font-size: 12px; letter-spacing: .18em; text-transform: uppercase;
+    color: var(--accent-ink); display: inline-flex; align-items: center; gap: 10px; margin: 0 0 14px;
+  }
+  .eyebrow::before { content: ""; width: 26px; height: 1px; background: var(--accent); }
+  h1.thesis { font-size: clamp(25px,4.6vw,42px); line-height: 1.16; font-weight: 800; letter-spacing: -.01em; margin: 0; text-wrap: balance; }
+  .thesis .mark { color: var(--accent); }
+  .thesis .mag { color: var(--magenta); }
+  .subtitle { font-size: clamp(15px,2.2vw,17px); color: var(--ink-2); margin: 12px 0 0; max-width: 62ch; }
+  .subtitle b { color: var(--ink); font-weight: 700; }
+  .formula {
+    margin-top: 20px; display: inline-flex; flex-wrap: wrap; gap: 8px; align-items: center;
+    font-family: var(--font-mono); font-size: 13px;
+  }
+  .formula .t { padding: 5px 12px; border: 1px solid var(--hair-strong); border-radius: 6px; background: var(--panel-2); color: var(--ink); font-weight: 600; }
+  .formula .plus { color: var(--accent); font-weight: 700; }
+
+  section { margin-top: clamp(30px,4.6vw,48px); }
+  .sec-head { display: flex; align-items: baseline; gap: 14px; margin-bottom: 18px; }
+  .sec-idx { font-family: var(--font-mono); font-size: 12px; color: var(--accent-ink); letter-spacing: .1em; flex: none; }
+  .sec-title { font-size: clamp(17px,2.6vw,21px); font-weight: 800; letter-spacing: -.005em; }
+  .sec-head .rule { flex: 1; height: 1px; background: var(--hair); align-self: center; }
+  .sec-note { font-size: 12.5px; color: var(--ink-muted); flex: none; }
+
+  /* comparison cards */
+  .compare { display: grid; gap: 14px; }
+  .row {
+    position: relative; background: var(--panel); border: 1px solid var(--hair); border-radius: 10px;
+    box-shadow: var(--shadow); overflow: hidden;
+    display: grid; grid-template-columns: 132px 1fr 1fr;
+  }
+  @media (max-width: 760px) { .row { grid-template-columns: 1fr; } }
+  .row .scene {
+    padding: 14px 16px; border-right: 1px solid var(--hair); background: var(--panel-2);
+    display: flex; flex-direction: column; gap: 4px; justify-content: center;
+  }
+  @media (max-width: 760px) { .row .scene { border-right: 0; border-bottom: 1px solid var(--hair); } }
+  .scene .n { font-family: var(--font-mono); font-size: 11px; color: var(--accent); letter-spacing: .05em; }
+  .scene .name { font-size: 14px; font-weight: 700; }
+  .pane { padding: 14px 16px; font-size: 13px; line-height: 1.55; }
+  .pane.weak { border-right: 1px solid var(--hair); background: var(--bad-soft); color: var(--ink-2); }
+  .pane.strong { background: var(--good-soft); color: var(--ink); }
+  @media (max-width: 760px) { .pane.weak { border-right: 0; border-bottom: 1px dashed var(--hair); } }
+  .pane .lab { font-family: var(--font-mono); font-size: 11px; font-weight: 700; display: block; margin-bottom: 5px; letter-spacing: .03em; }
+  .pane.weak .lab { color: var(--bad); }
+  .pane.strong .lab { color: var(--good); }
+  .pane code { font-family: var(--font-mono); font-size: 11.5px; background: var(--accent-soft); color: var(--accent-ink); padding: 1px 5px; border-radius: 3px; }
+
+  /* ten rules grid */
+  .rules { display: grid; grid-template-columns: repeat(2,1fr); gap: 10px 20px; }
+  @media (max-width: 680px) { .rules { grid-template-columns: 1fr; } }
+  .rule-item { display: flex; gap: 12px; align-items: baseline; padding: 9px 0; border-bottom: 1px dotted var(--hair); }
+  .rule-item .k { font-family: var(--font-mono); font-size: 14px; font-weight: 700; color: var(--accent); flex: none; width: 1.8em; text-align: right; font-variant-numeric: tabular-nums; }
+  .rule-item .txt { font-size: 13.5px; color: var(--ink-2); }
+  .rule-item .txt b { color: var(--ink); font-weight: 700; }
+
+  /* templates */
+  .tpls { display: grid; grid-template-columns: repeat(2,1fr); gap: 14px; }
+  @media (max-width: 680px) { .tpls { grid-template-columns: 1fr; } }
+  .tpl {
+    background: var(--ground-2); border: 1px solid var(--hair); border-radius: 9px; overflow: hidden;
+  }
+  :root[data-theme="dark"] .tpl { background: #0b0e17; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .tpl { background: #0b0e17; } }
+  .tpl .bar {
+    font-family: var(--font-mono); font-size: 11px; letter-spacing: .06em; color: var(--accent-ink);
+    padding: 8px 14px; border-bottom: 1px solid var(--hair); display: flex; align-items: center; gap: 8px;
+  }
+  .tpl .bar::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 14px 0 0 var(--hair-strong), 28px 0 0 var(--hair-strong); }
+  .tpl pre { margin: 0; padding: 13px 15px; font-family: var(--font-mono); font-size: 12px; line-height: 1.6; color: var(--ink-2); white-space: pre-wrap; word-break: break-word; }
+  .tpl pre b { color: var(--ink); font-weight: 700; }
+
+  /* 30sec check highlight */
+  .check {
+    background: var(--panel); border: 1px solid var(--accent); border-radius: 12px; padding: clamp(18px,3vw,26px);
+    box-shadow: var(--shadow); position: relative;
+  }
+  .check::after { content: ""; position: absolute; top: 10px; right: 10px; width: 14px; height: 14px; border-top: 1.5px solid var(--accent); border-right: 1.5px solid var(--accent); opacity: .7; }
+  .check ol { margin: 0; padding: 0; list-style: none; counter-reset: c; display: grid; gap: 10px; }
+  .check li { counter-increment: c; display: flex; gap: 14px; align-items: baseline; font-size: 15px; }
+  .check li::before {
+    content: counter(c); font-family: var(--font-mono); font-weight: 700; color: #fff; background: var(--accent);
+    width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; flex: none;
+    align-self: center;
+  }
+  .check li b { color: var(--ink); font-weight: 700; }
+  .check .kicker { font-size: 13px; color: var(--ink-muted); margin: 12px 0 0; }
+
+  footer { margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--hair); font-family: var(--font-mono); font-size: 11.5px; color: var(--ink-muted); display: flex; flex-wrap: wrap; gap: 6px 14px; }
+  footer .tag { border: 1px solid var(--hair-strong); border-radius: 3px; padding: 2px 8px; }
+
+  @media (prefers-reduced-motion: no-preference) {
+    section, header > * { animation: rise .5s cubic-bezier(.2,.7,.2,1) both; }
+    section:nth-of-type(2) { animation-delay: .05s; }
+    section:nth-of-type(3) { animation-delay: .1s; }
+    section:nth-of-type(4) { animation-delay: .15s; }
+    @keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+  }
+</style>
+
+<div class="sheet">
+  <header>
+    <p class="eyebrow">プロンプトのベストプラクティス · Prompting Playbook</p>
+    <h1 class="thesis">握るは<span class="mark">人間</span>、委ねるは<span class="mag">AI</span>。<br>良いプロンプトは呪文でなく<span class="mark">事実の提示</span>。</h1>
+    <p class="subtitle">Claude Codeは「優秀だが記憶喪失の新メンバー」。強いプロンプトはいつも <b>事実 ＋ 制約 ＋ 分業</b> を含む。以下はすべて Chaptr の実セッション記録（worklog）で裏が取れる型。</p>
+    <div class="formula">
+      <span class="t">事実（データ/エラー全文）</span><span class="plus">＋</span>
+      <span class="t">制約（範囲/不変条件）</span><span class="plus">＋</span>
+      <span class="t">分業（決めるのは私）</span>
+    </div>
+  </header>
+
+  <!-- COMPARISON -->
+  <section>
+    <div class="sec-head"><span class="sec-idx">01</span><span class="sec-title">弱いプロンプト → 強いプロンプト</span><span class="rule"></span><span class="sec-note">左の赤を、右の緑に書き換える</span></div>
+    <div class="compare">
+      <div class="row">
+        <div class="scene"><span class="n">CASE 1</span><span class="name">バグ報告</span></div>
+        <div class="pane weak"><span class="lab">✕ 弱い</span>「斜線が出ないんだけど直して」</div>
+        <div class="pane strong"><span class="lab">✓ 強い</span>「先頭に <code>--</code> を付けても斜線が出ない。<b>このチャプターファイルを見て</b>（実データ添付）。OKなものとダメなものがある。」</div>
+      </div>
+      <div class="row">
+        <div class="scene"><span class="n">CASE 2</span><span class="name">エラー対応</span></div>
+        <div class="pane weak"><span class="lab">✕ 弱い</span>「ビルドが動かない」</div>
+        <div class="pane strong"><span class="lab">✓ 強い</span>「Windowsビルドでこのエラー：<code>&lt;全文&gt;</code>。原因候補と、<b>まず試す最小の対処</b>を。」</div>
+      </div>
+      <div class="row">
+        <div class="scene"><span class="n">CASE 3</span><span class="name">実装依頼</span></div>
+        <div class="pane weak"><span class="lab">✕ 弱い</span>「ショートカット足して」</div>
+        <div class="pane strong"><span class="lab">✓ 強い</span>「<code>Home</code>キーで先頭チャプターへジャンプ。<code>keyPressEvent</code> 周辺、<b>最小の変更</b>で。」</div>
+      </div>
+      <div class="row">
+        <div class="scene"><span class="n">CASE 4</span><span class="name">リファクタ</span></div>
+        <div class="pane weak"><span class="lab">✕ 弱い</span>「いい感じに整理して」</div>
+        <div class="pane strong"><span class="lab">✓ 強い</span>「区間計算が3箇所にコピーされている。<b>GUI非依存の純粋関数1本</b>に集約し、波形・エクスポート・テストが同じものを呼ぶ形に。<b>出力は不変</b>で。」</div>
+      </div>
+      <div class="row">
+        <div class="scene"><span class="n">CASE 5</span><span class="name">技術選定</span></div>
+        <div class="pane weak"><span class="lab">✕ 弱い</span>「Nuitkaにして」</div>
+        <div class="pane strong"><span class="lab">✓ 強い</span>「コンソール非表示のワンファイルが要る。PyInstaller継続とNuitka移行を<b>代償付きで比較</b>して。決めるのは私。」</div>
+      </div>
+      <div class="row">
+        <div class="scene"><span class="n">CASE 6</span><span class="name">仕上げ</span></div>
+        <div class="pane weak"><span class="lab">✕ 弱い</span>「これで完成でいい？」</div>
+        <div class="pane strong"><span class="lab">✓ 強い</span>「<code>pytest</code> を通して結果を見せて。<b>既存の失敗と新規の失敗を区別</b>して。」</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- TEN RULES -->
+  <section>
+    <div class="sec-head"><span class="sec-idx">02</span><span class="sec-title">10の実践則</span><span class="rule"></span><span class="sec-note">すべてworklog証拠付き</span></div>
+    <div class="rules">
+      <div class="rule-item"><span class="k">1</span><span class="txt"><b>文脈は常設</b>する — CLAUDE.md に概要・スコープ・決定事項</span></div>
+      <div class="rule-item"><span class="k">2</span><span class="txt"><b>推測させる前に、事実（データ）を渡す</b> — まずデータの値を見る</span></div>
+      <div class="rule-item"><span class="k">3</span><span class="txt"><b>エラーは要約せず全文を貼る</b> — 症状→仮説→対処のループ</span></div>
+      <div class="rule-item"><span class="k">4</span><span class="txt"><b>スコープと出力を制約</b> — このファイルだけ／出力不変で</span></div>
+      <div class="rule-item"><span class="k">5</span><span class="txt"><b>「動いた」で止めず検証を指示</b> — pytest・再現確認</span></div>
+      <div class="rule-item"><span class="k">6</span><span class="txt"><b>効かない時は場所を疑わせる</b> — 実体はどれか（デッドコード）</span></div>
+      <div class="rule-item"><span class="k">7</span><span class="txt"><b>調査は委ねる</b> — Explore／grep で洗い出し</span></div>
+      <div class="rule-item"><span class="k">8</span><span class="txt"><b>判断は握る</b> — 選択肢を代償付きで出させ、自分が選ぶ</span></div>
+      <div class="rule-item"><span class="k">9</span><span class="txt"><b>ガードレールを指示</b> — 作業ブランチ／main直コミット禁止</span></div>
+      <div class="rule-item"><span class="k">10</span><span class="txt"><b>セッションをまたぐ</b> — worklog に決定・理由・地雷を残す</span></div>
+    </div>
+  </section>
+
+  <!-- TEMPLATES -->
+  <section>
+    <div class="sec-head"><span class="sec-idx">03</span><span class="sec-title">コピペ用テンプレ</span><span class="rule"></span><span class="sec-note">目的1つ＝プロンプト1つ</span></div>
+    <div class="tpls">
+      <div class="tpl"><div class="bar">調査</div><pre>&lt;機能/症状&gt; の実装箇所と参照元を洗い出して。
+実際に実行されている<b>実体はどれか</b>
+（同名の重複がないか）も確認して。一覧で。</pre></div>
+      <div class="tpl"><div class="bar">バグ（データ先出し）</div><pre>&lt;症状の一文&gt;。再現する実データを貼る：
+&lt;データ/ファイル/ログをそのまま&gt;
+<b>推測の前に、このデータの値を見て。</b></pre></div>
+      <div class="tpl"><div class="bar">実装（範囲を固定）</div><pre>&lt;やること&gt;。対象は &lt;このファイルだけ&gt;。
+既存の &lt;出力/挙動&gt; は<b>変えないで</b>。
+できたら &lt;検証コマンド&gt; を通して結果を。</pre></div>
+      <div class="tpl"><div class="bar">設計判断（握る）</div><pre>&lt;課題&gt;。対処案を2〜3個、
+それぞれの<b>代償付き</b>で。
+まだコードは書かないで。<b>決めるのは私。</b></pre></div>
+      <div class="tpl"><div class="bar">引き継ぎ（セッション末）</div><pre>今日の「決定と理由 / 未完了・宿題 /
+触ったファイル / 次の地雷」を
+<b>worklog に残して</b>。次が読めば続きから動ける形で。</pre></div>
+    </div>
+  </section>
+
+  <!-- 30 SEC CHECK -->
+  <section>
+    <div class="sec-head"><span class="sec-idx">04</span><span class="sec-title">30秒チェック</span><span class="rule"></span><span class="sec-note">送信ボタンを押す前に</span></div>
+    <div class="check">
+      <ol>
+        <li><span><b>事実</b>を渡したか？（データ／エラー全文／該当ファイル）</span></li>
+        <li><span><b>制約</b>を書いたか？（範囲・不変条件・「最小の変更で」）</span></li>
+        <li><span><b>分業</b>を示したか？（決めるのは私／選択肢を出して）</span></li>
+        <li><span><b>検証</b>を求めたか？（pytest・再現確認）</span></li>
+        <li><span>これは <b>CLAUDE.md に書くべき常設文脈</b>ではないか？</span></li>
+      </ol>
+      <p class="kicker">3つ以上Noなら、送る前に一言足す。それだけで往復が半分になる。</p>
+    </div>
+  </section>
+
+  <footer>
+    <span class="tag">題材: Chaptr</span>
+    <span class="tag">証拠: worklog 2026-05-27 / 06-03</span>
+    <span>course/06 の要約ハンドアウト</span>
+  </footer>
+</div>

@@ -1,0 +1,212 @@
+<title>上流設計ベストプラクティス — ハンドアウト</title>
+<style>
+  :root {
+    --font-sans: system-ui, -apple-system, "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Noto Sans JP", "Yu Gothic UI", Meiryo, sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    --ground: #e9edf5; --ground-2: #dfe5f0; --panel: #ffffff; --panel-2: #f2f6fc;
+    --ink: #182038; --ink-2: #3c4666; --ink-muted: #616c8c; --hair: #c6d1e5; --hair-strong: #a9b7d3;
+    --accent: #1c6f9c; --accent-ink: #12557a; --accent-soft: rgba(28,111,156,.10); --magenta: #9a3a91;
+    --good: #2c8f57; --warn: #a86a12; --bad: #c2454b;
+    --shadow: 0 1px 2px rgba(24,32,56,.06), 0 6px 24px rgba(24,32,56,.07);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground: #0d1019; --ground-2: #0a0d15; --panel: #151a29; --panel-2: #1a2032;
+      --ink: #ccd3e8; --ink-2: #a7afca; --ink-muted: #7a84a3; --hair: #283150; --hair-strong: #384368;
+      --accent: #5cc2e6; --accent-ink: #8fd6f0; --accent-soft: rgba(92,194,230,.11); --magenta: #c880d8;
+      --good: #6fce8f; --warn: #d8a657; --bad: #e0707a;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 30px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="light"] {
+    --ground: #e9edf5; --ground-2: #dfe5f0; --panel: #ffffff; --panel-2: #f2f6fc;
+    --ink: #182038; --ink-2: #3c4666; --ink-muted: #616c8c; --hair: #c6d1e5; --hair-strong: #a9b7d3;
+    --accent: #1c6f9c; --accent-ink: #12557a; --accent-soft: rgba(28,111,156,.10); --magenta: #9a3a91;
+    --good: #2c8f57; --warn: #a86a12; --bad: #c2454b;
+    --shadow: 0 1px 2px rgba(24,32,56,.06), 0 6px 24px rgba(24,32,56,.07);
+  }
+  :root[data-theme="dark"] {
+    --ground: #0d1019; --ground-2: #0a0d15; --panel: #151a29; --panel-2: #1a2032;
+    --ink: #ccd3e8; --ink-2: #a7afca; --ink-muted: #7a84a3; --hair: #283150; --hair-strong: #384368;
+    --accent: #5cc2e6; --accent-ink: #8fd6f0; --accent-soft: rgba(92,194,230,.11); --magenta: #c880d8;
+    --good: #6fce8f; --warn: #d8a657; --bad: #e0707a;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 30px rgba(0,0,0,.35);
+  }
+
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: var(--font-sans); color: var(--ink); background: var(--ground); line-height: 1.6; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+  .sheet { max-width: 1180px; margin: 0 auto; padding: clamp(20px,4vw,52px) clamp(16px,4vw,44px) 64px; position: relative; }
+  .sheet::before {
+    content: ""; position: absolute; inset: 0; z-index: 0; pointer-events: none; opacity: .16;
+    background-image: linear-gradient(var(--hair) 1px, transparent 1px), linear-gradient(90deg, var(--hair) 1px, transparent 1px);
+    background-size: 46px 46px;
+    -webkit-mask-image: linear-gradient(180deg, transparent, #000 8%, #000 92%, transparent);
+            mask-image: linear-gradient(180deg, transparent, #000 8%, #000 92%, transparent);
+  }
+  .sheet > * { position: relative; z-index: 1; }
+
+  .eyebrow { font-family: var(--font-mono); font-size: 12px; letter-spacing: .18em; text-transform: uppercase; color: var(--accent-ink); display: inline-flex; align-items: center; gap: 10px; margin: 0 0 14px; }
+  .eyebrow::before { content: ""; width: 26px; height: 1px; background: var(--accent); }
+  h1.thesis { font-size: clamp(25px,4.6vw,42px); line-height: 1.16; font-weight: 800; letter-spacing: -.01em; margin: 0; text-wrap: balance; }
+  .thesis .mark { color: var(--accent); }
+  .thesis .mag { color: var(--magenta); }
+  .subtitle { font-size: clamp(15px,2.2vw,17px); color: var(--ink-2); margin: 12px 0 0; max-width: 62ch; }
+  .subtitle b { color: var(--ink); font-weight: 700; }
+
+  .principles { display: grid; grid-template-columns: repeat(3,1fr); gap: 12px; margin-top: 24px; }
+  @media (max-width: 760px) { .principles { grid-template-columns: 1fr; } }
+  .principle { background: var(--panel); border: 1px solid var(--hair); border-left: 3px solid var(--accent); border-radius: 8px; padding: 13px 15px; box-shadow: var(--shadow); }
+  .principle .p-k { font-family: var(--font-mono); font-size: 11px; color: var(--accent-ink); letter-spacing: .06em; }
+  .principle .p-t { font-size: 14px; font-weight: 700; margin-top: 3px; line-height: 1.4; }
+
+  section { margin-top: clamp(30px,4.6vw,48px); }
+  .sec-head { display: flex; align-items: baseline; gap: 14px; margin-bottom: 18px; }
+  .sec-idx { font-family: var(--font-mono); font-size: 12px; color: var(--accent-ink); letter-spacing: .1em; flex: none; }
+  .sec-title { font-size: clamp(17px,2.6vw,21px); font-weight: 800; letter-spacing: -.005em; }
+  .sec-head .rule { flex: 1; height: 1px; background: var(--hair); align-self: center; }
+  .sec-note { font-size: 12.5px; color: var(--ink-muted); flex: none; }
+
+  /* checklist */
+  .checklist { display: grid; gap: 9px; }
+  .ck {
+    display: grid; grid-template-columns: 40px 1fr auto; align-items: center; gap: 14px;
+    background: var(--panel); border: 1px solid var(--hair); border-left: 3px solid var(--edge,var(--hair-strong)); border-radius: 9px;
+    padding: 12px 16px; box-shadow: var(--shadow);
+  }
+  .ck[data-s="good"] { --edge: var(--good); }
+  .ck[data-s="warn"] { --edge: var(--warn); }
+  .ck[data-s="bad"]  { --edge: var(--bad); }
+  .ck .id { font-family: var(--font-mono); font-size: 15px; font-weight: 700; color: var(--accent); width: 30px; height: 30px; display: grid; place-items: center; border: 1px solid var(--hair-strong); border-radius: 50%; background: var(--accent-soft); }
+  .ck .q { font-size: 14.5px; }
+  .ck .q .t { font-weight: 700; color: var(--ink); }
+  .ck .q .sub { color: var(--ink-muted); font-size: 12.5px; }
+  .ck .cost {
+    font-family: var(--font-mono); font-size: 11px; color: var(--ink-2); text-align: right; max-width: 30ch;
+    border-left: 1px dashed var(--hair); padding-left: 14px; line-height: 1.45;
+  }
+  .ck .cost .ck-dot { display: inline-block; width: 7px; height: 7px; border-radius: 2px; margin-right: 5px; vertical-align: middle; background: var(--edge); }
+  @media (max-width: 720px) {
+    .ck { grid-template-columns: 34px 1fr; }
+    .ck .cost { grid-column: 1 / -1; text-align: left; border-left: 0; border-top: 1px dashed var(--hair); padding-left: 0; padding-top: 8px; max-width: none; }
+  }
+
+  /* do/dont + antipatterns two-col */
+  .twocol { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  @media (max-width: 760px) { .twocol { grid-template-columns: 1fr; } }
+  .panel { background: var(--panel); border: 1px solid var(--hair); border-radius: 10px; padding: 16px 18px; box-shadow: var(--shadow); }
+  .panel h3 { margin: 0 0 12px; font-size: 15px; font-weight: 800; display: flex; align-items: center; gap: 8px; }
+  .dd { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+  .dd li { font-size: 13px; color: var(--ink-2); display: flex; gap: 9px; align-items: baseline; line-height: 1.5; }
+  .dd .m { font-family: var(--font-mono); font-weight: 700; flex: none; }
+  .dd .do .m, .dd li.do .m { color: var(--good); }
+  li.do .m { color: var(--good); } li.dont .m { color: var(--bad); }
+  .dd b { color: var(--ink); font-weight: 700; }
+  .dd code { font-family: var(--font-mono); font-size: 11.5px; background: var(--accent-soft); color: var(--accent-ink); padding: 1px 5px; border-radius: 3px; }
+
+  .ap { list-style: none; margin: 0; padding: 0; display: grid; gap: 7px; }
+  .ap li { font-size: 12.5px; color: var(--ink-2); display: flex; gap: 9px; align-items: baseline; padding-bottom: 7px; border-bottom: 1px dotted var(--hair); }
+  .ap li:last-child { border-bottom: 0; }
+  .ap .x { color: var(--bad); font-family: var(--font-mono); flex: none; }
+  .ap b { color: var(--ink); font-weight: 700; }
+
+  /* self review highlight */
+  .check { background: var(--panel); border: 1px solid var(--accent); border-radius: 12px; padding: clamp(18px,3vw,26px); box-shadow: var(--shadow); position: relative; }
+  .check::after { content: ""; position: absolute; top: 10px; right: 10px; width: 14px; height: 14px; border-top: 1.5px solid var(--accent); border-right: 1.5px solid var(--accent); opacity: .7; }
+  .check ol { margin: 0; padding: 0; list-style: none; counter-reset: c; display: grid; gap: 10px; }
+  .check li { counter-increment: c; display: flex; gap: 14px; align-items: center; font-size: 15px; }
+  .check li::before { content: counter(c); font-family: var(--font-mono); font-weight: 700; color: #fff; background: var(--accent); width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; flex: none; }
+  .check li b { color: var(--ink); font-weight: 700; }
+  .check .kicker { font-size: 13px; color: var(--ink-muted); margin: 12px 0 0; }
+
+  footer { margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--hair); font-family: var(--font-mono); font-size: 11.5px; color: var(--ink-muted); display: flex; flex-wrap: wrap; gap: 6px 14px; }
+  footer .tag { border: 1px solid var(--hair-strong); border-radius: 3px; padding: 2px 8px; }
+
+  @media (prefers-reduced-motion: no-preference) {
+    section, .principles, header > * { animation: rise .5s cubic-bezier(.2,.7,.2,1) both; }
+    section:nth-of-type(2) { animation-delay: .05s; }
+    section:nth-of-type(3) { animation-delay: .1s; }
+    section:nth-of-type(4) { animation-delay: .15s; }
+    @keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+  }
+</style>
+
+<div class="sheet">
+  <header>
+    <p class="eyebrow">上流設計ベストプラクティス · Upstream Design Playbook</p>
+    <h1 class="thesis">書き始める前に、この<span class="mark">10問</span>に<span class="mag">一文</span>で答えよ。</h1>
+    <p class="subtitle">プロジェクトが破綻するのは“書き方”でなく <b>着手前の決め損ね</b> から。答えられないマスは、まだ設計が済んでいない。大原則は <b>決定を、コードでなく文章で外在化せよ</b>。</p>
+    <div class="principles">
+      <div class="principle"><div class="p-k">原則 1</div><div class="p-t">全部を先に決めない。片道ドアだけ固定する</div></div>
+      <div class="principle"><div class="p-k">原則 2</div><div class="p-t">名前の揺れは、スコープの揺れの症状</div></div>
+      <div class="principle"><div class="p-k">原則 3</div><div class="p-t">地獄は消せない、が予期はできる</div></div>
+    </div>
+  </header>
+
+  <!-- CHECKLIST -->
+  <section>
+    <div class="sec-head"><span class="sec-idx">01</span><span class="sec-title">着手前チェックリスト（1枚キャンバスの10問）</span><span class="rule"></span><span class="sec-note">色 = 答えなかった時のChaptrの代償</span></div>
+    <div class="checklist">
+      <div class="ck" data-s="good"><span class="id">①</span><span class="q"><span class="t">課題</span> — <span class="sub">誰の・どんな痛みを・どの頻度で解くか？</span></span><span class="cost"><span class="ck-dot"></span>未定義→「あったら便利」で機能が膨張</span></div>
+      <div class="ck" data-s="warn"><span class="id">②</span><span class="q"><span class="t">成功条件</span> — <span class="sub">何ができたらv1完成。入れない線は？</span></span><span class="cost"><span class="ck-dot"></span>Doneが引けず終わらない</span></div>
+      <div class="ck" data-s="bad"><span class="id">③</span><span class="q"><span class="t">スコープ境界</span> — <span class="sub">In/Out/Later。別リポジトリに割る塊は？</span></span><span class="cost"><span class="ck-dot"></span>5ヶ月後に分離・100+改名 (01ef476)</span></div>
+      <div class="ck" data-s="bad"><span class="id">④</span><span class="q"><span class="t">中核データと契約</span> — <span class="sub">中核データと不変条件3つは？</span></span><span class="cost"><span class="ck-dot"></span>「同時刻可?」未定義→1pxバグ (ea120d3)</span></div>
+      <div class="ck" data-s="warn"><span class="id">⑤</span><span class="q"><span class="t">分解方針</span> — <span class="sub">単一目的の単位・3層（状態/仲介/重処理）は？</span></span><span class="cost"><span class="ck-dot"></span>7404行→7分9コミットの一括着地</span></div>
+      <div class="ck" data-s="bad"><span class="id">⑥</span><span class="q"><span class="t">配布・運用制約</span> — <span class="sub">どのOS・入手経路・依存の同梱方針は？</span></span><span class="cost"><span class="ck-dot"></span>配布地獄15コミット</span></div>
+      <div class="ck" data-s="good"><span class="id">⑦</span><span class="q"><span class="t">技術選定</span> — <span class="sub">選択と乗り換え条件は？</span></span><span class="cost"><span class="ck-dot"></span>劣勢ツールに回避策を積み続ける</span></div>
+      <div class="ck" data-s="bad"><span class="id">⑧</span><span class="q"><span class="t">可逆性</span> — <span class="sub">片道ドアと両開きドアの仕分けは？</span></span><span class="cost"><span class="ck-dot"></span>名前を両開きと誤認→2回改名</span></div>
+      <div class="ck" data-s="warn"><span class="id">⑨</span><span class="q"><span class="t">AI協働</span> — <span class="sub">握る判断・委ねる作業・ガードレールは？</span></span><span class="cost"><span class="ck-dot"></span>丸投げで的外れ／記録が残らない</span></div>
+      <div class="ck" data-s="bad"><span class="id">⑩</span><span class="q"><span class="t">名前</span> — <span class="sub">確定名は？内部名と外部名を分けるか？</span></span><span class="cost"><span class="ck-dot"></span>rehearsal→media-scribe→chaptr</span></div>
+    </div>
+  </section>
+
+  <!-- DO/DONT + ANTIPATTERNS -->
+  <section>
+    <div class="sec-head"><span class="sec-idx">02</span><span class="sec-title">Do / Don't とアンチパターン</span><span class="rule"></span><span class="sec-note">高コスト領域の要点</span></div>
+    <div class="twocol">
+      <div class="panel">
+        <h3>領域別 Do / Don't</h3>
+        <ul class="dd">
+          <li class="do"><span class="m">DO</span><span>③ <b>Out を理由付きで書く</b>。境界はフォルダでなく<b>リポジトリ</b>で割る</span></li>
+          <li class="dont"><span class="m">✕</span><span>③ とりあえず1リポジトリに全部入れて後で考える</span></li>
+          <li class="do"><span class="m">DO</span><span>④ 不変条件を先に。契約は<b>純粋関数1本</b>に閉じる（<code>compute_excluded_regions</code>）</span></li>
+          <li class="dont"><span class="m">✕</span><span>④ 計算を表示・保存・テストに<b>コピー</b>する</span></li>
+          <li class="do"><span class="m">DO</span><span>⑥ <b>配布は制約</b>。実装より先にOS・入手・同梱を書く</span></li>
+          <li class="do"><span class="m">DO</span><span>⑦⑧ <b>片道ドアだけ慎重</b>／両開きは即決。一気に乗り換えない</span></li>
+        </ul>
+      </div>
+      <div class="panel">
+        <h3>アンチパターン（やりがち順）</h3>
+        <ul class="ap">
+          <li><span class="x">✕</span><span><b>全部を1リポジトリ</b> → 後でリブランド・分離</span></li>
+          <li><span class="x">✕</span><span><b>契約の暗黙化</b> → 経路ごとに解釈がずれてバグ</span></li>
+          <li><span class="x">✕</span><span><b>テストが本番をコピー</b> → 本番バグを検知できない</span></li>
+          <li><span class="x">✕</span><span><b>配布を最後に</b> → パッケージング地獄</span></li>
+          <li><span class="x">✕</span><span><b>完璧主義で着手できない</b> → 全マスを埋めようと麻痺</span></li>
+          <li><span class="x">✕</span><span><b>大きすぎるコミット</b> → 物語が潰れ後で追えない</span></li>
+          <li><span class="x">✕</span><span><b>決定の理由が消える</b> → 同じ議論を繰り返す</span></li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- SELF REVIEW -->
+  <section>
+    <div class="sec-head"><span class="sec-idx">03</span><span class="sec-title">15秒セルフレビュー</span><span class="rule"></span><span class="sec-note">実装に入る直前に唱える</span></div>
+    <div class="check">
+      <ol>
+        <li><span>この決定は <b>片道ドアか両開きドアか</b>？（片道なら今ちゃんと決める）</span></li>
+        <li><span>中核データの <b>不変条件</b> を一文で言えるか？</span></li>
+        <li><span>これは <b>誰が・どのOSで</b> 動かす？（配布制約を思い出す）</span></li>
+        <li><span>いま増やそうとしているのは、<b>Outに書いたもの</b>ではないか？</span></li>
+        <li><span>この判断の <b>理由</b> は、どこかに文章で残っているか？</span></li>
+      </ol>
+      <p class="kicker">すべてYesなら書き始めてよい。1つでもNoなら、そのマスに戻る。</p>
+    </div>
+  </section>
+
+  <footer>
+    <span class="tag">題材: Chaptr</span>
+    <span class="tag">証拠: git履歴 + worklog</span>
+    <span>course/05 の要約ハンドアウト · 記入例は upstream-canvas.html</span>
+  </footer>
+</div>
