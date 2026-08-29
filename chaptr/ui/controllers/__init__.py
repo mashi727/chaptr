@@ -9,13 +9,9 @@ MainWorkspaceから分離したUIコントローラー群。
 from .chapter_table_controller import ChapterTableController
 from .export_manager_ui import ExportManagerUI
 from .playback_controller_ui import PlaybackControllerUI
-from .source_file_ui import SourceFileUI
-from .waveform_manager import WaveformManager
 
 __all__ = [
     "ChapterTableController",
     "ExportManagerUI",
     "PlaybackControllerUI",
-    "SourceFileUI",
-    "WaveformManager",
 ]

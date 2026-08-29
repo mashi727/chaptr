@@ -32,11 +32,6 @@ from .media_analysis import (
 )
 
 # YouTube workers
-from .youtube import (
-    YouTubeDownloadWorker,
-    PlaylistInfoWorker,
-    PlaylistDownloadWorker,
-)
 
 __all__ = [
     # Base
@@ -63,7 +58,4 @@ __all__ = [
     "ChapterExtractWorker",
     "MultiSourceChapterExtractWorker",
     # YouTube
-    "YouTubeDownloadWorker",
-    "PlaylistInfoWorker",
-    "PlaylistDownloadWorker",
 ]

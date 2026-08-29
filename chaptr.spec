@@ -46,16 +46,7 @@ a = Analysis(
         'PySide6.QtMultimediaWidgets',
         'numpy',
         'cv2',
-        'psutil',
         'static_ffmpeg',
-        # yt-dlp（同梱ダウンローダー）
-        'yt_dlp',
-        'yt_dlp.extractor',
-        'yt_dlp.extractor.youtube',
-        'yt_dlp.downloader',
-        'yt_dlp.postprocessor',
-        'yt_dlp.utils',
-        'yt_dlp.version',
         # アプリモジュール
         'chaptr',
         'chaptr.ui',

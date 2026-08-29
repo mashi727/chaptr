@@ -10,7 +10,6 @@ from .image_crop import ImageCropWidget
 from .source_selection import SourceSelectionDialog
 from .cover_image import CoverImageDialog
 from .export_settings import ExportSettingsDialog
-from .playlist_video_selection import PlaylistVideoSelectionDialog
 from .reorder_sources import ReorderSourcesDialog
 from .batch_encode import BatchEncodeDialog
 from .project_save import ProjectSaveDialog
@@ -21,7 +20,6 @@ __all__ = [
     "SourceSelectionDialog",
     "CoverImageDialog",
     "ExportSettingsDialog",
-    "PlaylistVideoSelectionDialog",
     "ReorderSourcesDialog",
     "BatchEncodeDialog",
     "ProjectSaveDialog",
