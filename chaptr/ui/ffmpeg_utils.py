@@ -17,6 +17,29 @@ _ffprobe_path: Optional[str] = None
 _static_ffmpeg_initialized: bool = False
 
 
+def is_windows() -> bool:
+    """Windows 上で動いているか
+
+    プラットフォーム判定を1箇所に集約する。呼び出し側に
+    `sys.platform == 'win32'` を散らすと、Windows 固有の分岐
+    （コンソール非表示・実行ファイル名の .exe）をテストから差し替えられない。
+    """
+    return sys.platform == 'win32'
+
+
+def reset_ffmpeg_cache() -> None:
+    """検出済みパスのキャッシュを破棄する
+
+    パス解決は一度だけ行われてモジュール変数に載る。テストで検出経路を
+    繰り返し確かめる場合や、実行中に PATH／同梱バイナリの状況が変わった
+    場合に、次回の呼び出しで再検出させるために使う。
+    """
+    global _ffmpeg_path, _ffprobe_path, _static_ffmpeg_initialized
+    _ffmpeg_path = None
+    _ffprobe_path = None
+    _static_ffmpeg_initialized = False
+
+
 def _get_bundled_bin_dir() -> Optional[Path]:
     """PyInstallerバンドル内のバイナリディレクトリを取得"""
     # PyInstaller環境
@@ -81,7 +104,7 @@ def get_ffmpeg_path() -> str:
     # 1. PyInstallerバンドル内を確認
     bundled_dir = _get_bundled_bin_dir()
     if bundled_dir:
-        ffmpeg_name = 'ffmpeg.exe' if sys.platform == 'win32' else 'ffmpeg'
+        ffmpeg_name = 'ffmpeg.exe' if is_windows() else 'ffmpeg'
         bundled_ffmpeg = bundled_dir / ffmpeg_name
         if bundled_ffmpeg.exists():
             _ffmpeg_path = str(bundled_ffmpeg)
@@ -139,7 +162,7 @@ def get_ffprobe_path() -> str:
     # 1. PyInstallerバンドル内を確認
     bundled_dir = _get_bundled_bin_dir()
     if bundled_dir:
-        ffprobe_name = 'ffprobe.exe' if sys.platform == 'win32' else 'ffprobe'
+        ffprobe_name = 'ffprobe.exe' if is_windows() else 'ffprobe'
         bundled_ffprobe = bundled_dir / ffprobe_name
         if bundled_ffprobe.exists():
             _ffprobe_path = str(bundled_ffprobe)
@@ -205,7 +228,7 @@ def get_subprocess_kwargs(timeout: int = 30, capture_output: bool = True) -> Dic
         kwargs['capture_output'] = True
 
     # Windowsではコンソールウィンドウを非表示
-    if sys.platform == 'win32':
+    if is_windows():
         kwargs['creationflags'] = subprocess.CREATE_NO_WINDOW
 
     return kwargs
@@ -223,7 +246,7 @@ def get_popen_kwargs() -> Dict[str, Any]:
     kwargs: Dict[str, Any] = {}
 
     # Windowsではコンソールウィンドウを非表示
-    if sys.platform == 'win32':
+    if is_windows():
         kwargs['creationflags'] = subprocess.CREATE_NO_WINDOW
 
     return kwargs
