@@ -138,15 +138,45 @@ class Chaptr(QMainWindow):
         # 起動後3秒でアップデートチェック（無効化）
         # QTimer.singleShot(3000, self._check_for_updates)
 
+    def _fit_to_available_screen(self):
+        """画面の利用可能領域に収まるようウィンドウと最小サイズを抑える
+
+        `QT_SCALE_FACTOR` は OS の表示倍率に**上乗せ**される。Windows の
+        既定である 125% や 150% では実効 1.5〜1.8 倍になり、論理値のまま
+        最小サイズを固定すると 1920x1080 の画面を超えて、ウィンドウを
+        縮めることすらできなくなる（125% で最小 1950x1140 相当）。
+
+        `availableGeometry()` は倍率適用後の論理サイズを返すので、
+        論理値どうしで比較して頭打ちにすればどの倍率でも収まる。
+        """
+        screen = QApplication.primaryScreen()
+        if screen is None:
+            self.resize(WINDOW_WIDTH, WINDOW_HEIGHT)
+            self.setMinimumSize(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT)
+            return
+
+        available = screen.availableGeometry()
+        max_width = max(320, int(available.width() * 0.98))
+        max_height = max(240, int(available.height() * 0.98))
+
+        # 最小サイズが画面を超えると縮小不能になるため先に抑える
+        self.setMinimumSize(
+            min(MIN_WINDOW_WIDTH, max_width),
+            min(MIN_WINDOW_HEIGHT, max_height),
+        )
+        self.resize(
+            min(WINDOW_WIDTH, max_width),
+            min(WINDOW_HEIGHT, max_height),
+        )
+
     def _setup_window(self):
         """ウィンドウ設定"""
         self.setWindowTitle(f"Chaptr - {self.VERSION}")
 
-        # リサイズ可能（アスペクト比維持）
-        self.resize(WINDOW_WIDTH, WINDOW_HEIGHT)
-        self.setMinimumSize(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT)
+        # リサイズ可能（アスペクト比の固定はしない）
         self._aspect_ratio = ASPECT_RATIO
         self._resizing = False  # リサイズ中フラグ（再帰防止）
+        self._fit_to_available_screen()
 
         # アプリケーション全体のUIフォント設定
         app = QApplication.instance()

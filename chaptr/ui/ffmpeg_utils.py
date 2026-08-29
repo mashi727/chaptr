@@ -27,6 +27,39 @@ def is_windows() -> bool:
     return sys.platform == 'win32'
 
 
+def format_concat_entry(path) -> str:
+    """concat demuxer のリスト1行を組み立てる
+
+    2点の落とし穴があり、呼び出し側ごとに書くと片方を落とす。
+    実際 Windows 対応時に export 系だけ直され、main_workspace 側の
+    3箇所が正規化なしのまま残っていた。
+
+    - バックスラッシュは concat demuxer のエスケープ文字なので、
+      Windows のパスはスラッシュへ変換する（`C:\\dir\\a.mp4` が壊れる）
+    - シングルクォートは `'\\''` へ退避する
+    """
+    normalized = str(path).replace("\\", "/")
+    escaped = normalized.replace("'", "'\\''")
+    return f"file '{escaped}'\n"
+
+
+def write_concat_file(paths, dest) -> Path:
+    """concat demuxer 用のリストファイルを書き出す
+
+    Args:
+        paths: メディアファイルパスの列
+        dest: 出力先
+
+    Returns:
+        書き出したパス（呼び出し側でそのまま -i に渡せる）
+    """
+    dest = Path(dest)
+    with open(dest, 'w', encoding='utf-8') as f:
+        for path in paths:
+            f.write(format_concat_entry(path))
+    return dest
+
+
 def reset_ffmpeg_cache() -> None:
     """検出済みパスのキャッシュを破棄する
 

@@ -56,7 +56,7 @@ from .workers import (
 from .widgets import WaveformWidget, RegionBridge
 from .audio_cache import AudioCache, AudioCacheWorker
 from .styles import ButtonStyles
-from .ffmpeg_utils import get_ffmpeg_path, get_ffprobe_path, extract_chapters_with_ffmpeg, get_subprocess_kwargs
+from .ffmpeg_utils import get_ffmpeg_path, get_ffprobe_path, extract_chapters_with_ffmpeg, get_subprocess_kwargs, write_concat_file
 from .dialogs import ExportSettingsDialog, ReorderSourcesDialog
 from .managers import (
     PlaybackManager,
@@ -2637,10 +2637,7 @@ class MainWorkspace(QWidget):
 
             # concat demuxer用のファイルリストを作成
             list_file = temp_dir / "concat_list.txt"
-            with open(list_file, 'w', encoding='utf-8') as f:
-                for audio_path in temp_audio_files:
-                    escaped_path = str(audio_path).replace("'", "'\\''")
-                    f.write(f"file '{escaped_path}'\n")
+            write_concat_file(temp_audio_files, list_file)
 
             self._log_panel.debug(f"Concat list: {list_file}", source="Media")
 
@@ -2715,10 +2712,7 @@ class MainWorkspace(QWidget):
 
             # concat demuxer用のファイルリストを作成
             list_file = temp_dir / "concat_video_list.txt"
-            with open(list_file, 'w', encoding='utf-8') as f:
-                for src in self._state.sources:
-                    escaped_path = str(src.path).replace("'", "'\\''")
-                    f.write(f"file '{escaped_path}'\n")
+            write_concat_file((src.path for src in self._state.sources), list_file)
 
             self._log_panel.debug(f"Video concat list: {list_file}", source="Media")
 
@@ -3472,11 +3466,9 @@ class MainWorkspace(QWidget):
     def _write_concat_file(self) -> Path:
         """concat demuxer 用のファイルリストを書き出す"""
         concat_file = Path(tempfile.gettempdir()) / "waveform_concat.txt"
-        with open(concat_file, 'w', encoding='utf-8') as f:
-            for src in self._state.sources:
-                escaped_path = str(src.path).replace("'", "'\\''")
-                f.write(f"file '{escaped_path}'\n")
-        return concat_file
+        return write_concat_file(
+            (src.path for src in self._state.sources), concat_file
+        )
 
     def _apply_file_boundaries(self):
         """ファイル境界を上下両方のウィジェットへ反映する"""

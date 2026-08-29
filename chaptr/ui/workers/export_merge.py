@@ -14,7 +14,7 @@ from typing import List
 from PySide6.QtCore import QThread, Signal
 
 from ..models import ChapterInfo
-from ..ffmpeg_utils import get_ffmpeg_path, get_ffprobe_path, get_subprocess_kwargs, get_popen_kwargs
+from ..ffmpeg_utils import get_ffmpeg_path, get_ffprobe_path, get_subprocess_kwargs, get_popen_kwargs, write_concat_file
 from .base import CancellableWorkerMixin
 
 
@@ -84,13 +84,7 @@ class LegacyAudioMergeWorker(QThread):
             temp_audio, codec_args, strategy_desc = self._detect_encoding_strategy()
             concat_file = os.path.join(tempfile.gettempdir(), "concat_list.txt")
 
-            with open(concat_file, 'w', encoding='utf-8') as f:
-                for path in self.ordered_files:
-                    # ffmpeg concat demuxer はバックスラッシュをエスケープ文字として
-                    # 扱うため、Windowsのパスはスラッシュに変換する
-                    normalized = path.replace("\\", "/")
-                    escaped_path = normalized.replace("'", "'\\''")
-                    f.write(f"file '{escaped_path}'\n")
+            write_concat_file(self.ordered_files, concat_file)
 
             self.log_message.emit(f"結合方式: {strategy_desc}")
             self.log_message.emit("音声ファイルを結合中...")
@@ -154,12 +148,7 @@ class MergeWorker(QThread, CancellableWorkerMixin):
                 list_file = temp_dir / "concat_audio_list.txt"
 
             # concat demuxer用のファイルリストを作成
-            with open(list_file, 'w', encoding='utf-8') as f:
-                for src in self.source_files:
-                    # concat demuxer 用にバックスラッシュをスラッシュへ（Windows対応）
-                    normalized = str(src).replace("\\", "/")
-                    escaped_path = normalized.replace("'", "'\\''")
-                    f.write(f"file '{escaped_path}'\n")
+            write_concat_file(self.source_files, list_file)
 
             self.progress.emit(f"Merging {len(self.source_files)} files...")
 

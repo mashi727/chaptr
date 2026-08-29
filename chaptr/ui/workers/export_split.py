@@ -26,7 +26,7 @@ from ..models import (
     build_scaling_filter,
     build_rotation_filter,
 )
-from ..ffmpeg_utils import get_ffmpeg_path, get_popen_kwargs
+from ..ffmpeg_utils import get_ffmpeg_path, get_popen_kwargs, write_concat_file
 from .base import (
     SegmentInfo,
     TempFileManagerMixin,
@@ -625,12 +625,7 @@ class SegmentExtractWorker(QThread, TempFileManagerMixin, CancellableWorkerMixin
         list_file = temp_dir / "segment_concat_list.txt"
 
         # concat demuxer用のファイルリストを作成
-        with open(list_file, 'w', encoding='utf-8') as f:
-            for seg_file in segment_files:
-                # concat demuxer 用にバックスラッシュをスラッシュへ（Windows対応）
-                normalized = str(seg_file).replace("\\", "/")
-                escaped_path = normalized.replace("'", "'\\''")
-                f.write(f"file '{escaped_path}'\n")
+        write_concat_file(segment_files, list_file)
 
         self._temp_files.append(str(list_file))
 
