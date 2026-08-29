@@ -174,12 +174,13 @@ class TestChapterManagerZeroChapter:
         """ファイル読み込み時、0:00チャプターがなければ追加"""
         from chaptr.ui.managers import ChapterManager
 
-        # The logic is in load_from_file method
-        # Check that the code properly adds Chapter 0 when missing
+        # 補完処理は load_from_file 内にある。
+        # かつては "Chapter 0" というタイトルを付けていたが、現在は
+        # ソースのファイル名を使う（複数ソース時に区別できるようにするため）。
         import inspect
         source = inspect.getsource(ChapterManager.load_from_file)
-        assert "Chapter 0" in source
-        # Check for the dictionary key access pattern
+        assert "0:00チャプター" in source
+        # 辞書キーでのアクセスパターン
         assert "['local_time_ms']" in source
 
     def test_generate_from_sources_creates_zero_chapters(self):

@@ -28,42 +28,52 @@ class TestChapterTableSignals:
 class TestChapterClickSeekBehavior:
     """チャプタークリック時のシーク動作テスト"""
 
-    def test_on_chapter_clicked_performs_seek(self):
-        """_on_chapter_clicked でシーク操作が行われる"""
+    # Note: クリック処理は _seek_to_chapter_row() に委譲されている
+    # （ダブルクリックからの再生開始と共通化するため）。
+    # 実際のシーク処理はそちらにあるので、委譲先を検証する。
+
+    def test_on_chapter_clicked_delegates_to_seek_helper(self):
+        """_on_chapter_clicked は共通のシークヘルパへ委譲する"""
         from chaptr.ui.main_workspace import MainWorkspace
         source = inspect.getsource(MainWorkspace._on_chapter_clicked)
 
-        # シーク関連のコードがあることを確認
+        assert "_seek_to_chapter_row" in source
+        # クリックでは再生を開始しない
+        assert "start_playback=False" in source
+
+    def test_seek_helper_performs_seek(self):
+        """_seek_to_chapter_row でシーク操作が行われる"""
+        from chaptr.ui.main_workspace import MainWorkspace
+        source = inspect.getsource(MainWorkspace._seek_to_chapter_row)
+
         assert "_seek_virtual" in source
 
-    def test_on_chapter_clicked_gets_time_from_table(self):
-        """_on_chapter_clicked はテーブルから時間を取得する
-
-        Note: 現在の実装はテーブルから直接取得している。
-        将来的には ChapterManager 経由で取得すべき。
-        """
+    def test_seek_helper_gets_time_from_table(self):
+        """_seek_to_chapter_row はテーブルから時間を取得する"""
         from chaptr.ui.main_workspace import MainWorkspace
-        source = inspect.getsource(MainWorkspace._on_chapter_clicked)
+        source = inspect.getsource(MainWorkspace._seek_to_chapter_row)
 
-        # テーブルから時間を取得
         assert "self._table.item(row, 0)" in source
 
-    def test_on_chapter_clicked_parses_time_with_chapter_info(self):
-        """_on_chapter_clicked は ChapterInfo を使って時間をパースする"""
+    def test_seek_helper_parses_time_with_chapter_info(self):
+        """_seek_to_chapter_row は ChapterInfo を使って時間をパースする"""
         from chaptr.ui.main_workspace import MainWorkspace
-        source = inspect.getsource(MainWorkspace._on_chapter_clicked)
+        source = inspect.getsource(MainWorkspace._seek_to_chapter_row)
 
-        # ChapterInfo.from_time_str を使用
         assert "ChapterInfo.from_time_str" in source
 
 
 class TestChapterSelectionBehavior:
     """チャプター選択時の動作テスト"""
 
+    # Note: 選択変更ハンドラは _on_selection_changed（テーブル全体の
+    # 選択スタイル更新を担う）。かつての _on_chapter_selection_changed は
+    # この名前に統合された。
+
     def test_selection_changed_does_not_trigger_seek(self):
         """選択変更だけではシークしない"""
         from chaptr.ui.main_workspace import MainWorkspace
-        source = inspect.getsource(MainWorkspace._on_chapter_selection_changed)
+        source = inspect.getsource(MainWorkspace._on_selection_changed)
 
         # シーク関連のコードがないことを確認
         assert "_seek_virtual" not in source
@@ -74,11 +84,11 @@ class TestChapterSelectionBehavior:
         from chaptr.ui.main_workspace import MainWorkspace
 
         # 両方のメソッドが存在する
-        assert hasattr(MainWorkspace, '_on_chapter_selection_changed')
+        assert hasattr(MainWorkspace, '_on_selection_changed')
         assert hasattr(MainWorkspace, '_on_chapter_clicked')
 
         # それぞれ別のメソッド
-        selection_source = inspect.getsource(MainWorkspace._on_chapter_selection_changed)
+        selection_source = inspect.getsource(MainWorkspace._on_selection_changed)
         click_source = inspect.getsource(MainWorkspace._on_chapter_clicked)
         assert selection_source != click_source
 
@@ -181,10 +191,13 @@ class TestChapterTableRowIndexVsTime:
         # row パラメータがある
         assert 'row' in params
 
-    def test_on_chapter_clicked_converts_row_to_time(self):
-        """_on_chapter_clicked は行から時間を取得する"""
+    def test_seek_helper_converts_row_to_time(self):
+        """行から時間への変換は _seek_to_chapter_row が行う
+
+        _on_chapter_clicked は委譲のみなので、変換の実体はこちら。
+        """
         from chaptr.ui.main_workspace import MainWorkspace
-        source = inspect.getsource(MainWorkspace._on_chapter_clicked)
+        source = inspect.getsource(MainWorkspace._seek_to_chapter_row)
 
         # 行インデックスからテーブルアイテムを取得し、時間に変換
         assert "self._table.item(row" in source

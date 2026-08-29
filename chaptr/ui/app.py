@@ -5,6 +5,7 @@ Chaptr v2.0 エントリーポイント。
 クロスプラットフォーム対応（macOS / Windows）
 """
 
+import os
 import sys
 import platform
 from pathlib import Path
@@ -29,15 +30,24 @@ from .updater import (
 
 # === クロスプラットフォーム設定 ===
 
-# デフォルトウィンドウサイズ（16:10比率、MacBookネイティブ）
-WINDOW_WIDTH = 1680
-WINDOW_HEIGHT = 1050
+# UI 全体の拡大率（QT_SCALE_FACTOR）。フォント・ウィジェット・スタイルシートの
+# px 指定までまとめて効くので、個別に寸法を書き換えるより破綻しない。
+# 以下のウィンドウ寸法は拡大前の論理値で、画面上の実寸はこの倍数になる。
+UI_SCALE = 1.2
 
-# 最小ウィンドウサイズ
-MIN_WINDOW_WIDTH = 1120
-MIN_WINDOW_HEIGHT = 700
+# デフォルトウィンドウサイズ（論理値。画面上の実寸は UI_SCALE 倍）
+#
+# 動画コンテナは 16:9 の固定サイズ（VIDEO_HEIGHT 由来）、チャプター表は幅 460px 固定。
+# 余った幅・高さはすべて波形へ回るため、画面に収まる範囲で大きいほど良い。
+# 幅は区間表示の時間分解能に、高さは周波数分解能に直接効く。
+WINDOW_WIDTH = 1400
+WINDOW_HEIGHT = 880
 
-# アスペクト比 (8:5)
+# 最小ウィンドウサイズ（レイアウトの minimumSizeHint 1293x755 に合わせる）
+MIN_WINDOW_WIDTH = 1300
+MIN_WINDOW_HEIGHT = 760
+
+# アスペクト比（互換のため残す。リサイズ時の固定には使わない）
 ASPECT_RATIO = WINDOW_WIDTH / WINDOW_HEIGHT
 
 # プラットフォーム別フォント設定
@@ -106,7 +116,7 @@ class Chaptr(QMainWindow):
     単一画面 + ダイアログパターンのメインウィンドウ。
     """
 
-    VERSION = "2.2.0"
+    VERSION = "2.3.0"
 
     def __init__(self, work_dir: Optional[Path] = None):
         super().__init__()
@@ -500,11 +510,20 @@ class Chaptr(QMainWindow):
 
         dialog.exec()
 
+    def _waveform_widgets(self):
+        """上段・下段の波形系ウィジェットを列挙する（存在するものだけ）"""
+        for name in ('_waveform_widget', '_region_widget'):
+            widget = getattr(self._workspace, name, None)
+            if widget is not None:
+                yield widget
+
     def _on_theme_changed(self):
         """テーマ変更時の処理"""
-        # 波形ウィジェットを再描画
-        if hasattr(self._workspace, '_waveform_widget'):
-            self._workspace._waveform_widget.update()
+        # 波形ウィジェットを再描画（下段の区間表示も含む）
+        for widget in self._waveform_widgets():
+            widget.update()
+        if getattr(self._workspace, '_region_bridge', None) is not None:
+            self._workspace._region_bridge.update()
 
         # チャプターテーブルを再描画
         if hasattr(self._workspace, '_refresh_chapter_colors'):
@@ -512,10 +531,11 @@ class Chaptr(QMainWindow):
 
     def _on_spectrogram_changed(self):
         """スペクトログラム設定変更時の処理"""
-        # スペクトログラムキャッシュをクリアして再描画
-        if hasattr(self._workspace, '_waveform_widget'):
-            self._workspace._waveform_widget._spectrogram_image = None
-            self._workspace._waveform_widget.update()
+        # スペクトログラムキャッシュをクリアして再描画。
+        # 下段はカラーマップ名こそ独自だが、彩度・明度はテーマ設定を使う
+        for widget in self._waveform_widgets():
+            widget._spectrogram_image = None
+            widget.update()
 
     # === エクスポート進捗ハンドラ ===
 
@@ -753,61 +773,15 @@ class Chaptr(QMainWindow):
             self._download_thread = None
             self._downloader = None
 
-    def showEvent(self, event):
-        """ウィンドウ表示時にサイズ情報を出力"""
-        super().showEvent(event)
-        # レイアウト計算後にサイズを出力
-        from PySide6.QtCore import QTimer
-        QTimer.singleShot(100, self._print_video_size)
-
-    def _print_video_size(self):
-        """動画コンテナのサイズを出力"""
-        if hasattr(self._workspace, '_video_container'):
-            size = self._workspace._video_container.size()
-            print(f"Video container size: {size.width()}x{size.height()}")
-            # 16:9 に必要な幅を計算
-            ideal_width = int(size.height() * 16 / 9)
-            print(f"For 16:9 at this height: {ideal_width}px wide")
-            print(f"Current video area width: {size.width()}px")
-            diff = size.width() - ideal_width
-            print(f"Difference: {diff}px (positive = too wide, negative = too narrow)")
-
     def resizeEvent(self, event):
-        """リサイズ時にアスペクト比を維持"""
-        if self._resizing:
-            return super().resizeEvent(event)
+        """リサイズ
 
-        self._resizing = True
-
-        new_size = event.size()
-        old_size = event.oldSize()
-
-        # 幅と高さのどちらが変更されたかを判定
-        width_changed = new_size.width() != old_size.width()
-        height_changed = new_size.height() != old_size.height()
-
-        if width_changed and height_changed:
-            # 両方変更された場合は幅を基準にする
-            new_width = new_size.width()
-            new_height = int(new_width / self._aspect_ratio)
-        elif width_changed:
-            # 幅が変更された場合
-            new_width = new_size.width()
-            new_height = int(new_width / self._aspect_ratio)
-        else:
-            # 高さが変更された場合
-            new_height = new_size.height()
-            new_width = int(new_height * self._aspect_ratio)
-
-        # 最小サイズを確保
-        new_width = max(new_width, MIN_WINDOW_WIDTH)
-        new_height = max(new_height, MIN_WINDOW_HEIGHT)
-
-        # サイズが変更された場合のみリサイズ
-        if new_width != new_size.width() or new_height != new_size.height():
-            self.resize(new_width, new_height)
-
-        self._resizing = False
+        以前はウィンドウのアスペクト比を固定していた。動画表示領域を 16:9 に
+        保つためだったが、動画コンテナ自体を 16:9 の固定サイズにしたため
+        ウィンドウ比に依存しなくなった。自由にリサイズできる方が、
+        区間表示の時間分解能（幅）と周波数分解能（高さ）を用途に応じて
+        取れるので都合がよい。
+        """
         super().resizeEvent(event)
 
     def closeEvent(self, event):
@@ -827,6 +801,11 @@ class Chaptr(QMainWindow):
 
 def main():
     """エントリーポイント"""
+    # UI 全体の拡大率。QApplication 作成前に設定する必要がある。
+    # 環境変数が既にあればそちらを尊重する（外から上書きできるように）
+    if UI_SCALE != 1.0:
+        os.environ.setdefault("QT_SCALE_FACTOR", str(UI_SCALE))
+
     # High DPI対応（QApplication作成前に設定）
     # PySide6では自動的にHigh DPI対応されるが、明示的に設定
     QApplication.setHighDpiScaleFactorRoundingPolicy(

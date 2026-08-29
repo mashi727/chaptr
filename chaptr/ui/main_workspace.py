@@ -11,7 +11,7 @@ main_workspace.py - メインワークスペース
 """
 
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, List, Tuple
 from dataclasses import dataclass, field
 
 from PySide6.QtWidgets import (
@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (
     QStyledItemDelegate, QStyleOptionViewItem, QMenu,
     QGraphicsView, QGraphicsScene
 )
-from PySide6.QtCore import Qt, Signal, QUrl, QThread, QObject, QTimer, QEvent, QMimeData, QPoint, QSizeF
+from PySide6.QtCore import Qt, Signal, QUrl, QThread, QObject, QTimer, QEvent, QMimeData, QPoint, QSize, QSizeF
 from PySide6.QtGui import QFont, QFontDatabase, QPainter, QColor, QPen, QBrush, QPixmap, QIcon, QPolygon, QKeyEvent, QTransform
 from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput, QMediaDevices
 from PySide6.QtMultimediaWidgets import QVideoWidget, QGraphicsVideoItem
@@ -33,6 +33,7 @@ import platform
 import re
 import subprocess
 import tempfile
+import time
 import os
 
 from .log_panel import LogPanel, LogLevel
@@ -48,16 +49,15 @@ from .models import (
     detect_available_encoders,
 )
 from .workers import (
-    WaveformWorker, SpectrogramWorker, ExportWorker, SplitExportWorker,
-    YouTubeDownloadWorker, PlaylistInfoWorker, PlaylistDownloadWorker,
+    ExportWorker, SplitExportWorker,
     DurationDetectWorker, MergeWorker, CLIEncodeWorker,
     calculate_extraction_plan, SegmentInfo
 )
-from .widgets import WaveformWidget
+from .widgets import WaveformWidget, RegionBridge
+from .audio_cache import AudioCache, AudioCacheWorker
 from .styles import ButtonStyles
 from .ffmpeg_utils import get_ffmpeg_path, get_ffprobe_path, extract_chapters_with_ffmpeg, get_subprocess_kwargs
-from .dialogs import ExportSettingsDialog, PlaylistVideoSelectionDialog, ReorderSourcesDialog
-from .youtube_mixin import YouTubeDownloadMixin
+from .dialogs import ExportSettingsDialog, ReorderSourcesDialog
 from .managers import (
     PlaybackManager,
     ChapterManager,
@@ -73,6 +73,35 @@ from .managers import (
 # ファイル拡張子定義
 AUDIO_EXTENSIONS = {'.mp3', '.m4a', '.wav', '.aac', '.flac'}
 VIDEO_EXTENSIONS = {'.mp4', '.mov', '.avi', '.mkv', '.m4v'}
+
+# 区間表示（下段）の設定
+# ホイールで選べる区間幅。長尺リハーサルでは 1 分前後が曲の出入りを見るのに合う
+REGION_SPAN_LADDER_MS = (5_000, 10_000, 20_000, 30_000, 60_000, 120_000, 300_000, 600_000)
+REGION_DEFAULT_SPAN_MS = 60_000
+# 手が止まってから精細化するまでの待ち
+REGION_SHARPEN_DELAY_MS = 120
+# 移動中は列数・行数を落として追従を優先する（止まれば精細版に置き換わる）
+REGION_COARSE_DIVISOR = 4
+# 粗描画の最短間隔（ミリ秒）。これ以上詰めても人には見えない
+REGION_MIN_FRAME_MS = 12
+# 動画表示の設定
+# 用途は「指揮者の動きと音のズレの確認」なので、判別できる大きさがあれば十分。
+# 高さに上限を設け、余った縦は波形（特に下段の区間表示）へ回す。
+VIDEO_ASPECT = 16 / 9
+# 動画は右パネルの幅いっぱいに 16:9 で表示し、余った縦をすべて波形へ回す。
+# 取り分を stretch で按分すると、動画の縦が余って左右に黒帯が出るか、
+# 逆に横が余るかのどちらかになる。幅を基準に高さを決めれば無駄が出ない。
+# 縦に余裕がないウィンドウでは、この割合を上限として縮む
+VIDEO_MAX_HEIGHT_RATIO = 0.95
+# 動画コンテナの下限（これ以下だと指揮者の動きが判別しにくい）
+VIDEO_MIN_HEIGHT = 200
+
+# 下段のカラーマップ。上段（テーマ既定は inferno = 暖色）と見分けるため寒色系。
+# 選択肢: viridis（紺→青緑→緑→黄・知覚的に均等）/ cividis（より寒色寄り・低彩度）
+REGION_COLORMAP = "viridis"
+# 全体表示へ渡す包絡のビン数。表示幅より十分多く取り、min-max の二段適用で
+# ピークが保たれるようにする（幅が変わっても取り直さずに済む）
+OVERVIEW_ENVELOPE_BINS = 8192
 
 
 def get_icon_path(icon_name: str) -> Path:
@@ -118,6 +147,94 @@ def get_overlay_font_family() -> str:
         family = ""
     _OVERLAY_FONT_FAMILY_CACHE = family
     return family
+
+
+class VideoAspectFrame(QFrame):
+    """動画枠。割り当てられた領域に動画コンテナを 16:9 で最大内接させる
+
+    コンテナ自体を常に厳密な 16:9 に保つので、枠がどんな形でも動画の
+    周りに余白が出ない。大きさはレイアウトの取り分（stretch）で決まり、
+    ウィンドウサイズにも追従する。
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._content = None
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+
+    def _padding(self):
+        """動画コンテナ以外がフレーム内で占める幅・高さ（字幕パネル込み）"""
+        layout = self.layout()
+        if layout is None:
+            return 0, 0
+        margins = layout.contentsMargins()
+        pad_w = margins.left() + margins.right()
+        pad_h = margins.top() + margins.bottom()
+        for i in range(layout.count()):
+            widget = layout.itemAt(i).widget()
+            if widget is None or widget is self._content:
+                continue
+            if widget.isVisibleTo(self):
+                pad_h += widget.height() + layout.spacing()
+        return pad_w, pad_h
+
+    def set_content_widget(self, widget):
+        """16:9 に保つ対象（動画コンテナ）を指定する"""
+        self._content = widget
+        self.refresh_content_size()
+
+    def refresh_content_size(self):
+        """枠の内側に 16:9 で最大内接する大きさをコンテナへ与える
+
+        字幕パネルは表示・非表示が切り替わるため、余白を固定値で持たず
+        レイアウトから実測する。
+        """
+        if self._content is None:
+            return
+
+        pad_w, pad_h = self._padding()
+
+        avail_w = max(0, self.width() - pad_w)
+        avail_h = max(0, self.height() - pad_h)
+        if avail_w <= 0 or avail_h <= 0:
+            return
+
+        height = max(VIDEO_MIN_HEIGHT, int(min(avail_h, avail_w / VIDEO_ASPECT)))
+        width = int(height * VIDEO_ASPECT)
+
+        margins = self.layout().contentsMargins() if self.layout() else None
+        left = margins.left() if margins else 0
+        top = margins.top() if margins else 0
+        x = left + max(0, (avail_w - width) // 2)
+        y = top + max(0, (avail_h - height) // 2)
+        if (x, y, width, height) != (
+            self._content.x(), self._content.y(),
+            self._content.width(), self._content.height()
+        ):
+            self._content.setGeometry(x, y, width, height)
+
+    def height_for_panel(self, width: int, available_height: int) -> int:
+        """パネル幅いっぱいに 16:9 で収めたときのフレーム高さ"""
+        pad_w, pad_h = self._padding()
+        inner_w = max(0, width - pad_w)
+        video_h = inner_w / VIDEO_ASPECT
+        # 縦に余裕がないウィンドウでは割合で頭打ちにする
+        video_h = min(video_h, available_height * VIDEO_MAX_HEIGHT_RATIO)
+        video_h = max(VIDEO_MIN_HEIGHT, int(video_h))
+        return video_h + pad_h
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        # 幅が決まったら、それに見合う高さを自分で確定させる。
+        # 2回目以降は wanted == height で止まるのでループしない
+        panel = self.parentWidget()
+        if panel is not None:
+            wanted = self.height_for_panel(self.width(), panel.height())
+            if wanted != self.height():
+                self.setFixedHeight(wanted)
+        # 高さを変えた回でもコンテナを追従させる。ここで抜けると
+        # 最後のリサイズが取りこぼされ、コンテナが古い寸法のまま残る
+        self.refresh_content_size()
 
 
 class VideoGraphicsView(QGraphicsView):
@@ -872,7 +989,7 @@ class SourceListWidget(QWidget):
         return f"{m}:{s:02d}"
 
 
-class MainWorkspace(QWidget, YouTubeDownloadMixin):
+class MainWorkspace(QWidget):
     """
     メインワークスペース
 
@@ -945,28 +1062,36 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
         # SubtitleManager（字幕管理を委譲）
         self._subtitle_manager = SubtitleManager(self)
 
-        # 波形生成スレッド
-        self._waveform_thread: Optional[QThread] = None
-        self._waveform_worker: Optional[WaveformWorker] = None
+        # 全体表示（上段）
         self._waveform_widget: Optional[WaveformWidget] = None
+        self._spectrogram_generated = False  # 上段スペクトログラム反映済みフラグ
 
-        # スペクトログラム生成スレッド
-        self._spectrogram_thread: Optional[QThread] = None
-        self._spectrogram_worker: Optional[SpectrogramWorker] = None
-        self._spectrogram_generated = False  # スペクトログラム生成済みフラグ
+        # 音声キャッシュ（全長PCMをメモリ常駐させ、区間表示を即座に描画する）
+        self._audio_cache: Optional[AudioCache] = None
+        self._cache_thread: Optional[QThread] = None
+        self._cache_worker: Optional[AudioCacheWorker] = None
+
+        # 区間表示（下段）
+        self._region_widget: Optional[WaveformWidget] = None
+        self._region_bridge: Optional[RegionBridge] = None
+        self._region_span_ms: int = self._load_region_span()
+        self._region_start_ms: int = 0
+        # ホバーで区間を動かしたあとは、そのまま留めて下段をクリックできるようにする。
+        # 再生位置追従へ戻すのはシーク時と、再生が区間外へ出たとき
+        self._region_pinned: bool = False
+        # 手が止まったら精細版へ置き換えるためのタイマー。
+        # 移動中の描画はこれに任せず、その場で粗く描く（下記 _apply_region_center）
+        self._region_timer = QTimer(self)
+        self._region_timer.setSingleShot(True)
+        self._region_timer.setInterval(REGION_SHARPEN_DELAY_MS)
+        self._region_timer.timeout.connect(self._refresh_region_view)
+        self._region_last_draw: float = 0.0
 
         # カバー画像
         self._cover_image = None  # QImage
 
-        # YouTube URL（ダウンロード用）
-        self._youtube_url = ""
-
-        # YouTubeダウンロードワーカー
-        self._youtube_worker: Optional[YouTubeDownloadWorker] = None
-
-        # プレイリストダウンロードワーカー
-        self._playlist_info_worker: Optional[PlaylistInfoWorker] = None
-        self._playlist_worker: Optional[PlaylistDownloadWorker] = None
+        # 出力ファイル名のベース（ソースから自動決定。編集UIは廃止）
+        self._output_base: str = ""
 
         # Duration検出ワーカー（プロジェクト読み込み時の非同期処理）
         self._duration_detect_worker: Optional[DurationDetectWorker] = None
@@ -1164,60 +1289,7 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
         main_layout.setContentsMargins(12, 8, 12, 8)
         main_layout.setSpacing(8)
 
-        # === 上段: YouTube URL入力 ===
-        youtube_row = QHBoxLayout()
-        youtube_row.setSpacing(8)
-
-        youtube_label = QLabel("YouTube")
-        youtube_label.setStyleSheet("font-weight: bold; color: #f0f0f0;")
-        youtube_row.addWidget(youtube_label)
-
-        self._youtube_url_edit = QLineEdit()
-        self._youtube_url_edit.setPlaceholderText("https://youtube.com/watch?v=... or https://youtu.be/...")
-        self._youtube_url_edit.setStyleSheet("""
-            QLineEdit {
-                background: #0f0f0f;
-                color: #f0f0f0;
-                border: 1px solid #3a3a3a;
-                border-radius: 4px;
-                padding: 6px 10px;
-                font-size: 13px;
-            }
-            QLineEdit:focus {
-                border: 1px solid #ef4444;
-            }
-        """)
-        self._youtube_url_edit.returnPressed.connect(self._start_youtube_download)
-        youtube_row.addWidget(self._youtube_url_edit, stretch=1)
-
-        self._youtube_download_btn = QPushButton("DL")
-        self._youtube_download_btn.setFixedWidth(80)
-        self._youtube_download_btn.setFixedHeight(28)
-        self._youtube_download_btn.setStyleSheet(self._youtube_btn_style_normal())
-        self._youtube_download_btn.clicked.connect(self._start_youtube_download)
-        youtube_row.addWidget(self._youtube_download_btn)
-
-        main_layout.addLayout(youtube_row)
-
-        # YouTubeダウンロード進捗バー（通常は非表示）
-        self._youtube_progress = QProgressBar()
-        self._youtube_progress.setFixedHeight(4)
-        self._youtube_progress.setTextVisible(False)
-        self._youtube_progress.setStyleSheet("""
-            QProgressBar {
-                background: #2d2d2d;
-                border: none;
-                border-radius: 2px;
-            }
-            QProgressBar::chunk {
-                background: #84cc16;
-                border-radius: 2px;
-            }
-        """)
-        self._youtube_progress.setVisible(False)
-        main_layout.addWidget(self._youtube_progress)
-
-        # === 下段: ソースリスト + Open/Addボタン ===
+        # === ソースリスト + Open/Addボタン ===
         self._source_list = SourceListWidget()
         self._source_list.source_clicked.connect(self._on_source_clicked)
         self._source_list.open_clicked.connect(self._open_source_dialog)
@@ -1559,47 +1631,15 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
         main_layout = QVBoxLayout(container)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(8)
+        self._video_panel_layout = main_layout
 
-        # === 出力ファイル名（編集可能）===
-        output_row = QHBoxLayout()
-        output_row.setSpacing(8)
+        # 出力ファイル名はソース（単一ならファイル名、複数ならフォルダ名）から
+        # 自動で決まる。編集欄は使われていないため表示しない。
+        # 実体は self._output_base（_update_base_filename_from_first_source が設定）
 
-        self._output_label = QLabel("出力 | ")
-        self._output_label.setFixedWidth(60)
-        self._output_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        self._output_label.setStyleSheet("color: #c0c0c0; font-size: 15px;")
-        output_row.addWidget(self._output_label)
-
-        self._output_edit = QLineEdit()
-        self._output_edit.setPlaceholderText("output filename")
-        self._output_edit.setToolTip("出力ファイル名（拡張子は自動付与）")
-        self._output_edit.textChanged.connect(self._update_output_preview)
-        self._output_edit.setStyleSheet("""
-            QLineEdit {
-                background: #1a1a1a;
-                color: #f0f0f0;
-                border: 1px solid #3a3a3a;
-                border-radius: 6px;
-                padding: 8px 12px;
-                font-size: 14px;
-            }
-            QLineEdit:focus {
-                border: 1px solid #60a5fa;
-            }
-        """)
-        output_row.addWidget(self._output_edit, stretch=1)
-
-        # プレビューラベル（入力欄の右側、差分のみ表示）
-        self._output_preview_label = QLabel("")
-        self._output_preview_label.setStyleSheet("color: #c3d825; font-size: 14px;")
-        self._output_preview_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        output_row.addWidget(self._output_preview_label)
-
-        main_layout.addLayout(output_row)
-
-        # === 動画プレビュー（最大化）===
+        # === 動画プレビュー ===
         # 外枠フレーム
-        video_frame = QFrame()
+        video_frame = VideoAspectFrame()
         video_frame.setStyleSheet("""
             QFrame {
                 background: #1a1a1a;
@@ -1607,7 +1647,6 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
                 border-radius: 8px;
             }
         """)
-        video_frame.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
         video_outer_layout = QVBoxLayout(video_frame)
         video_outer_layout.setContentsMargins(4, 4, 4, 4)
@@ -1617,6 +1656,7 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
         self._video_container = QWidget()
         self._video_container.setObjectName("video_container")
         self._video_container.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        # 大きさは VideoAspectFrame が 16:9 で内接させて決める
 
         # 動画表示（最下層）: QGraphicsView + QGraphicsVideoItem
         # QVideoWidget はネイティブ surface のため回転/重ね合わせができない。
@@ -1628,7 +1668,7 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
         self._video_view.set_fit_callback(self._fit_video_item)
         self._video_view.setObjectName("video_widget")
         self._video_view.setStyleSheet("background: #0f0f0f; border: none; border-radius: 4px;")
-        self._video_view.setMinimumSize(400, 300)
+        self._video_view.setMinimumSize(160, 90)
         self._video_view.setFrameStyle(0)  # NoFrame
         self._video_view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._video_view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -1676,7 +1716,12 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
         # リサイズイベントで子ウィジェットのサイズを調整
         self._video_container.installEventFilter(self)
 
-        video_outer_layout.addWidget(self._video_container, stretch=1)
+        # コンテナはレイアウトに載せない。載せると固定サイズが枠の最小高さとして
+        # 上へ伝播し、波形との取り分（stretch）を上書きしてしまう
+        self._video_container.setParent(video_frame)
+        video_frame.set_content_widget(self._video_container)
+
+        video_outer_layout.addStretch(1)
 
         # 字幕パネル（動画コンテナの下部）
         self._subtitle_label = QLabel()
@@ -1696,14 +1741,16 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
         video_outer_layout.addWidget(self._subtitle_label)
 
         # SubtitleManagerシグナル接続
+        self._video_frame = video_frame
         self._subtitle_manager.subtitle_changed.connect(self._subtitle_label.setText)
         self._subtitle_manager.subtitles_loaded.connect(self._on_subtitles_loaded)
         self._subtitle_manager.subtitles_cleared.connect(self._on_subtitles_cleared)
 
-        main_layout.addWidget(video_frame, stretch=4)  # 動画に多くのスペース
+        main_layout.addWidget(video_frame)
 
         # === 波形表示 ===
         waveform_section = self._create_waveform_section()
+        # 動画が幅ぶんを取ったあとの縦をすべて受け取る
         main_layout.addWidget(waveform_section, stretch=1)
 
         # === 再生コントロール ===
@@ -1716,7 +1763,12 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
         return container
 
     def _create_waveform_section(self) -> QWidget:
-        """波形表示セクション"""
+        """波形表示セクション（上段: 全体 / 下段: 区間）
+
+        長尺素材では全体表示の 1 px が数秒に相当し、クリックだけでは所望の
+        位置を指定できない。上段をなぞると下段がその周辺を拡大して追従し、
+        下段で精密に位置を決める、という二段階の操作にする。
+        """
         frame = QFrame()
         frame.setStyleSheet("""
             QFrame {
@@ -1725,17 +1777,47 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
                 border-radius: 8px;
             }
         """)
-        frame.setMinimumHeight(100)
+        frame.setMinimumHeight(180)
 
         layout = QVBoxLayout(frame)
         layout.setContentsMargins(4, 4, 4, 4)
-        layout.setSpacing(0)
+        layout.setSpacing(3)
 
-        # 波形ウィジェット
+        # 上段: 全体表示（波形）
         self._waveform_widget = WaveformWidget()
-        self._waveform_widget.setToolTip("クリックで再生位置を移動\n赤いハッチング: 除外区間（--チャプター）")
-        self._waveform_widget.position_clicked.connect(self._on_waveform_clicked)
-        layout.addWidget(self._waveform_widget)
+        self._waveform_widget.setMinimumHeight(60)
+        self._waveform_widget.setToolTip(
+            "クリックで再生位置を移動 / なぞると下段が追従\n"
+            "赤いハッチング: 除外区間（--チャプター）"
+        )
+        self._waveform_widget.set_hover_enabled(True)
+        self._waveform_widget.position_clicked.connect(self._on_overview_clicked)
+        self._waveform_widget.hover_moved.connect(self._on_overview_hover)
+        layout.addWidget(self._waveform_widget, stretch=4)
+
+        # 上段の区間枠から下段の全幅へ広がる台形。
+        # これがないと「下段が上段のどこを拡大したものか」を推測に頼ることになる
+        self._region_bridge = RegionBridge()
+        layout.addWidget(self._region_bridge)
+
+        # 下段: 区間表示（メルスペクトログラム）
+        self._region_widget = WaveformWidget()
+        self._region_widget.setMinimumHeight(80)
+        self._region_widget.setToolTip(
+            "クリックで再生位置を移動（拡大表示なので精密に指定できる）\n"
+            "ホイールで区間の幅を変更"
+        )
+        self._region_widget.set_display_mode(WaveformWidget.MODE_SPECTROGRAM)
+        # 上段を Mel Spectrogram に切り替えたときに上下が同じ見た目にならないよう、
+        # 下段は寒色系で固定する（オーバーレイ色も自動で暖色側へ切り替わる）
+        self._region_widget.set_colormap(REGION_COLORMAP)
+        self._region_widget.set_hover_enabled(True)
+        self._region_widget.set_zoom_enabled(True)
+        self._region_widget.position_clicked.connect(self._on_waveform_clicked)
+        self._region_widget.zoom_requested.connect(self._on_region_zoom)
+        # 高さ・幅が変わるとスペクトログラムの解像度も変わるので取り直す
+        self._region_widget.resized.connect(self._region_timer.start)
+        layout.addWidget(self._region_widget, stretch=6)
 
         return frame
 
@@ -2374,77 +2456,28 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
                 self._state.output_dir = selected_dir
                 self._update_output_preview()
 
-    def _update_output_preview(self):
-        """出力ファイル名プレビューを更新"""
-        from .dialogs import ExportSettingsDialog
+    def output_base(self) -> str:
+        """出力ファイル名のベース（拡張子なし）
 
-        # 設定を読み取り
-        settings = ExportSettingsDialog.load_settings_static()
-        split_chapters = settings.get("split_chapters", False)
-
-        # 複数ソース・分割モードの判定
-        is_multi_source = len(self._state.sources) > 1
-        is_multi_split = is_multi_source and split_chapters
-
-        # 入力欄の有効/無効を切り替え
-        if is_multi_split:
-            self._output_edit.setEnabled(False)
-            self._output_edit.setPlaceholderText("(各ソースファイル名)")
-            self._output_edit.clear()
-        else:
-            self._output_edit.setEnabled(True)
-            self._output_edit.setPlaceholderText("output filename")
-
-        # ベースファイル名を取得
-        output_base = self._output_edit.text().strip()
+        ソースから自動で決まる。編集 UI は廃止したため、ここが唯一の情報源。
+        """
+        output_base = (self._output_base or "").strip()
         if not output_base:
             output_base = "output"
-        # 拡張子を除去
+
+        # 拡張子付きで保存されたプロジェクトを読み込んだ場合に備えて落とす
         output_base_path = Path(output_base)
         if output_base_path.suffix.lower() in {'.mp4', '.mov', '.avi', '.mkv', '.m4v', '.mp3', '.m4a'}:
             output_base = str(output_base_path.with_suffix(''))
-        base_name = Path(output_base).name
+        return output_base
 
-        # チャプターの有無を判定
-        EXCLUDE_PREFIX = "--"
-        chapters = self._get_table_chapters()
-        valid_chapters = [ch for ch in chapters if not ch.title.startswith(EXCLUDE_PREFIX)]
-        has_valid_chapters = len(valid_chapters) > 0
+    def _update_output_preview(self):
+        """出力先の変更を通知する
 
-        # プレビューを更新
-        if is_multi_split:
-            # 複数ソース・分割モード
-            if has_valid_chapters:
-                n = len(valid_chapters)
-                first_title = valid_chapters[0].title
-                safe_title = re.sub(r'[\\/:*?"<>|]', '_', first_title)[:15]
-                preview = f"_01_{safe_title}.mp4 ({n} files)"
-            else:
-                preview = "(no chapters)"
-        elif split_chapters:
-            # 単一ソース・分割モード
-            if has_valid_chapters:
-                n = len(valid_chapters)
-                first_title = valid_chapters[0].title
-                safe_title = re.sub(r'[\\/:*?"<>|]', '_', first_title)
-                base_len = len(base_name)
-                if base_len > 30:
-                    preview = f"→ {n} files"
-                elif base_len > 20:
-                    preview = f"_01_...mp4 ({n} files)"
-                else:
-                    max_title = 15 if base_len > 10 else 25
-                    safe_title = safe_title[:max_title]
-                    preview = f"_01_{safe_title}.mp4 ({n} files)"
-            else:
-                preview = "(no chapters)"
-        else:
-            # 一括モード
-            suffix = "_chaptered.mp4" if has_valid_chapters else "_encoded.mp4"
-            preview = f"+ {suffix}"
-        self._output_preview_label.setText(preview)
-
-        # 出力ディレクトリ変更をシグナルで通知
+        以前はファイル名の編集欄とプレビューラベルを更新していたが、
+        いずれも使われていないため表示は廃止した。
+        出力ディレクトリの通知だけが残る。
+        """
         output_dir = self._state.output_dir or self._state.work_dir
         self.output_dir_changed.emit(output_dir)
 
@@ -2980,8 +3013,7 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
             )
 
             # 波形位置更新（仮想位置）
-            if total_duration > 0 and self._waveform_widget:
-                self._waveform_widget.set_position(virtual_pos / total_duration)
+            self._update_position_views(virtual_pos, total_duration)
 
             # 現在のチャプターをハイライト（仮想位置）
             self._highlight_current_chapter(virtual_pos)
@@ -2996,8 +3028,7 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
             )
 
             # 波形位置更新
-            if duration > 0 and self._waveform_widget:
-                self._waveform_widget.set_position(position / duration)
+            self._update_position_views(position, duration)
 
             # 現在のチャプターをハイライト
             self._highlight_current_chapter(position)
@@ -3010,6 +3041,9 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
         self._log_panel.debug(f"Duration: {self._format_time(duration)}", source="Video")
         # チャプタースキップボタンの有効/無効を更新
         self._update_chapter_buttons()
+        # 尺が確定してから区間を描き直す（座標の基準が変わるため）
+        if duration > 0 and self._audio_cache is not None:
+            self._region_timer.start()
 
     def _highlight_current_chapter(self, position: int):
         """現在再生中のチャプターをハイライト"""
@@ -3262,11 +3296,40 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
         """字幕読み込み完了時のUI更新"""
         self._subtitle_label.show()
         self._subtitle_label.setText("")
+        self._refresh_video_frame_height()
 
     def _on_subtitles_cleared(self):
         """字幕クリア時のUI更新"""
         self._subtitle_label.setText("")
         self._subtitle_label.hide()
+        self._refresh_video_frame_height()
+
+    def _apply_video_frame_height(self):
+        """右パネルの幅から動画枠の高さを決める
+
+        stretch で按分すると動画の縦横どちらかが必ず余る。幅を基準に
+        16:9 の高さを与え、残りを波形へ回す。
+        """
+        frame = getattr(self, '_video_frame', None)
+        panel = frame.parentWidget() if frame is not None else None
+        if frame is None or panel is None:
+            return
+
+        available = max(0, panel.height())
+        wanted = frame.height_for_panel(frame.width(), available)
+        if wanted != frame.height():
+            frame.setFixedHeight(wanted)
+
+    def _refresh_video_frame_height(self):
+        """字幕パネルの表示が変わったら動画枠の高さを取り直す
+
+        字幕の 60px ぶんだけ動画コンテナの高さが変わるため、
+        取り直さないと 16:9 からずれる。
+        """
+        self._apply_video_frame_height()
+        frame = getattr(self, '_video_frame', None)
+        if frame is not None:
+            frame.refresh_content_size()
 
     def set_subtitle_panel_visible(self, visible: bool):
         """字幕パネルの表示/非表示を切り替え"""
@@ -3274,6 +3337,7 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
             self._subtitle_label.show()
         else:
             self._subtitle_label.hide()
+        self._refresh_video_frame_height()
 
     def _on_media_error(self, error):
         """メディアエラー"""
@@ -3361,148 +3425,394 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
     # === 波形操作（別スレッド） ===
 
     def _start_waveform_generation(self, file_path: Path):
-        """波形生成を開始（別スレッド）
+        """音声を一度だけデコードして全長キャッシュを作る（別スレッド）
 
-        単一ファイル: そのファイルの波形を生成
-        複数ファイル: 仮想タイムライン全体の波形を生成
+        単一ファイル: そのファイル
+        複数ファイル: concat demuxer で仮想タイムライン全体
+
+        できたキャッシュから、上段の包絡と下段の区間スペクトログラムの
+        両方を供給する。以前は波形とスペクトログラムで全長を2回デコードしていた。
         """
         # 既存のスレッドをクリーンアップ
-        self._cleanup_waveform_thread()
+        self._cleanup_cache_thread()
 
         # 波形ウィジェットをローディング状態に
         if self._waveform_widget:
             self._waveform_widget.set_loading(0)
+        self._reset_region_view()
 
-        # 複数ファイル時は仮想タイムライン用波形生成
-        if len(self._state.sources) > 1:
-            self._start_virtual_timeline_waveform()
-            return
+        multi = len(self._state.sources) > 1
+        if multi:
+            source_path = self._write_concat_file()
+            self._log_panel.debug(
+                f"Starting audio cache (virtual timeline): {len(self._state.sources)} files",
+                source="Waveform"
+            )
+            # ファイル境界情報を波形ウィジェットに渡す
+            self._apply_file_boundaries()
+        else:
+            source_path = file_path
+            self._log_panel.debug(f"Starting audio cache: {file_path.name}", source="Waveform")
 
-        self._log_panel.debug(f"Starting waveform generation: {file_path.name}", source="Waveform")
+        duration_hint = self._timeline_duration_hint()
 
-        # ワーカーとスレッドを作成
-        # サンプル数を多めに取得（min-max法で間引くため）
-        self._waveform_thread = QThread()
-        self._waveform_worker = WaveformWorker(file_path, num_samples=4000)
+        self._cache_thread = QThread()
+        self._cache_worker = AudioCacheWorker(source_path, duration_hint, is_concat=multi)
+        self._cache_worker.moveToThread(self._cache_thread)
 
-        # ワーカーをスレッドに移動
-        self._waveform_worker.moveToThread(self._waveform_thread)
+        self._cache_thread.started.connect(self._cache_worker.run)
+        self._cache_worker.progress.connect(self._on_cache_progress)
+        self._cache_worker.finished.connect(self._on_cache_finished)
+        self._cache_worker.error.connect(self._on_cache_error)
+        self._cache_worker.finished.connect(self._cache_thread.quit)
+        self._cache_worker.error.connect(self._cache_thread.quit)
 
-        # シグナル接続
-        self._waveform_thread.started.connect(self._waveform_worker.run)
-        self._waveform_worker.progress.connect(self._on_waveform_progress)
-        self._waveform_worker.finished.connect(self._on_waveform_finished)
-        self._waveform_worker.error.connect(self._on_waveform_error)
-        self._waveform_worker.finished.connect(self._waveform_thread.quit)
-        self._waveform_worker.error.connect(self._waveform_thread.quit)
+        self._cache_thread.start()
 
-        # スレッド開始
-        self._waveform_thread.start()
-
-    def _start_virtual_timeline_waveform(self):
-        """仮想タイムライン用の波形生成（複数ファイル）
-
-        ffmpegのconcat filterを使って仮想的に結合した音声から波形を生成。
-        実際のファイルは結合しない（エンコード回避）。
-        """
-        self._log_panel.debug(
-            f"Starting virtual timeline waveform: {len(self._state.sources)} files",
-            source="Waveform"
-        )
-
-        # concat demuxer用のファイルリストを作成
+    def _write_concat_file(self) -> Path:
+        """concat demuxer 用のファイルリストを書き出す"""
         concat_file = Path(tempfile.gettempdir()) / "waveform_concat.txt"
         with open(concat_file, 'w', encoding='utf-8') as f:
             for src in self._state.sources:
                 escaped_path = str(src.path).replace("'", "'\\''")
                 f.write(f"file '{escaped_path}'\n")
+        return concat_file
 
-        # ファイル境界情報を波形ウィジェットに渡す
-        if self._waveform_widget:
-            offsets = self._get_source_offsets()
-            total_duration = self._get_total_duration()
-            # 境界位置を0-1の正規化座標で渡す
-            if total_duration > 0:
-                boundaries = [offset / total_duration for offset in offsets[1:]]  # 最初の0は除外
-                self._waveform_widget.set_file_boundaries(boundaries)
-
-        # ワーカーとスレッドを作成（concat fileを入力として使用）
-        self._waveform_thread = QThread()
-        # WaveformWorkerにconcatファイルを渡す（特別な処理が必要）
-        self._waveform_worker = WaveformWorker(concat_file, num_samples=4000, is_concat=True)
-
-        # ワーカーをスレッドに移動
-        self._waveform_worker.moveToThread(self._waveform_thread)
-
-        # シグナル接続
-        self._waveform_thread.started.connect(self._waveform_worker.run)
-        self._waveform_worker.progress.connect(self._on_waveform_progress)
-        self._waveform_worker.finished.connect(self._on_waveform_finished)
-        self._waveform_worker.error.connect(self._on_waveform_error)
-        self._waveform_worker.finished.connect(self._waveform_thread.quit)
-        self._waveform_worker.error.connect(self._waveform_thread.quit)
-
-        # スレッド開始
-        self._waveform_thread.start()
-
-    def _cleanup_waveform_thread(self):
-        """波形スレッドをクリーンアップ"""
-        if self._waveform_worker:
-            self._waveform_worker.cancel()
-            self._waveform_worker = None
-
-        if self._waveform_thread and self._waveform_thread.isRunning():
-            self._waveform_thread.quit()
-            self._waveform_thread.wait(1000)  # 最大1秒待機
-            self._waveform_thread = None
-
-    def _on_waveform_progress(self, progress: int):
-        """波形生成進捗"""
-        if self._waveform_widget:
-            self._waveform_widget.set_loading(progress)
-            # UIを即時更新（高速処理時にも進捗を表示）
-            QApplication.processEvents()
-
-    def _on_waveform_finished(self, data: list):
-        """波形生成完了"""
-        # ソースが空の場合は波形を設定しない（削除後にスレッドが完了した場合）
-        if not self._state.sources:
-            self._log_panel.debug("Waveform generation completed but sources are empty, skipping", source="Waveform")
+    def _apply_file_boundaries(self):
+        """ファイル境界を上下両方のウィジェットへ反映する"""
+        offsets = self._get_source_offsets()
+        total_duration = self._get_total_duration()
+        if total_duration <= 0:
             return
-        if self._waveform_widget:
-            self._waveform_widget.set_waveform(data)
-        self._log_panel.info(f"Waveform generated: {len(data)} samples", source="Waveform")
+        boundaries = [offset / total_duration for offset in offsets[1:]]  # 最初の0は除外
+        for widget in (self._waveform_widget, self._region_widget):
+            if widget:
+                widget.set_file_boundaries(boundaries)
 
-        # 仮想タイムラインの場合、ファイル境界を再設定
-        if len(self._state.sources) > 1 and self._waveform_widget:
-            offsets = self._get_source_offsets()
-            total_duration = self._get_total_duration()
-            if total_duration > 0:
-                boundaries = [offset / total_duration for offset in offsets[1:]]
-                self._waveform_widget.set_file_boundaries(boundaries)
+    def _timeline_duration_hint(self) -> int:
+        """デコードバッファの事前確保に使う想定尺（ミリ秒）"""
+        duration = self._get_total_duration()
+        if duration > 0:
+            return duration
+        return self._media_player.duration() if self._media_player else 0
+
+    def _on_cache_progress(self, progress: int):
+        """音声キャッシュ構築の進捗（上下とも待ち状態にする）"""
+        for widget in (self._waveform_widget, self._region_widget):
+            if widget:
+                widget.set_loading(progress)
+        QApplication.processEvents()
+
+    def _on_cache_finished(self, cache):
+        """音声キャッシュ構築完了 - 上段の包絡と下段の区間を描く"""
+        # ソースが空の場合は反映しない（削除後にスレッドが完了した場合）
+        if not self._state.sources:
+            self._log_panel.debug(
+                "Audio cache completed but sources are empty, skipping", source="Waveform"
+            )
+            return
+
+        self._audio_cache = cache
+        self._log_panel.info(
+            f"Audio cache: {cache.sample_rate} Hz, "
+            f"{cache.duration_ms / 1000:.0f}s, {cache.nbytes / 2**20:.0f} MB resident",
+            source="Waveform"
+        )
+
+        self._apply_overview_envelope()
+
+        if len(self._state.sources) > 1:
+            self._apply_file_boundaries()
 
         # テーブルにチャプターがあれば波形に反映
         if self._table.rowCount() > 0:
             self._update_waveform_chapters()
 
-        # UIを更新して波形を表示
+        # 下段を初期化（再生位置を中心に）
+        self._region_pinned = False
+        self._apply_region_center(self._current_timeline_position())
+        self._refresh_region_view()
+
         QApplication.processEvents()
 
-        # 波形表示後にスペクトログラム生成を開始（100ms遅延）
-        if self._state.video_path and not self._spectrogram_generated:
-            from PySide6.QtCore import QTimer
-            QTimer.singleShot(100, self._start_spectrogram_after_waveform)
+        # 全体スペクトログラムはキャッシュから即座に作れるので、ボタンを有効化する
+        self._display_mode_btn.setEnabled(True)
 
-    def _start_spectrogram_after_waveform(self):
-        """波形表示後にスペクトログラム生成を開始"""
-        if self._state.video_path and not self._spectrogram_generated:
-            self._start_spectrogram_generation(self._state.video_path)
+    def _apply_overview_envelope(self):
+        """上段へ min-max 包絡を渡す
 
-    def _on_waveform_error(self, message: str):
-        """波形生成エラー"""
+        包絡を二段（ここと _downsample_preserve_peaks）で取っても
+        max の max は真の max なので、ピークは保たれる。
+        以前の linspace 点サンプリングでは長尺で立ち上がりが消えていた。
+        """
+        cache = self._audio_cache
+        if cache is None or self._waveform_widget is None:
+            return
+
+        duration = self._display_duration()
+        pairs = cache.envelope(0, cache.duration_ms, OVERVIEW_ENVELOPE_BINS)
+        if not pairs:
+            self._waveform_widget.set_error("No audio data found")
+            return
+
+        flat = [value for pair in pairs for value in pair]
+        self._waveform_widget.set_waveform(flat, duration)
+
+    def _cleanup_waveform_thread(self):
+        """波形関連スレッドをクリーンアップ
+
+        名前は従来のままにしてある（ソース切替・破棄の各所から呼ばれる）。
+        実体は音声キャッシュ構築スレッドの停止。
+        """
+        self._cleanup_cache_thread()
+
+    def _cleanup_cache_thread(self):
+        """音声キャッシュ構築スレッドを停止する"""
+        if self._cache_worker:
+            self._cache_worker.cancel()
+            self._cache_worker = None
+
+        if self._cache_thread and self._cache_thread.isRunning():
+            self._cache_thread.quit()
+            self._cache_thread.wait(1000)  # 最大1秒待機
+            self._cache_thread = None
+
+    def _on_cache_error(self, message: str):
+        """音声キャッシュ構築エラー"""
         if self._waveform_widget:
             self._waveform_widget.set_error(message)
-        self._log_panel.warning(f"Waveform error: {message}", source="Waveform")
+        self._audio_cache = None
+        self._log_panel.warning(f"Audio cache error: {message}", source="Waveform")
+
+    # === 区間表示（下段）===
+
+    def _load_region_span(self) -> int:
+        """前回使った区間幅を復元する（決め打ちのままにしない）"""
+        from PySide6.QtCore import QSettings
+        settings = QSettings("mashi727", "Chaptr")
+        try:
+            span = int(settings.value("waveform/region_span_ms", REGION_DEFAULT_SPAN_MS))
+        except (TypeError, ValueError):
+            return REGION_DEFAULT_SPAN_MS
+        # ラダー上の値へ丸める（設定が壊れていても破綻させない）
+        return min(REGION_SPAN_LADDER_MS, key=lambda v: abs(v - span))
+
+    def _save_region_span(self):
+        """区間幅を保存する"""
+        from PySide6.QtCore import QSettings
+        settings = QSettings("mashi727", "Chaptr")
+        settings.setValue("waveform/region_span_ms", self._region_span_ms)
+
+    def _display_duration(self) -> int:
+        """オーバーレイ座標の基準となる全体尺（ミリ秒）"""
+        if len(self._state.sources) > 1:
+            return self._get_total_duration()
+        duration = self._media_player.duration() if self._media_player else 0
+        if duration > 0:
+            return duration
+        # プレイヤーがまだ尺を報告していない段階でも下段を描けるようにする
+        return self._audio_cache.duration_ms if self._audio_cache else 0
+
+    def _current_timeline_position(self) -> int:
+        """現在の再生位置を全体タイムライン上のミリ秒で返す"""
+        if not self._media_player:
+            return 0
+        position = self._media_player.position()
+        if len(self._state.sources) > 1:
+            return self._source_to_virtual(self._source_list.get_current_index(), position)
+        return position
+
+    def _region_bounds(self, center_ms: float) -> Tuple[int, int]:
+        """中心時刻から区間の [開始, 終了] を返す（両端でクランプ）"""
+        duration = self._display_duration()
+        if duration <= 0:
+            return 0, 0
+        span = min(self._region_span_ms, duration)
+        start = int(center_ms - span // 2)
+        start = max(0, min(start, duration - span))
+        return start, start + span
+
+    def _apply_region_center(self, center_ms: float, live: bool = False):
+        """区間の中心を移動する
+
+        live=True（ホバー追従）では、その場で粗く描いてから精細化を予約する。
+        デバウンスだけに任せると、移動イベントのたびにタイマーが再スタートして
+        手が緩んだ瞬間にしか更新されず、飛び飛びの更新＝ちらつきになる。
+        """
+        start, end = self._region_bounds(center_ms)
+        if end <= start:
+            return
+
+        moved = start != self._region_start_ms
+        self._region_start_ms = start
+        self._update_region_indicators(start, end)
+
+        if live and moved:
+            now = time.monotonic()
+            if (now - self._region_last_draw) * 1000 >= REGION_MIN_FRAME_MS:
+                self._region_last_draw = now
+                self._render_region(start, end, coarse=True)
+
+        # 手が止まったら精細版へ置き換える
+        self._region_timer.start()
+
+    def _update_region_indicators(self, start_ms: int, end_ms: int):
+        """上段の枠・つなぎの台形・下段のバッジを一括で合わせる
+
+        3つがずれると「下段は上段のどこか」の対応が読めなくなるので、
+        必ずここを通して更新する。
+        """
+        duration = self._display_duration()
+        if duration <= 0:
+            return
+
+        if self._waveform_widget:
+            self._waveform_widget.set_region_marker(start_ms, end_ms)
+        if self._region_bridge:
+            self._region_bridge.set_span(start_ms / duration, end_ms / duration)
+        if self._region_widget:
+            span = max(1, end_ms - start_ms)
+            self._region_widget.set_corner_label(
+                f"{span / 1000:.0f}s  \u00d7{duration / span:.0f}"
+            )
+
+    def _render_region(self, start_ms: int, end_ms: int, coarse: bool = False):
+        """下段を指定区間で描く
+
+        coarse=True では列数・行数を落とす。ウィジェット側が最近傍で
+        引き伸ばすので粗くはなるが、追従が途切れるよりは読める。
+        """
+        widget = self._region_widget
+        cache = self._audio_cache
+        if widget is None or cache is None:
+            return
+
+        duration = self._display_duration()
+        if duration <= 0:
+            return
+
+        width = max(1, widget.width())
+        height = max(1, widget.height())
+        if coarse:
+            width = max(64, width // REGION_COARSE_DIVISOR)
+            height = max(32, height // 2)
+
+        data = cache.mel_spectrogram(start_ms, end_ms, width, height)
+        widget.set_view_window(start_ms, end_ms)
+        widget.set_spectrogram(data, duration)
+
+    def _refresh_region_view(self):
+        """下段を現在の区間で精細に描き直す（手が止まってから呼ばれる）"""
+        duration = self._display_duration()
+        if duration <= 0 or self._region_widget is None or self._audio_cache is None:
+            return
+
+        span = min(self._region_span_ms, duration)
+        start = max(0, min(self._region_start_ms, duration - span))
+        end = start + span
+        self._region_start_ms = start
+
+        self._render_region(start, end, coarse=False)
+        self._region_last_draw = time.monotonic()
+        self._update_region_indicators(start, end)
+
+    def _on_overview_clicked(self, position: float):
+        """上段のクリック: そこへシークし、区間の留めを解除して追従へ戻す"""
+        self._region_pinned = False
+        self._on_waveform_clicked(position)
+
+    def _on_overview_hover(self, position: float):
+        """上段のホバーで区間を再計算する"""
+        if self._audio_cache is None:
+            return
+        duration = self._display_duration()
+        if duration <= 0:
+            return
+
+        # ホバーで動かしたら留める。離した瞬間に区間が戻ると、
+        # 狙って止めた場所を下段でクリックできない
+        self._region_pinned = True
+        self._apply_region_center(position * duration, live=True)
+
+    def _on_region_zoom(self, direction: int):
+        """ホイールで区間の幅を変える（中心は保つ）"""
+        ladder = REGION_SPAN_LADDER_MS
+        current = min(ladder, key=lambda v: abs(v - self._region_span_ms))
+        index = ladder.index(current)
+        # ホイール奥（+1）で拡大 = 区間を狭める
+        new_index = max(0, min(len(ladder) - 1, index - direction))
+        if ladder[new_index] == self._region_span_ms:
+            return
+
+        center = self._region_start_ms + self._region_span_ms / 2
+        self._region_span_ms = ladder[new_index]
+        self._region_pinned = True
+        self._save_region_span()
+        self._apply_region_center(center)
+        self._log_panel.debug(
+            f"Region span: {self._region_span_ms / 1000:.0f}s", source="Waveform"
+        )
+
+    def _sync_region_to_playback(self, position_ms: int):
+        """再生位置に応じて区間を追従させる
+
+        留め（pin）は再生位置より常に優先する。ここを取り違えると、
+        ホバーがカーソル側へ、positionChanged が再生位置側へ交互に区間を
+        動かし、両者が奪い合ってちらつく。
+
+        留めが解けるのは次の2つだけ:
+          - 上段クリック（明示的に「そこへ行く」）… _on_overview_clicked
+          - 再生が留めた区間へ追いついたとき（先を見ていた用が済んだ）
+        """
+        if self._audio_cache is None or self._region_widget is None:
+            return
+
+        duration = self._display_duration()
+        if duration <= 0:
+            return
+
+        span = min(self._region_span_ms, duration)
+        start = max(0, min(self._region_start_ms, duration - span))
+        inside = start <= position_ms <= start + span
+
+        if self._region_pinned:
+            if not inside:
+                return  # 留め中。再生位置が外にいる限り区間は動かさない
+            # 再生が追いついたので追従へ戻す（この時点では区間内なので跳ばない）
+            self._region_pinned = False
+
+        # 中央の帯にいる限りは動かさない（再描画の頻度を抑える）
+        if inside:
+            band = span * 0.25
+            if start + band <= position_ms <= start + span - band:
+                return
+
+        self._apply_region_center(position_ms)
+
+    def _reset_region_view(self):
+        """区間表示を初期状態へ戻す"""
+        self._audio_cache = None
+        self._region_pinned = False
+        self._region_start_ms = 0
+        self._region_timer.stop()
+        if self._region_widget:
+            self._region_widget.clear()
+            self._region_widget.set_display_mode(WaveformWidget.MODE_SPECTROGRAM)
+        if self._waveform_widget:
+            self._waveform_widget.clear_region_marker()
+        if self._region_bridge:
+            self._region_bridge.clear_span()
+
+    def _update_position_views(self, position_ms: int, duration_ms: int):
+        """上下のウィジェットへ再生位置を反映し、区間を追従させる"""
+        if duration_ms <= 0:
+            return
+        normalized = position_ms / duration_ms
+        if self._waveform_widget:
+            self._waveform_widget.set_position(normalized)
+        if self._region_widget:
+            self._region_widget.set_position(normalized)
+        self._sync_region_to_playback(position_ms)
 
     def _on_waveform_clicked(self, position: float):
         """波形クリックでシーク（再生状態は維持）"""
@@ -3548,93 +3858,34 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
             self._display_mode_btn.setText("Mel Spectrogram")
 
         if mode == WaveformWidget.MODE_SPECTROGRAM:
-            # スペクトログラムモード
-            if not self._spectrogram_generated and self._state.video_path:
-                # スペクトログラム未生成の場合、生成を開始
-                self._start_spectrogram_generation(self._state.video_path)
-            else:
-                # 既に生成済みの場合、表示を切り替え
-                if self._waveform_widget:
-                    self._waveform_widget.set_display_mode(mode)
-                    self._update_waveform_chapters()
-        else:
-            # 波形モード
-            if self._waveform_widget:
-                self._waveform_widget.set_display_mode(mode)
-                self._update_waveform_chapters()
+            self._apply_overview_spectrogram()
 
-    def _start_spectrogram_generation(self, file_path: Path):
-        """スペクトログラム生成を開始（バックグラウンド）"""
-        # 既存のスレッドがあれば停止
-        if self._spectrogram_thread and self._spectrogram_thread.isRunning():
-            if self._spectrogram_worker:
-                self._spectrogram_worker.cancel()
-            self._spectrogram_thread.quit()
-            self._spectrogram_thread.wait()
+        if self._waveform_widget:
+            self._waveform_widget.set_display_mode(mode)
+            self._update_waveform_chapters()
 
-        # ボタンを無効化
-        self._display_mode_btn.setEnabled(False)
+    def _apply_overview_spectrogram(self):
+        """上段のスペクトログラムをキャッシュから作る
 
-        # ワーカーとスレッドを作成
-        self._spectrogram_thread = QThread()
-        target_width = self._waveform_widget.width() if self._waveform_widget else 1000
-        target_height = self._waveform_widget.height() if self._waveform_widget else 100
-        self._spectrogram_worker = SpectrogramWorker(
-            str(file_path),
-            target_width=target_width,
-            target_height=target_height
+        以前は全長を 22.05 kHz で再デコードするバックグラウンドジョブだったが、
+        キャッシュがあるので即座に作れる。
+
+        なお全体表示では 1 列が数秒に相当し、列は n_fft（最大 2048 = 93 ms）の
+        窓を飛び飛びに取ったものになる。全区間を積算しているわけではないので、
+        概観として見るに留める。密に見るのは下段の役目。
+        """
+        cache = self._audio_cache
+        widget = self._waveform_widget
+        if cache is None or widget is None:
+            return
+
+        data = cache.mel_spectrogram(
+            0, cache.duration_ms, max(1, widget.width()), max(1, widget.height())
         )
-        self._spectrogram_worker.moveToThread(self._spectrogram_thread)
-
-        # シグナル接続
-        self._spectrogram_thread.started.connect(self._spectrogram_worker.run)
-        self._spectrogram_worker.progress.connect(self._on_spectrogram_progress)
-        self._spectrogram_worker.finished.connect(self._on_spectrogram_finished)
-        self._spectrogram_worker.error.connect(self._on_spectrogram_error)
-        self._spectrogram_worker.finished.connect(self._spectrogram_thread.quit)
-        self._spectrogram_worker.error.connect(self._spectrogram_thread.quit)
-
-        # 開始
-        self._spectrogram_thread.start()
-        self._log_panel.info("Generating spectrogram...", source="Spectrogram")
-
-        if self._waveform_widget:
-            self._waveform_widget.set_loading(0, "spectrogram")
-
-    def _on_spectrogram_progress(self, progress: int):
-        """スペクトログラム生成進捗"""
-        if self._waveform_widget:
-            self._waveform_widget.set_loading(progress, "spectrogram")
-
-    def _on_spectrogram_finished(self, data):
-        """スペクトログラム生成完了"""
+        if data is None:
+            return
+        widget.set_spectrogram(data, self._display_duration())
         self._spectrogram_generated = True
-
-        if self._waveform_widget:
-            # 仮想タイムラインモードの場合は全体の長さを使用
-            if len(self._state.sources) > 1:
-                duration_ms = self._get_total_duration()
-            else:
-                duration_ms = self._media_player.duration() if self._media_player else 0
-            self._waveform_widget.set_spectrogram(data, duration_ms)
-            # 表示モードは切り替えない（デフォルトは波形のまま）
-
-        # ボタンを有効化（ユーザーが切り替え可能に）
-        self._display_mode_btn.setEnabled(True)
-
-        self._log_panel.info("Spectrogram generated", source="Spectrogram")
-
-    def _on_spectrogram_error(self, message: str):
-        """スペクトログラム生成エラー"""
-        if self._waveform_widget:
-            self._waveform_widget.set_error(message)
-
-        # ボタンを有効化して波形モードに戻す
-        self._display_mode_btn.setEnabled(True)
-        self._display_mode_btn.setChecked(False)
-        self._display_mode_btn.setText("Mel Spectrogram")
-
-        self._log_panel.warning(f"Spectrogram error: {message}", source="Spectrogram")
 
     # === ダイアログ操作 ===
 
@@ -3668,12 +3919,13 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
         self._spectrogram_generated = False
         self._waveform_widget.set_spectrogram(None)  # スペクトログラムデータをクリア
         self._waveform_widget.set_display_mode(WaveformWidget.MODE_WAVEFORM)  # 振幅モードに戻す
+        self._reset_region_view()  # 下段の区間表示と音声キャッシュを破棄
         self._display_mode_btn.setChecked(False)  # 波形モードに
         self._display_mode_btn.setText("Mel Spectrogram")  # 次の切り替え先を表示
-        self._display_mode_btn.setEnabled(False)  # スペクトログラム生成完了まで無効化
+        self._display_mode_btn.setEnabled(False)  # 音声キャッシュ構築まで無効化
 
     def _open_source_dialog(self):
-        """ソース選択ダイアログを開く（ローカルファイル / YouTube対応）"""
+        """ソース選択ダイアログを開く"""
         from chaptr.ui.dialogs import SourceSelectionDialog, detect_video_duration
 
         dialog = SourceSelectionDialog(
@@ -4048,7 +4300,6 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
         """
 
     # === チャプター操作 ===
-    # NOTE: YouTube関連メソッドは youtube_mixin.py に移動
 
     def _generate_chapters_from_sources(self):
         """ソースファイルからチャプターを自動生成（相対時間方式）
@@ -4358,7 +4609,7 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
             else:
                 # 複数ソース: カレントフォルダ名
                 base_name = self._state.work_dir.name
-            self._output_edit.setText(base_name)
+            self._output_base = base_name
             self._log_panel.debug(f"Base filename: {base_name} ({num_sources} sources)", source="UI")
 
     def _update_position_after_removal(self):
@@ -4390,8 +4641,7 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
         )
 
         # 波形位置を更新
-        if total_duration > 0 and self._waveform_widget:
-            self._waveform_widget.set_position(virtual_pos / total_duration)
+        self._update_position_views(virtual_pos, total_duration)
 
         # 現在再生中のチャプターをハイライト
         self._highlight_current_chapter(virtual_pos)
@@ -4817,8 +5067,7 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
             current_idx = self._source_list.get_current_index()
             virtual_pos = self._source_to_virtual(current_idx, current_local_pos)
             total_duration = self._get_total_duration()
-            if total_duration > 0 and self._waveform_widget:
-                self._waveform_widget.set_position(virtual_pos / total_duration)
+            self._update_position_views(virtual_pos, total_duration)
 
         # 現在再生中のチャプターをハイライト
         self._highlight_current_chapter(virtual_pos)
@@ -4986,12 +5235,12 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
         chapters = self._get_table_chapters()
 
         # 仮想タイムラインモードの場合は全体の長さを使用
-        if len(self._state.sources) > 1:
-            duration = self._get_total_duration()
-        else:
-            duration = self._media_player.duration() if self._media_player else 0
+        duration = self._display_duration()
 
+        # チャプターは全体時刻で保持する。下段は表示区間へ写像して描く
         self._waveform_widget.set_chapters(chapters, duration)
+        if self._region_widget:
+            self._region_widget.set_chapters(chapters, duration)
 
         # ソース境界行リストを更新（外部ファイルドロップ用）
         self._update_source_boundary_rows()
@@ -5698,7 +5947,7 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
         encode_settings = ExportSettingsDialog.load_settings_static()
 
         # ベースファイル名を取得
-        output_base = self._output_edit.text().strip()
+        output_base = self.output_base()
 
         # プロジェクトデータを構築
         project = {
@@ -5840,7 +6089,7 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
         # ベースファイル名を復元
         output_base = project.get("output_base")
         if output_base:
-            self._output_edit.setText(output_base)
+            self._output_base = output_base
         else:
             # デフォルト: 単一ソースはファイル名、複数ソースはフォルダ名
             self._update_base_filename_from_first_source()
@@ -6089,7 +6338,7 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
 
             # 出力パス決定
             output_dir = self._state.output_dir or self._state.work_dir
-            output_base = self._output_edit.text().strip() or "output"
+            output_base = self.output_base() or "output"
             output_path = output_dir / f"{Path(output_base).stem}_encoded.mp4"
 
             self._log_panel.info(
@@ -6294,7 +6543,7 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
         has_valid_chapters = len(valid_chapters) > 0
 
         # 出力ファイル名を決定（チャプターの有無でサフィックスを変更）
-        output_base = self._output_edit.text().strip()
+        output_base = self.output_base()
         if not output_base:
             output_base = "output"
         # 拡張子を除去してベース名を取得
@@ -7315,35 +7564,13 @@ class MainWorkspace(QWidget, YouTubeDownloadMixin):
 
     def cleanup(self):
         """リソースクリーンアップ"""
-        # 波形スレッドをクリーンアップ
-        self._cleanup_waveform_thread()
+        # 音声キャッシュ構築スレッドをクリーンアップ
+        self._cleanup_cache_thread()
+        self._region_timer.stop()
+        self._audio_cache = None
 
-        # スペクトログラムスレッドをクリーンアップ
-        if self._spectrogram_worker:
-            self._spectrogram_worker.cancel()
-            self._spectrogram_worker = None
 
-        if self._spectrogram_thread and self._spectrogram_thread.isRunning():
-            self._spectrogram_thread.quit()
-            self._spectrogram_thread.wait(1000)
-            self._spectrogram_thread = None
 
-        # YouTubeダウンロードワーカーをクリーンアップ
-        if self._youtube_worker and self._youtube_worker.isRunning():
-            self._youtube_worker.cancel()
-            self._youtube_worker.wait(1000)
-            self._youtube_worker = None
-
-        # プレイリストワーカーをクリーンアップ
-        if self._playlist_info_worker and self._playlist_info_worker.isRunning():
-            self._playlist_info_worker.terminate()
-            self._playlist_info_worker.wait(1000)
-            self._playlist_info_worker = None
-
-        if self._playlist_worker and self._playlist_worker.isRunning():
-            self._playlist_worker.cancel()
-            self._playlist_worker.wait(1000)
-            self._playlist_worker = None
 
         # エクスポートワーカーをクリーンアップ
         if hasattr(self, '_export_worker') and self._export_worker is not None:

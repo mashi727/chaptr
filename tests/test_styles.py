@@ -84,17 +84,24 @@ class TestButtonStyles:
         style = ButtonStyles.primary()
         assert ":disabled" in style
 
-    def test_danger_uses_red_color(self):
-        """dangerスタイルは赤系の色を使用"""
-        style = ButtonStyles.danger()
-        # Colors.DANGER (#c53d43 赤紅) を使用
-        assert "#c53d43" in style.lower()
+    def test_danger_uses_danger_color(self):
+        """dangerスタイルは danger 色を使用
 
-    def test_primary_uses_blue_color(self):
-        """primaryスタイルは青系の色を使用"""
+        色はテーマから引くので、literal を書くとテーマ変更のたびに壊れる。
+        「danger スタイルは danger 色を使う」という契約だけを検証する。
+        """
+        style = ButtonStyles.danger()
+        assert Colors.get_danger().lower() in style.lower()
+        assert Colors.get_danger_hover().lower() in style.lower()
+
+    def test_primary_uses_primary_color(self):
+        """primaryスタイルは primary 色を使用"""
         style = ButtonStyles.primary()
-        # Colors.PRIMARY (#1e50a2 瑠璃色) を使用
-        assert "#1e50a2" in style.lower()
+        assert Colors.get_primary().lower() in style.lower()
+
+    def test_danger_and_primary_differ(self):
+        """danger と primary は別の色になる"""
+        assert Colors.get_danger().lower() != Colors.get_primary().lower()
 
     def test_compact_has_smaller_padding(self):
         """compactバージョンはパディングが小さい"""
