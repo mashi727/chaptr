@@ -3559,15 +3559,25 @@ class MainWorkspace(QWidget):
         self._cleanup_cache_thread()
 
     def _cleanup_cache_thread(self):
-        """音声キャッシュ構築スレッドを停止する"""
+        """音声キャッシュ構築スレッドを停止する
+
+        cancel() が ffmpeg を kill してブロック read を解除するので、通常 quit()→wait()
+        は即座に返る。重 I/O 下の保険で 5 秒待つ。ここで止め切れないまま走行中の
+        QThread を破棄すると 'QThread: Destroyed while thread is still running' → abort に
+        なるため、待機を短く切って参照を落とすことはしない。"""
         if self._cache_worker:
             self._cache_worker.cancel()
-            self._cache_worker = None
 
-        if self._cache_thread and self._cache_thread.isRunning():
+        if self._cache_thread:
             self._cache_thread.quit()
-            self._cache_thread.wait(1000)  # 最大1秒待機
+            if not self._cache_thread.wait(5000):
+                if self._log_panel:
+                    self._log_panel.debug(
+                        "Audio cache thread did not stop within 5s", source="Waveform"
+                    )
             self._cache_thread = None
+
+        self._cache_worker = None
 
     def _on_cache_error(self, message: str):
         """音声キャッシュ構築エラー"""

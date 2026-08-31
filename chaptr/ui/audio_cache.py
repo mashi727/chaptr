@@ -448,9 +448,22 @@ class AudioCacheWorker(QObject):
         self._duration_ms = duration_ms
         self._is_concat = is_concat
         self._cancelled = False
+        self._process = None   # 実行中の ffmpeg。cancel() から即 kill するため保持
 
     def cancel(self):
+        """別スレッド（主に UI スレッド）から停止を要求する。
+
+        _cancelled を立てるだけでは run() の stdout.read() が返るまで停止できず、
+        重 I/O 下では 1 秒以上ブロックして closeEvent 側の wait() がタイムアウトし、
+        走行中の QThread が破棄されて abort する。ここで ffmpeg を直接 kill して
+        read を EOF で即座に解除し、run() を速やかに畳ませる。"""
         self._cancelled = True
+        proc = self._process
+        if proc is not None and proc.poll() is None:
+            try:
+                proc.kill()
+            except Exception:  # noqa: BLE001 - 既に終了/未起動なら無視
+                pass
 
     def run(self):
         for step_down in range(len(STANDARD_RATES)):
@@ -499,6 +512,7 @@ class AudioCacheWorker(QObject):
             stderr=subprocess.DEVNULL,
             **get_popen_kwargs()
         )
+        self._process = process   # cancel() が kill できるように公開
 
         if process.stdout is None:
             process.kill()
@@ -548,6 +562,7 @@ class AudioCacheWorker(QObject):
         finally:
             stdout.close()
             process.wait()
+            self._process = None
 
         if self._cancelled:
             return None
