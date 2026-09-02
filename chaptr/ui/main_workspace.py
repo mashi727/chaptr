@@ -2775,6 +2775,11 @@ class MainWorkspace(QWidget):
             self._play_btn.setIcon(self._pause_icon)
         else:
             self._play_btn.setIcon(self._play_icon)
+            # 再生中は区間の再計算（mel_spectrogram）を止めて A/V 同期を守っている
+            # （_sync_region_to_playback 参照）。止まった時点で現在位置へ区間を合わせ
+            # 直し、精査時に下段が最新の区間を映すようにする。
+            if self._audio_cache is not None and self._region_widget is not None:
+                self._apply_region_center(self._current_timeline_position())
 
     def _stop_video(self):
         """停止"""
@@ -3767,6 +3772,16 @@ class MainWorkspace(QWidget):
           - 再生が留めた区間へ追いついたとき（先を見ていた用が済んだ）
         """
         if self._audio_cache is None or self._region_widget is None:
+            return
+
+        # 再生中は区間の再センタリング（mel_spectrogram のメインスレッド再計算）を
+        # 行わない。これを毎再生位置で走らせると FFT がメインスレッドを数十〜数百ms
+        # 占有し、QMediaPlayer の映像デコード/提示が痩せて A/V がズレる（実測で確認）。
+        # カーソルは _update_position_views で動き続け、区間は停止時に
+        # _on_playback_state_changed が現在位置へ合わせ直す。
+        if (self._media_player is not None
+                and self._media_player.playbackState()
+                == QMediaPlayer.PlaybackState.PlayingState):
             return
 
         duration = self._display_duration()
