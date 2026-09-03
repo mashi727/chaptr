@@ -500,7 +500,9 @@ class AudioCacheWorker(QObject):
         buffer = np.empty(expected, dtype=np.int16)
 
         process = subprocess.Popen(
-            [get_ffmpeg_path()] + input_args + [
+            # -nostdin: バックグラウンド起動時に ffmpeg が端末 stdin を読んで SIGTTIN で
+            # 停止する（＝波形キャッシュが固まる）のを防ぐ
+            [get_ffmpeg_path(), "-nostdin"] + input_args + [
                 "-ac", "1",
                 "-ar", str(sample_rate),
                 "-f", "s16le",
