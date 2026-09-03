@@ -77,7 +77,7 @@ VIDEO_EXTENSIONS = {'.mp4', '.mov', '.avi', '.mkv', '.m4v'}
 # 区間表示（下段）の設定
 # ホイールで選べる区間幅。長尺リハーサルでは 1 分前後が曲の出入りを見るのに合う
 REGION_SPAN_LADDER_MS = (5_000, 10_000, 20_000, 30_000, 60_000, 120_000, 300_000, 600_000)
-REGION_DEFAULT_SPAN_MS = 60_000
+REGION_DEFAULT_SPAN_MS = REGION_SPAN_LADDER_MS[-1]  # 既定は最大(600s)
 # 手が止まってから精細化するまでの待ち
 REGION_SHARPEN_DELAY_MS = 120
 # 移動中は列数・行数を落として追従を優先する（止まれば精細版に置き換わる）
@@ -98,7 +98,7 @@ VIDEO_MIN_HEIGHT = 200
 
 # 下段のカラーマップ。上段（テーマ既定は inferno = 暖色）と見分けるため寒色系。
 # 選択肢: viridis（紺→青緑→緑→黄・知覚的に均等）/ cividis（より寒色寄り・低彩度）
-REGION_COLORMAP = "viridis"
+OVERVIEW_COLORMAP = "viridis"  # 上段(全体)の色を固定。下段はテーマ既定(inferno)に追従
 # 全体表示へ渡す包絡のビン数。表示幅より十分多く取り、min-max の二段適用で
 # ピークが保たれるようにする（幅が変わっても取り直さずに済む）
 OVERVIEW_ENVELOPE_BINS = 8192
@@ -1786,6 +1786,8 @@ class MainWorkspace(QWidget):
         # 上段: 全体表示（波形）
         self._waveform_widget = WaveformWidget()
         self._waveform_widget.setMinimumHeight(60)
+        # 上段は viridis（寒色）で固定。下段はテーマ既定(inferno)に追従（上下の色を入替）
+        self._waveform_widget.set_colormap(OVERVIEW_COLORMAP)
         self._waveform_widget.setToolTip(
             "クリックで再生位置を移動 / なぞると下段が追従\n"
             "赤いハッチング: 除外区間（--チャプター）"
@@ -1808,9 +1810,9 @@ class MainWorkspace(QWidget):
             "ホイールで区間の幅を変更"
         )
         self._region_widget.set_display_mode(WaveformWidget.MODE_SPECTROGRAM)
-        # 上段を Mel Spectrogram に切り替えたときに上下が同じ見た目にならないよう、
-        # 下段は寒色系で固定する（オーバーレイ色も自動で暖色側へ切り替わる）
-        self._region_widget.set_colormap(REGION_COLORMAP)
+        # 下段はテーマ既定(inferno)に追従（上段を viridis 固定にして上下の色を入替）。
+        # None を渡すと override 解除＝テーマ既定の colormap を使う。
+        self._region_widget.set_colormap(None)
         self._region_widget.set_hover_enabled(True)
         self._region_widget.set_zoom_enabled(True)
         self._region_widget.position_clicked.connect(self._on_waveform_clicked)

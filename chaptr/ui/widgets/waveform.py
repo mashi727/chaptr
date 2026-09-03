@@ -17,6 +17,11 @@ from ..theme import ColorRole, get_theme_manager
 # 寒色寄りのカラーマップ（藍〜緑〜黄）。上段と下段を見分けるために使う
 COOL_COLORMAPS = frozenset({"viridis", "cividis"})
 
+# ホバー中に下方向へこれ以上動いたら X 追従を止める（下段へ移る間の区間ズレ防止）。
+# ウィジェット高さ×RATIO と MIN(px) の大きい方。小さいほど「厳しめ」＝早く固定する。
+HOVER_X_LOCK_DY_RATIO = 0.18
+HOVER_X_LOCK_DY_MIN = 12
+
 # ホイールのズーム感度。angleDelta の積算がこの値を越えたら1段動かす。
 # 標準的なマウスの1ノッチが 120 なので 2ノッチ相当。大きくすると鈍くなる。
 WHEEL_ZOOM_STEP = 240
@@ -110,6 +115,7 @@ class WaveformWidget(QWidget):
 
         # ホバー（-1 は非ホバー）
         self._hover_x: int = -1
+        self._hover_min_y: int = -1   # ホバー中の最上部Y。ここから下へ大きく動いたらX追従を止める
         self._hover_enabled: bool = False
         self._zoom_enabled: bool = False
 
@@ -968,15 +974,28 @@ class WaveformWidget(QWidget):
                 self.position_clicked.emit(self._x_to_position(event.position().x()))
 
     def mouseMoveEvent(self, event):
-        """ホバー位置を更新し、区間の再計算を要求する"""
+        """ホバー位置を更新し、区間の再計算を要求する
+
+        下方向へ一定以上動いたら X 追従（hover_moved の発行）を止める。上段で X を
+        決めた後、下段へカーソルを移す最中に区間中心が動いて下段の表示領域がずれる
+        のを防ぐ。ホバー中の最上部 Y からの落差で判定し、leaveEvent でリセットする。
+        """
         if not self._hover_enabled:
             return
+
+        y = int(event.position().y())
+        if self._hover_min_y < 0:
+            self._hover_min_y = y
+        else:
+            self._hover_min_y = min(self._hover_min_y, y)
+        lock_dy = max(HOVER_X_LOCK_DY_MIN, int(self.height() * HOVER_X_LOCK_DY_RATIO))
+        x_locked = (y - self._hover_min_y) > lock_dy
 
         x = int(event.position().x())
         if x != self._hover_x:
             self._hover_x = x
             self.update()
-            if self._has_data() and 0 <= x < self.width():
+            if self._has_data() and 0 <= x < self.width() and not x_locked:
                 self.hover_moved.emit(self._x_to_position(x))
 
     def leaveEvent(self, event):
@@ -984,6 +1003,7 @@ class WaveformWidget(QWidget):
         if self._hover_x != -1:
             self._hover_x = -1
             self.update()
+        self._hover_min_y = -1  # 次のホバーで基準Yを取り直す
         if self._hover_enabled:
             self.hover_left.emit()
         super().leaveEvent(event)
