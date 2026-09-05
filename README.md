@@ -6,7 +6,7 @@
 
 ## Features
 
-- 動画プレビュー＋波形表示
+- 動画プレビュー＋**2段波形**（上段=全体 / 下段=ホバー追従のメルスペクトログラム拡大、区間幅 5秒〜10分）
 - チャプター編集（追加 / 削除 / 編集 / ジャンプ）
 - **除外チャプター機能**（`--` プレフィックスで指定区間をカット）
 - YouTube チャプターのコピー＆ペースト
@@ -96,6 +96,24 @@ chaptr ~/recordings/2026-05-17/   # 作業ディレクトリ指定
 | ↑  ↓ | 前 / 次のチャプターへジャンプ |
 | Cmd+S | プロジェクト保存 |
 | Cmd+Shift+L | SRT 字幕読み込み |
+
+### Tips
+
+- **重い原盤は軽いプロキシで開く**: 高ビットレートの HEVC 1080p などはプレビューがもたつく。
+  480p 程度のプロキシを作って開くと快適:
+
+  ```bash
+  ffmpeg -i in.mp4 -vf scale=-2:480 -c:v hevc_videotoolbox -b:v 1.2M -tag:v hvc1 \
+    -c:a copy -movflags +faststart out_480p.mp4
+  ```
+
+- **バックグラウンド起動**（`code` のように端末から切り離す）は zsh 関数で:
+
+  ```zsh
+  chaptr() { command chaptr "$@" </dev/null &>/dev/null &! }
+  ```
+
+  波形生成の ffmpeg が端末 stdin を握って止まらないよう `-nostdin` 済み。`</dev/null` 併用が安全。
 
 ## Development
 

@@ -13,6 +13,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Python パッケージ名を `media_scribe_workflow` から `chaptr` に変更
 - エントリポイントスクリプトを `run_chaptr.py`、PyInstaller spec を `chaptr.spec` に rename
 - README を GUI 専用に書き直し（CLI ツール群への言及を関連プロジェクトとして整理）
+- 波形2段表示の配色を入れ替え（上段=viridis 固定 / 下段=テーマ既定 inferno）
+- 区間スパンの既定を最大(600s)に
+- 上段ホバー中に下方向へ一定以上動いたら区間中心(X)の追従を止める（下段へ移る間に下段の表示領域がずれるのを防ぐ）
+
+### Fixed
+
+- 再生中に区間メルスペクトログラムをメインスレッドで再計算していたため A/V 同期が崩れる問題を修正（再生中は再計算せず、停止時に描き直す）
+- 終了時に音声キャッシュスレッドが残り `QThread: Destroyed while thread is still running` で abort する問題を修正（cancel で ffmpeg を kill、待機を延長）
+- バックグラウンド起動時に波形キャッシュ用の ffmpeg が端末 stdin を握り SIGTTIN で固まる問題を修正（`-nostdin`）
 
 ### Removed
 
