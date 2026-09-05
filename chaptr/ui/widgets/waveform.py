@@ -19,7 +19,7 @@ COOL_COLORMAPS = frozenset({"viridis", "cividis"})
 
 # ホバー中に下方向へこれ以上動いたら X 追従を止める（下段へ移る間の区間ズレ防止）。
 # ウィジェット高さ×RATIO と MIN(px) の大きい方。小さいほど「厳しめ」＝早く固定する。
-HOVER_X_LOCK_DY_RATIO = 0.18
+HOVER_X_LOCK_DY_RATIO = 0.1
 HOVER_X_LOCK_DY_MIN = 12
 
 # ホイールのズーム感度。angleDelta の積算がこの値を越えたら1段動かす。
