@@ -9,6 +9,7 @@
 PySide6 + ffmpeg ベース、GPU ハードウェアエンコード対応。
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Release](https://img.shields.io/github/v/release/mashi727/chaptr)](https://github.com/mashi727/chaptr/releases/latest)
 ![GUI](https://img.shields.io/badge/GUI-PySide6-41cd52?logo=qt&logoColor=white)
 ![Media](https://img.shields.io/badge/media-ffmpeg-007808?logo=ffmpeg&logoColor=white)
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows-lightgrey)
@@ -103,13 +104,13 @@ chaptr
 
 ### バイナリ（スタンドアロン）
 
-macOS / Windows のスタンドアロンバイナリは [Releases](https://github.com/mashi727/chaptr/releases) で配布予定です（タグ push 時に GitHub Actions が自動ビルド）。ffmpeg / ffprobe は同梱。
+macOS / Windows のスタンドアロンバイナリは [Releases](https://github.com/mashi727/chaptr/releases/latest) で配布しています（タグ push 時に GitHub Actions が自動ビルド）。ffmpeg / ffprobe を内包し、**Windows は単一 `Chaptr.exe`**（インストール不要・ダブルクリックで起動）。
 
 | プラットフォーム | パッケージ形式 | エンコード |
 |---|---|---|
 | macOS (Apple Silicon) | `.dmg` | VideoToolbox |
 | macOS (Intel) | `.dmg` | VideoToolbox |
-| Windows | `.zip` | NVENC / QSV / AMF |
+| Windows | 単一 `.exe` | NVENC / QSV / AMF |
 
 ## Usage
 

@@ -153,20 +153,19 @@ jobs:
             --output-dir=dist `
             run_chaptr.py
 
-      - name: Create ZIP
+      - name: Rename to versioned exe (single-file distribution)
         run: |
           $version = "${{ github.event.inputs.version }}"
           if (-not $version) { $version = "${{ github.ref_name }}" }
-          New-Item -ItemType Directory -Path "dist/package" -Force
-          Copy-Item "dist/Chaptr.exe" "dist/package/"
-          Compress-Archive -Path "dist/package/*" `
-            -DestinationPath "Video-Chapter-Editor-${version}-Windows.zip"
+          # --onefile なので Chaptr.exe 単体で自己完結（ffmpeg も内包）。
+          # zip 梱包せず、バージョン名を付けた exe をそのまま配布する。
+          Copy-Item "dist/Chaptr.exe" "Video-Chapter-Editor-${version}-Windows.exe"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: windows-app
-          path: "Video-Chapter-Editor-*.zip"
+          path: "Video-Chapter-Editor-*.exe"
 
   release:
     needs: [build-macos-intel, build-macos-arm, build-windows]
@@ -196,6 +195,6 @@ jobs:
           tag_name: ${{ github.event.inputs.version || github.ref_name }}
           files: |
             *.dmg
-            *.zip
+            *.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
