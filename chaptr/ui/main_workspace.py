@@ -50,7 +50,7 @@ from .models import (
 )
 from .workers import DurationDetectWorker
 from .widgets import WaveformWidget, RegionBridge
-from .audio_cache import AudioCache, AudioCacheWorker
+from .audio_cache import AudioCache, AudioCacheWorker, RegionSpectrogramWorker
 from .styles import ButtonStyles
 from .ffmpeg_utils import get_ffmpeg_path, get_ffprobe_path, extract_chapters_with_ffmpeg, get_subprocess_kwargs, write_concat_file
 from .managers import (
@@ -1046,6 +1046,9 @@ class MainWorkspace(QWidget):
         self._audio_cache: Optional[AudioCache] = None
         self._cache_thread: Optional[QThread] = None
         self._cache_worker: Optional[AudioCacheWorker] = None
+        # 区間スペクトログラム（FFT）をメインスレッドから逃がす専用スレッド
+        self._spec_thread: Optional[QThread] = None
+        self._spec_worker: Optional[RegionSpectrogramWorker] = None
 
         # 区間表示（下段）
         self._region_widget: Optional[WaveformWidget] = None
@@ -2554,9 +2557,8 @@ class MainWorkspace(QWidget):
             self._play_btn.setIcon(self._pause_icon)
         else:
             self._play_btn.setIcon(self._play_icon)
-            # 再生中は区間の再計算（mel_spectrogram）を止めて A/V 同期を守っている
-            # （_sync_region_to_playback 参照）。止まった時点で現在位置へ区間を合わせ
-            # 直し、精査時に下段が最新の区間を映すようにする。
+            # 停止/一時停止時に現在位置へ区間を合わせ直し、下段を精細版で描き直す
+            # （区間計算はワーカースレッドなので、この再計算もメインを塞がない）。
             if self._audio_cache is not None and self._region_widget is not None:
                 self._apply_region_center(self._current_timeline_position())
 
@@ -3289,6 +3291,7 @@ class MainWorkspace(QWidget):
             return
 
         self._audio_cache = cache
+        self._start_spectrogram_worker(cache)
         self._log_panel.info(
             f"Audio cache: {cache.sample_rate} Hz, "
             f"{cache.duration_ms / 1000:.0f}s, {cache.nbytes / 2**20:.0f} MB resident",
@@ -3349,6 +3352,9 @@ class MainWorkspace(QWidget):
         は即座に返る。重 I/O 下の保険で 5 秒待つ。ここで止め切れないまま走行中の
         QThread を破棄すると 'QThread: Destroyed while thread is still running' → abort に
         なるため、待機を短く切って参照を落とすことはしない。"""
+        # スペクトログラム計算スレッドは cache に依存するので先に畳む
+        self._stop_spectrogram_worker()
+
         if self._cache_worker:
             self._cache_worker.cancel()
 
@@ -3462,19 +3468,72 @@ class MainWorkspace(QWidget):
                 f"{span / 1000:.0f}s  \u00d7{duration / span:.0f}"
             )
 
-    def _render_region(self, start_ms: int, end_ms: int, coarse: bool = False):
-        """下段を指定区間で描く
+    def _start_spectrogram_worker(self, cache):
+        """区間スペクトログラムの計算を専用スレッドへ載せる
 
-        coarse=True では列数・行数を落とす。ウィジェット側が最近傍で
-        引き伸ばすので粗くはなるが、追従が途切れるよりは読める。
+        再生位置・ホバー・ズーム・モード切替の度に mel_spectrogram(FFT) を
+        メインスレッドで計算すると、軽い処理でも QMediaPlayer の映像提示
+        （macOS ではイベントループ上）を飢餓させ A/V がズレる。計算をここへ
+        逃がし、メインは _on_spectrogram_ready で描くだけにする。
+        """
+        self._stop_spectrogram_worker()
+        self._spec_thread = QThread()
+        self._spec_worker = RegionSpectrogramWorker(cache)
+        self._spec_worker.moveToThread(self._spec_thread)
+        self._spec_thread.started.connect(self._spec_worker.run)
+        self._spec_worker.ready.connect(self._on_spectrogram_ready)
+        self._spec_thread.start()
+
+    def _stop_spectrogram_worker(self):
+        """スペクトログラム計算スレッドを停止する（ソース切替・破棄時）"""
+        if self._spec_worker is not None:
+            try:
+                self._spec_worker.ready.disconnect(self._on_spectrogram_ready)
+            except (RuntimeError, TypeError):
+                pass
+            self._spec_worker.stop()
+        if self._spec_thread is not None:
+            self._spec_thread.quit()
+            self._spec_thread.wait(3000)
+            self._spec_thread = None
+        self._spec_worker = None
+
+    def _on_spectrogram_ready(self, result):
+        """ワーカーが計算したスペクトログラムを描く（メインスレッド）"""
+        kind, start_ms, end_ms, data = result
+        if data is None:
+            return
+        duration = self._display_duration()
+        if duration <= 0:
+            return
+        if kind == "region":
+            if self._region_widget is None:
+                return
+            # 計算中に別区間へ移っていれば捨てる（最新の区間だけ描く）
+            if start_ms != self._region_start_ms:
+                return
+            self._region_widget.set_view_window(start_ms, end_ms)
+            self._region_widget.set_spectrogram(data, duration)
+        elif kind == "overview":
+            if self._waveform_widget is None:
+                return
+            self._waveform_widget.set_spectrogram(data, duration)
+            self._spectrogram_generated = True
+
+    def _render_region(self, start_ms: int, end_ms: int, coarse: bool = False):
+        """下段の指定区間の描画を要求する
+
+        以前はここで mel_spectrogram(FFT) をメインスレッドで計算していたが、
+        再生中の毎位置再計算がイベントループを塞ぎ、QMediaPlayer の映像提示を
+        痩せさせて A/V がズレていた。計算は RegionSpectrogramWorker へ逃がし、
+        結果は _on_spectrogram_ready が描く。
+
+        coarse=True では列数・行数を落として要求する（ウィジェット側が最近傍で
+        引き伸ばす）。手を速く動かしたときの初回描画を軽くするため。
         """
         widget = self._region_widget
         cache = self._audio_cache
         if widget is None or cache is None:
-            return
-
-        duration = self._display_duration()
-        if duration <= 0:
             return
 
         width = max(1, widget.width())
@@ -3483,6 +3542,14 @@ class MainWorkspace(QWidget):
             width = max(64, width // REGION_COARSE_DIVISOR)
             height = max(32, height // 2)
 
+        if self._spec_worker is not None:
+            self._spec_worker.request("region", start_ms, end_ms, width, height)
+            return
+
+        # フォールバック（通常はワーカーがある）: 同期計算
+        duration = self._display_duration()
+        if duration <= 0:
+            return
         data = cache.mel_spectrogram(start_ms, end_ms, width, height)
         widget.set_view_window(start_ms, end_ms)
         widget.set_spectrogram(data, duration)
@@ -3553,16 +3620,9 @@ class MainWorkspace(QWidget):
         if self._audio_cache is None or self._region_widget is None:
             return
 
-        # 再生中は区間の再センタリング（mel_spectrogram のメインスレッド再計算）を
-        # 行わない。これを毎再生位置で走らせると FFT がメインスレッドを数十〜数百ms
-        # 占有し、QMediaPlayer の映像デコード/提示が痩せて A/V がズレる（実測で確認）。
-        # カーソルは _update_position_views で動き続け、区間は停止時に
-        # _on_playback_state_changed が現在位置へ合わせ直す。
-        if (self._media_player is not None
-                and self._media_player.playbackState()
-                == QMediaPlayer.PlaybackState.PlayingState):
-            return
-
+        # 区間の再計算（mel_spectrogram）は RegionSpectrogramWorker へ逃がしてあり、
+        # 再生中に再センタリングしてもメインスレッドを塞がない（A/V は乱れない）。
+        # そのため以前あった「再生中は追従を止める」対症ゲートは廃止した。
         duration = self._display_duration()
         if duration <= 0:
             return
@@ -3675,6 +3735,14 @@ class MainWorkspace(QWidget):
         if cache is None or widget is None:
             return
 
+        if self._spec_worker is not None:
+            self._spec_worker.request(
+                "overview", 0, cache.duration_ms,
+                max(1, widget.width()), max(1, widget.height())
+            )
+            return
+
+        # フォールバック（通常はワーカーがある）: 同期計算
         data = cache.mel_spectrogram(
             0, cache.duration_ms, max(1, widget.width()), max(1, widget.height())
         )

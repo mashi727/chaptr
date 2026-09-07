@@ -21,7 +21,7 @@ import platform
 import subprocess
 from typing import IO, List, Optional, Tuple, cast
 
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject, Signal, QMutex, QWaitCondition
 
 import numpy as np
 
@@ -579,3 +579,81 @@ class AudioCacheWorker(QObject):
         cache = AudioCache(samples, sample_rate, duration_ms)
         cache.calibrate()
         return cache
+
+
+# === スペクトログラム計算ワーカー ===
+
+class RegionSpectrogramWorker(QObject):
+    """mel_spectrogram（STFT）を専用スレッドで計算する
+
+    区間スペクトログラムを再生位置・ホバー・ズーム・モード切替の度に
+    メインスレッドで計算すると、その処理が軽くても QMediaPlayer の映像提示
+    （macOS の AVFoundation ではデコードは別スレッドだが、提示とイベント配送
+    はメインスレッド）を飢餓させ、A/V がズレる。計算をここへ逃がし、メインは
+    結果の描画（blit）だけを行う。
+
+    要求は kind ごとに「最新の 1 件」だけを保持する（pending 上書き）ので、
+    ホバー等で高頻度に要求が来ても取りこぼしのバックログが積まない。
+    numpy/FFT は計算中に GIL を解放するため、実質的に並列化される。
+
+    使い方（呼び出し側 = メインスレッド）:
+        worker = RegionSpectrogramWorker(cache)
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        worker.ready.connect(on_ready)   # (kind, start_ms, end_ms, data)
+        thread.start()
+        worker.request("region", start, end, w, h)   # 直接呼んでよい（mutex 保護）
+        ...
+        worker.stop(); thread.quit(); thread.wait()
+    """
+
+    ready = Signal(object)   # (kind: str, start_ms: int, end_ms: int, data: np.ndarray)
+
+    def __init__(self, cache: "AudioCache"):
+        super().__init__()
+        self._cache = cache
+        self._mutex = QMutex()
+        self._cond = QWaitCondition()
+        self._pending = {}       # kind -> (start_ms, end_ms, width, height)
+        self._stop = False
+
+    def request(self, kind: str, start_ms: int, end_ms: int, width: int, height: int):
+        """区間の計算を依頼する（メインスレッドから。kind ごとに最新のみ保持）"""
+        self._mutex.lock()
+        self._pending[kind] = (int(start_ms), int(end_ms), int(width), int(height))
+        self._cond.wakeOne()
+        self._mutex.unlock()
+
+    def stop(self):
+        """スレッド終了を要求する（ソース切替 / closeEvent から）"""
+        self._mutex.lock()
+        self._stop = True
+        self._cond.wakeAll()
+        self._mutex.unlock()
+
+    def run(self):
+        """専用スレッド上のループ。pending を最新だけ拾って計算し ready を emit する"""
+        while True:
+            self._mutex.lock()
+            while not self._pending and not self._stop:
+                self._cond.wait(self._mutex)
+            if self._stop:
+                self._mutex.unlock()
+                return
+            pending = self._pending
+            self._pending = {}
+            self._mutex.unlock()
+
+            cache = self._cache
+            if cache is None:
+                continue
+            for kind, (start_ms, end_ms, width, height) in pending.items():
+                if self._stop:
+                    return
+                try:
+                    data = cache.mel_spectrogram(start_ms, end_ms, width, height)
+                except Exception:  # noqa: BLE001 - ワーカー境界で握る
+                    continue
+                if data is None:
+                    continue
+                self.ready.emit((kind, start_ms, end_ms, data))
