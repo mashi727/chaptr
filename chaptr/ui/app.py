@@ -265,13 +265,6 @@ class Chaptr(QMainWindow):
 
         file_menu.addSeparator()
 
-        batch_encode_action = QAction("Batch Encode...", self)
-        batch_encode_action.setShortcut("Ctrl+E")
-        batch_encode_action.triggered.connect(self._batch_export)
-        file_menu.addAction(batch_encode_action)
-
-        file_menu.addSeparator()
-
         preferences_action = QAction("Preferences...", self)
         preferences_action.setShortcut("Ctrl+,")
         preferences_action.triggered.connect(self._show_preferences)
@@ -333,8 +326,6 @@ class Chaptr(QMainWindow):
         self.setCentralWidget(self._workspace)
 
         # シグナル接続
-        self._workspace.export_progress.connect(self._on_export_progress)
-        self._workspace.export_finished.connect(self._on_export_finished)
         self._workspace.work_dir_changed.connect(self._on_work_dir_changed)
         self._workspace.output_dir_changed.connect(self._on_output_dir_changed)
 
@@ -407,37 +398,6 @@ class Chaptr(QMainWindow):
     def _save_project(self):
         """プロジェクトファイルを保存"""
         self._workspace.save_project()
-
-    def _batch_export(self):
-        """バッチエンコード: 複数のプロジェクトファイルを処理"""
-        from chaptr.ui.dialogs import BatchEncodeDialog
-
-        dialog = BatchEncodeDialog(
-            work_dir=self._work_dir,
-            parent=self
-        )
-        dialog.encode_requested.connect(self._run_batch_encode)
-        dialog.exec()
-
-    def _run_batch_encode(self, project_paths: list):
-        """バッチエンコード実行"""
-        if not project_paths:
-            return
-
-        log = self._workspace.get_log_panel()
-        log.info(f"Batch encode started: {len(project_paths)} projects", source="Batch")
-
-        # TODO: 実際のバッチエンコード処理を実装
-        # 現時点ではログに出力のみ
-        for path in project_paths:
-            log.info(f"  - {path.name}", source="Batch")
-
-        QMessageBox.information(
-            self,
-            "Batch Encode",
-            f"{len(project_paths)}件のプロジェクトをエンコードキューに追加しました。\n\n"
-            "(バッチエンコード処理は今後実装予定)"
-        )
 
     def _toggle_chapter_overlay(self, checked: bool):
         """チャプターオーバーレイ表示切り替え"""
@@ -566,20 +526,6 @@ class Chaptr(QMainWindow):
         for widget in self._waveform_widgets():
             widget._spectrogram_image = None
             widget.update()
-
-    # === エクスポート進捗ハンドラ ===
-
-    def _on_export_progress(self, percent: int, status: str):
-        """エクスポート進捗表示（ワークスペース側で表示するため、ステータスバーでは非表示）"""
-        pass  # Encodeボタン付近のプログレスバーで表示
-
-    def _on_export_finished(self, success: bool, message: str):
-        """エクスポート完了表示"""
-        log = self._workspace.get_log_panel()
-        if success:
-            log.info(f"Export completed: {message}", source="Export")
-        else:
-            log.error(f"Export failed: {message}", source="Export")
 
     def _reset_progress(self):
         """プログレスバーを初期状態に戻す"""
