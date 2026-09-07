@@ -815,10 +815,9 @@ class SourceListWidget(QWidget):
         left_layout.setContentsMargins(0, 0, 0, 0)
         left_layout.setSpacing(0)
 
-        # タイトル（ファイル数に応じてSource/Sourcesを切り替え）
-        self._title_label = QLabel("Source")
-        self._title_label.setStyleSheet("font-weight: bold; color: #f0f0f0; padding-bottom: 4px;")
-        left_layout.addWidget(self._title_label)
+        # 単一ソース運用のため見出しラベル（Source/Sources）は表示しない。
+        # 読み込んだファイル名の行だけを見せる。
+        self._title_label = None
 
         # 3行のラベル（prev / current / next）- 必要に応じて表示/非表示
         self._rows: List[QLabel] = []
@@ -921,9 +920,6 @@ class SourceListWidget(QWidget):
     def _update_display(self):
         """表示を更新"""
         num_sources = len(self._sources)
-
-        # タイトル更新（0-1: Source, 2+: Sources）
-        self._title_label.setText("Sources" if num_sources >= 2 else "Source")
 
         if num_sources == 0:
             # ソースなし: 1行目に「No source」表示
@@ -1948,15 +1944,6 @@ class MainWorkspace(QWidget):
         remove_btn.setToolTip("選択チャプターを削除")
         remove_btn.clicked.connect(self._remove_chapter)
         btn_layout.addWidget(remove_btn, 1)
-
-        remove_src_btn = QPushButton("Remove\nSource")
-        remove_src_btn.setFixedHeight(40)
-        remove_src_btn.setMinimumWidth(0)
-        remove_src_btn.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
-        remove_src_btn.setStyleSheet(chapter_btn_style)
-        remove_src_btn.setToolTip("選択チャプターのソースファイルを削除")
-        remove_src_btn.clicked.connect(self._remove_source)
-        btn_layout.addWidget(remove_src_btn, 1)
 
         copy_btn = QPushButton("Copy to\nYoutube")
         copy_btn.setFixedHeight(40)
