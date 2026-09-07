@@ -5972,40 +5972,16 @@ class MainWorkspace(QWidget):
                 )
             return
 
-        # 既存ソースがない場合は新規モード
-        if not self._state.sources:
+        # 単一ソース運用: 動画/音声のドロップは「差し替え」（新規ロードと同じ扱い）。
+        #   既存ソースがあっても、束ねず現ソースを置き換える。同名 .txt があれば自動読込。
+        if classified.has_video or classified.has_audio:
             self._handle_initial_drop(classified)
             return
 
-        # 既存ソースがある場合は追加モード（型チェック）
-        current_is_audio = self._is_audio_only
-
-        if current_is_audio:
-            # 音声モード中
-            if classified.has_video:
-                self._log_panel.warning(
-                    "Cannot add video files in audio mode. Drop audio files instead.",
-                    source="Drop"
-                )
-                return
-            if classified.has_audio:
-                self._add_sources_to_existing(classified.audios, classified.chapters)
-            elif classified.has_chapter_only:
-                # チャプターファイルのみ: 同名音声を探して追加
-                self._handle_chapter_file_drop(classified.chapters, is_audio_mode=True)
-        else:
-            # 動画モード中
-            if classified.has_audio and not classified.has_video:
-                self._log_panel.warning(
-                    "Cannot add audio files in video mode. Drop video files instead.",
-                    source="Drop"
-                )
-                return
-            if classified.has_video:
-                self._add_sources_to_existing(classified.videos, classified.chapters)
-            elif classified.has_chapter_only:
-                # チャプターファイルのみ: 同名動画を探して追加
-                self._handle_chapter_file_drop(classified.chapters, is_audio_mode=False)
+        # 章ファイル単独のドロップは、現ソースの章として読み込む（差し替えしない）
+        if classified.has_chapter_only:
+            self._handle_chapter_file_drop(
+                classified.chapters, is_audio_mode=self._is_audio_only)
 
     def _handle_initial_drop(self, classified: ClassifiedFiles):
         """初回ドロップ時の処理（ソースがない場合）

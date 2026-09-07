@@ -241,6 +241,13 @@ class Chaptr(QMainWindow):
         load_chapters_action.triggered.connect(self._load_chapters)
         file_menu.addAction(load_chapters_action)
 
+        save_chapters_action = QAction("Save Chapters...", self)
+        save_chapters_action.setShortcut("Ctrl+S")
+        save_chapters_action.triggered.connect(self._save_chapters)
+        file_menu.addAction(save_chapters_action)
+
+        file_menu.addSeparator()
+
         load_subtitles_action = QAction("Load Subtitles...", self)
         load_subtitles_action.setShortcut("Ctrl+Shift+L")
         load_subtitles_action.triggered.connect(self._load_subtitles)
@@ -249,19 +256,6 @@ class Chaptr(QMainWindow):
         clear_subtitles_action = QAction("Clear Subtitles", self)
         clear_subtitles_action.triggered.connect(self._clear_subtitles)
         file_menu.addAction(clear_subtitles_action)
-
-        file_menu.addSeparator()
-
-        # Project menu items
-        open_project_action = QAction("Open Project...", self)
-        open_project_action.setShortcut("Ctrl+Shift+O")
-        open_project_action.triggered.connect(self._open_project)
-        file_menu.addAction(open_project_action)
-
-        save_project_action = QAction("Save Project...", self)
-        save_project_action.setShortcut("Ctrl+S")
-        save_project_action.triggered.connect(self._save_project)
-        file_menu.addAction(save_project_action)
 
         file_menu.addSeparator()
 
@@ -391,13 +385,9 @@ class Chaptr(QMainWindow):
         """チャプターファイルを読み込む"""
         self._workspace._load_chapters()
 
-    def _open_project(self):
-        """プロジェクトファイルを開く"""
-        self._workspace.load_project()
-
-    def _save_project(self):
-        """プロジェクトファイルを保存"""
-        self._workspace.save_project()
+    def _save_chapters(self):
+        """章立てを .txt に保存（チャプター行の Save ボタンと同じ）"""
+        self._workspace._save_chapters()
 
     def _toggle_chapter_overlay(self, checked: bool):
         """チャプターオーバーレイ表示切り替え"""
