@@ -115,7 +115,6 @@ class WaveformWidget(QWidget):
 
         # ホバー（-1 は非ホバー）
         self._hover_x: int = -1
-        self._hover_min_y: int = -1   # ホバー中の最上部Y。ここから下へ大きく動いたらX追従を止める
         self._hover_enabled: bool = False
         self._zoom_enabled: bool = False
 
@@ -983,13 +982,13 @@ class WaveformWidget(QWidget):
         if not self._hover_enabled:
             return
 
+        # 下端の帯（lock_dy px）に入ったら X 追従（hover_moved）を止める。上段で X を
+        # 決めた後、下段へカーソルを移す最中に区間中心がずれるのを防ぐ。判定は「現在の
+        # 絶対 Y が下端帯にあるか」だけなので、上下に動かしても lock/unlock がトグルせず
+        # 安定する（履歴依存だった _hover_min_y 方式を廃止）。
         y = int(event.position().y())
-        if self._hover_min_y < 0:
-            self._hover_min_y = y
-        else:
-            self._hover_min_y = min(self._hover_min_y, y)
         lock_dy = max(HOVER_X_LOCK_DY_MIN, int(self.height() * HOVER_X_LOCK_DY_RATIO))
-        x_locked = (y - self._hover_min_y) > lock_dy
+        x_locked = y > (self.height() - lock_dy)
 
         x = int(event.position().x())
         if x != self._hover_x:
@@ -1003,7 +1002,6 @@ class WaveformWidget(QWidget):
         if self._hover_x != -1:
             self._hover_x = -1
             self.update()
-        self._hover_min_y = -1  # 次のホバーで基準Yを取り直す
         if self._hover_enabled:
             self.hover_left.emit()
         super().leaveEvent(event)
