@@ -5231,21 +5231,7 @@ class MainWorkspace(QWidget):
                     'color': default_color,
                 })
 
-            # 各ソースに0:00チャプターがなければファイル名をデフォルトタイトルとして追加
-            sources_with_zero = set(
-                ch['source_index'] for ch in chapters_data if ch['local_time_ms'] == 0
-            )
-            for source_index in range(len(self._state.sources)):
-                if source_index not in sources_with_zero:
-                    default_title = self._state.sources[source_index].path.stem
-                    chapters_data.append({
-                        'title': default_title,
-                        'source_index': source_index,
-                        'local_time_ms': 0,
-                        'color': default_color,
-                    })
-
-            # テーブルを再構築
+            # テーブルを再構築（読み込んだ章のみ。filename@0 の自動追加はしない）
             self._rebuild_chapter_table_from_data(chapters_data)
 
             self._log_panel.info(f"Loaded {len(chapters)} chapters from: {Path(file_path).name}", source="Chapter")
@@ -5490,14 +5476,7 @@ class MainWorkspace(QWidget):
                         'local_time_ms': ch.local_time_ms,
                         'color': default_color,
                     })
-            else:
-                # 埋め込みチャプターがない場合はファイル名をチャプター名に
-                chapters_data.append({
-                    'title': source.path.stem,
-                    'source_index': source_idx,
-                    'local_time_ms': 0,
-                    'color': default_color,
-                })
+            # 埋め込みチャプターが無いソースは、章を追加しない（filename@0 を作らない）
 
         if not chapters_data:
             self._has_embedded_chapters = False
@@ -6237,21 +6216,7 @@ class MainWorkspace(QWidget):
                 if ch.local_time_ms == 0:
                     has_zero_chapter = True
 
-            # 0:00チャプターがなければファイル名をデフォルトタイトルとして追加
-            if not has_zero_chapter:
-                # 既存データにも該当sourceの0:00がないか確認
-                existing_zero = any(
-                    ch['source_index'] == source_index and ch['local_time_ms'] == 0
-                    for ch in existing_data
-                )
-                if not existing_zero:
-                    default_title = self._state.sources[source_index].path.stem
-                    existing_data.append({
-                        'title': default_title,
-                        'source_index': source_index,
-                        'local_time_ms': 0,
-                        'color': default_color,
-                    })
+            # filename@0 の自動追加はしない（読み込んだ章のみ）
 
             # ソート（source_index昇順、local_time_ms昇順）
             existing_data.sort(key=lambda x: (x['source_index'], x['local_time_ms']))
@@ -6346,7 +6311,11 @@ class MainWorkspace(QWidget):
         )
 
     def _try_load_chapter_file(self, source_path: Path):
-        """同名.txtチャプターファイルがあれば自動読み込み、なければファイル名でチャプター追加"""
+        """同名.txtチャプターファイルがあれば自動読み込みする。
+
+        無い場合でも「ファイル名で 0:00 にチャプターを自動追加する」ことはしない
+        （埋め込み章や手動追加を尊重し、余計な filename@0 の重複を作らない）。
+        """
         chapter_path = source_path.with_suffix('.txt')
         if chapter_path.exists():
             try:
@@ -6357,12 +6326,8 @@ class MainWorkspace(QWidget):
                         f"Auto-loaded chapters from: {chapter_path.name}",
                         source="Drop"
                     )
-                    return
             except Exception as e:
                 self._log_panel.debug(f"Failed to load chapter file: {e}", source="Drop")
-
-        # チャプターファイルがない場合はファイル名をデフォルトタイトルとして追加
-        self._add_chapter_at_position(0, source_path.stem, 0)
 
     def _load_chapters_for_all_sources(self):
         """全ソースファイルから同名.txtチャプターファイルを読み込み
@@ -6398,23 +6363,7 @@ class MainWorkspace(QWidget):
                 except Exception as e:
                     self._log_panel.debug(f"Failed to load {chapter_path.name}: {e}", source="Drop")
 
-            # 0:00チャプターがなければファイル名をデフォルトタイトルとして追加（該当ソースの先頭に）
-            if not has_zero_chapter:
-                # 該当ソースの先頭位置を探して挿入
-                insert_pos = len(all_chapters)
-                for i, ch in enumerate(all_chapters):
-                    if ch['source_index'] == source_index:
-                        insert_pos = i
-                        break
-                    elif ch['source_index'] > source_index:
-                        insert_pos = i
-                        break
-                all_chapters.insert(insert_pos, {
-                    'title': source.path.stem,  # ファイル名（拡張子なし）
-                    'source_index': source_index,
-                    'local_time_ms': 0,
-                    'color': QColor("#f0f0f0")
-                })
+            # filename@0 の自動追加はしない（読み込んだ章のみ。has_zero_chapter は不使用）
 
         # テーブルを構築
         self._rebuild_chapter_table_from_data(all_chapters)
@@ -6477,31 +6426,7 @@ class MainWorkspace(QWidget):
                 'color': default_color,
             })
 
-        # 各ソースに0:00チャプターがなければファイル名をデフォルトタイトルとして追加
-        sources_with_zero = set(
-            ch['source_index'] for ch in chapters_data if ch['local_time_ms'] == 0
-        )
-        for source_index in range(len(self._state.sources)):
-            if source_index not in sources_with_zero:
-                # 該当ソースの先頭位置を探して挿入
-                insert_pos = 0
-                for i, ch in enumerate(chapters_data):
-                    if ch['source_index'] == source_index:
-                        insert_pos = i
-                        break
-                    elif ch['source_index'] > source_index:
-                        insert_pos = i
-                        break
-                    else:
-                        insert_pos = i + 1
-                # ファイル名（拡張子なし）をデフォルトタイトルとして使用
-                default_title = self._state.sources[source_index].path.stem
-                chapters_data.insert(insert_pos, {
-                    'title': default_title,
-                    'source_index': source_index,
-                    'local_time_ms': 0,
-                    'color': default_color,
-                })
+        # filename@0 の自動追加はしない（読み込んだ章のみをそのまま表示する）
 
         # テーブルを再構築
         self._rebuild_chapter_table_from_data(chapters_data)
