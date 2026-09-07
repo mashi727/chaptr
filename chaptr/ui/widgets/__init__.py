@@ -11,7 +11,6 @@ from .drop_overlay import DropOverlay
 from .drop_video_frame import DropVideoFrame
 from .file_boundary_delegate import FileBoundaryDelegate
 from .region_bridge import RegionBridge
-from .source_list import SourceListWidget
 from .waveform import WaveformWidget
 
 __all__ = [
@@ -21,6 +20,5 @@ __all__ = [
     'DropVideoFrame',
     'FileBoundaryDelegate',
     'RegionBridge',
-    'SourceListWidget',
     'WaveformWidget',
 ]

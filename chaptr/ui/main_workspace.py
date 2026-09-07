@@ -53,7 +53,6 @@ from .widgets import WaveformWidget, RegionBridge
 from .audio_cache import AudioCache, AudioCacheWorker
 from .styles import ButtonStyles
 from .ffmpeg_utils import get_ffmpeg_path, get_ffprobe_path, extract_chapters_with_ffmpeg, get_subprocess_kwargs, write_concat_file
-from .dialogs import ReorderSourcesDialog
 from .managers import (
     PlaybackManager,
     ChapterManager,
@@ -797,7 +796,6 @@ class SourceListWidget(QWidget):
 
     source_clicked = Signal(int)  # ソースインデックスがクリックされた
     open_clicked = Signal()  # Openボタンがクリックされた
-    add_clicked = Signal()  # Addボタンがクリックされた
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -863,15 +861,6 @@ class SourceListWidget(QWidget):
         self._open_btn.clicked.connect(self.open_clicked.emit)
         btn_layout.addWidget(self._open_btn)
 
-        self._add_btn = QPushButton("Add")
-        self._add_btn.setFixedHeight(28)
-        self._add_btn.setFixedWidth(80)
-        self._add_btn.setStyleSheet(btn_style)
-        self._add_btn.setToolTip("ファイルを追加（選択位置の後に挿入）")
-        self._add_btn.clicked.connect(self.add_clicked.emit)
-        self._add_btn.setEnabled(False)  # 初期状態は無効
-        btn_layout.addWidget(self._add_btn)
-
         btn_layout.addStretch()
         main_layout.addLayout(btn_layout)
 
@@ -918,8 +907,6 @@ class SourceListWidget(QWidget):
         self._sources = sources
         self._current_index = 0
         self._update_display()
-        # Addボタンはソースがある場合のみ有効
-        self._add_btn.setEnabled(len(sources) > 0)
 
     def set_current_index(self, index: int):
         """現在のソースインデックスを設定"""
@@ -1273,7 +1260,6 @@ class MainWorkspace(QWidget):
         self._source_list = SourceListWidget()
         self._source_list.source_clicked.connect(self._on_source_clicked)
         self._source_list.open_clicked.connect(self._open_source_dialog)
-        self._source_list.add_clicked.connect(self._add_sources)
         main_layout.addWidget(self._source_list)
 
         return frame
@@ -3799,63 +3785,6 @@ class MainWorkspace(QWidget):
                 # 複数ファイルの場合、各ファイルのチャプターを読み込み
                 self._load_chapters_for_all_sources()
 
-    def _add_sources(self):
-        """ソースファイルを追加（選択位置の後に挿入）"""
-        if not self._state.sources:
-            return
-
-        from chaptr.ui.dialogs import SourceSelectionDialog
-
-        # 現在のファイルタイプに応じたフィルタを決定
-        first_ext = self._state.sources[0].path.suffix.lower()
-        if first_ext in VIDEO_EXTENSIONS:
-            initial_filter = "mp4"
-        else:
-            initial_filter = "mp3"
-
-        # ファイル選択ダイアログ（SourceSelectionDialogを使用、フィルタボタン非表示）
-        dialog = SourceSelectionDialog(
-            parent=self,
-            work_dir=self._state.work_dir,
-            initial_filter=initial_filter,
-            show_filter_buttons=False
-        )
-        dialog.setWindowTitle("Add Source Files")
-
-        if dialog.exec() != QDialog.DialogCode.Accepted:
-            return
-
-        new_sources = dialog.get_sources()
-        if not new_sources:
-            return
-
-        # 挿入位置を決定（現在ハイライトされているチャプターのsource_indexの次）
-        insert_index = len(self._state.sources)  # デフォルトは末尾
-        if self._current_chapter_row >= 0:
-            time_item = self._table.item(self._current_chapter_row, 0)
-            if time_item:
-                source_idx = time_item.data(Qt.ItemDataRole.UserRole + 1)
-                if source_idx is not None:
-                    insert_index = source_idx + 1
-
-        # ソースリストに挿入
-        for i, src in enumerate(new_sources):
-            self._state.sources.insert(insert_index + i, src)
-
-        # ベースファイル名を更新（複数ソースになった場合はフォルダ名に）
-        self._update_base_filename_from_first_source()
-
-        self._log_panel.info(
-            f"Added {len(new_sources)} file(s) at position {insert_index + 1}",
-            source="UI"
-        )
-
-        # チャプターを再構築
-        self._rebuild_chapters_after_insert(insert_index, len(new_sources))
-
-        # UI更新
-        self._source_list.set_sources(self._state.sources)
-        self._sync_source_manager()  # SourceFileManagerを同期
 
         # 追加したファイルの最初のチャプターをハイライト
         # insert_indexに対応するチャプター行を探す

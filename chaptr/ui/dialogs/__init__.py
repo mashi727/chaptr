@@ -7,10 +7,8 @@ dialogs - UI ダイアログコンポーネント
 
 from ..models import detect_video_duration
 from .source_selection import SourceSelectionDialog
-from .reorder_sources import ReorderSourcesDialog
 
 __all__ = [
     "detect_video_duration",
     "SourceSelectionDialog",
-    "ReorderSourcesDialog",
 ]
