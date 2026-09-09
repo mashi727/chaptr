@@ -35,13 +35,24 @@ def _parse_time_str(time_str: str) -> int:
     - MM:SS.mmm (例: 23:45.678)
     - MM:SS (例: 23:45)
     """
+    def _frac_ms(text: str) -> int:
+        """小数部をミリ秒として読む
+
+        小数なので桁を右へ埋める。`int()` をそのまま当てると `.5` が 5ms に
+        なってしまう（正しくは 500ms）。ファイルは常に3桁で書かれるので、
+        既存の読み込みには影響しない。手入力の `0:01:30.5` を救うための処理。
+        """
+        return int(text.ljust(3, '0')[:3])
+
     parts = time_str.replace('.', ':').split(':')
     if len(parts) == 4:
-        h, m, s, ms = int(parts[0]), int(parts[1]), int(parts[2]), int(parts[3])
+        h, m, s = int(parts[0]), int(parts[1]), int(parts[2])
+        ms = _frac_ms(parts[3])
     elif len(parts) == 3:
         if '.' in time_str:
             h = 0
-            m, s, ms = int(parts[0]), int(parts[1]), int(parts[2])
+            m, s = int(parts[0]), int(parts[1])
+            ms = _frac_ms(parts[2])
         else:
             h, m, s = int(parts[0]), int(parts[1]), int(parts[2])
             ms = 0

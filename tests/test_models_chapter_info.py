@@ -245,3 +245,37 @@ class TestChapterInfoEdgeCases:
         offsets = [0, 60000]  # 2要素のみ
         # 範囲外の場合はlocal_time_msをそのまま返す
         assert ch.get_absolute_time_ms(offsets) == 5000
+
+
+class TestFractionalSeconds:
+    """小数部のミリ秒解釈
+
+    手入力で `0:01:30.5` と書いたときに 5ms ではなく 500ms と読むこと。
+    ファイルは常に3桁で書かれるので、既存の読み込み結果は変わらない。
+    """
+
+    @pytest.mark.parametrize("text,expected_ms", [
+        ("0:01:30.5", 90_500),
+        ("0:01:30.50", 90_500),
+        ("0:01:30.500", 90_500),
+        ("0:01:30.05", 90_050),
+        ("0:01:30.005", 90_005),
+        ("1:23:45.678", 5_025_678),
+    ])
+    def test_fraction_is_padded_right(self, text, expected_ms):
+        assert _parse_time_str(text) == expected_ms
+
+    def test_three_digit_files_unchanged(self):
+        """3桁で書かれた既存ファイルの解釈が変わらないこと"""
+        for ms in (0, 5, 50, 500, 999):
+            text = f"0:00:01.{ms:03d}"
+            assert _parse_time_str(text) == 1000 + ms
+
+    def test_no_fraction(self):
+        assert _parse_time_str("0:00:10") == 10_000
+        assert _parse_time_str("23:45") == 1_425_000
+
+    def test_garbage_raises(self):
+        """壊れた入力は ValueError（時刻セル編集の検証がこれに依存する）"""
+        with pytest.raises(ValueError):
+            _parse_time_str("あ:い:う")

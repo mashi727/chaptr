@@ -4192,26 +4192,162 @@ class MainWorkspace(QWidget):
         self._table.edit(title_index)
         self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
 
+    def _begin_time_edit(self, row: int):
+        """指定行の時刻列を編集状態にする（ダブルクリックから）
+
+        確定時に書式を検証して並べ替えるため、編集前の文字列を控えておく。
+        不正な入力はここへ戻す。
+        """
+        if not (0 <= row < self._table.rowCount()):
+            return
+        index = self._table.model().index(row, 0)
+        if not index.isValid():
+            return
+        item = self._table.item(row, 0)
+        self._time_edit_before = item.text() if item else ""
+        self._table.setCurrentIndex(index)
+        self._table.setEditTriggers(QAbstractItemView.EditTrigger.AllEditTriggers)
+        self._table.edit(index)
+        self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+
+    def _commit_time_edit(self, row: int) -> bool:
+        """編集された時刻を検証し、時刻順の位置へ行を移す
+
+        戻り値は「表を触ったか」。行を動かした場合、呼び出し側は row を
+        当てにしてはいけない。
+
+        行は QTableWidgetItem ごと取り出して差し替える。作り直すと、追加済み
+        チャプターの赤色や source_index（UserRole 群）が落ちる。
+        """
+        item = self._table.item(row, 0)
+        if item is None:
+            return False
+        text = item.text().strip()
+        before = getattr(self, "_time_edit_before", None)
+
+        try:
+            edited = ChapterInfo.from_time_str(text, "")
+        except ValueError:
+            # 書式が壊れているので戻す。ここで通すと表全体の時刻順が崩れる。
+            if before is not None:
+                self._table.blockSignals(True)
+                item.setText(before)
+                self._table.blockSignals(False)
+            self._log_panel.warning(
+                f"Invalid chapter time: {text!r} (H:MM:SS.mmm)", source="Chapter"
+            )
+            return False
+
+        absolute_ms = edited.local_time_ms
+
+        # 表示は絶対時刻。ローカル時刻（UserRole+2）も追従させる。
+        source_index = item.data(Qt.ItemDataRole.UserRole + 1)
+        offsets = self._get_source_offsets()
+        if isinstance(source_index, int) and 0 <= source_index < len(offsets):
+            item.setData(Qt.ItemDataRole.UserRole + 2, absolute_ms - offsets[source_index])
+        else:
+            item.setData(Qt.ItemDataRole.UserRole + 2, absolute_ms)
+
+        # 正規化した表記へ揃える（0:1:2 のような入力も受けたい）
+        self._table.blockSignals(True)
+        item.setText(self._format_time(absolute_ms))
+        self._table.blockSignals(False)
+
+        target = self._sorted_insert_row(absolute_ms, skip_row=row)
+        if target == row:
+            return False
+        self._move_chapter_row(row, target)
+        return True
+
+    def _sorted_insert_row(self, absolute_ms: int, skip_row: int = -1) -> int:
+        """絶対時刻がこの値の行が入るべき位置を返す"""
+        target = 0
+        for r in range(self._table.rowCount()):
+            if r == skip_row:
+                continue
+            other = self._table.item(r, 0)
+            if other is None:
+                target += 1
+                continue
+            try:
+                other_ms = ChapterInfo.from_time_str(other.text(), "").local_time_ms
+            except ValueError:
+                target += 1
+                continue
+            if other_ms <= absolute_ms:
+                target += 1
+            else:
+                break
+        return target
+
+    def _move_chapter_row(self, row: int, target: int):
+        """行を time 順の位置へ移す（アイテムごと持ち運ぶ）"""
+        self._table.blockSignals(True)
+        try:
+            items = [self._table.takeItem(row, c) for c in range(self._table.columnCount())]
+            self._table.removeRow(row)
+            self._table.insertRow(target)
+            for c, it in enumerate(items):
+                if it is not None:
+                    self._table.setItem(target, c, it)
+        finally:
+            self._table.blockSignals(False)
+        self._set_current_chapter_row(target)
+
     # 現在位置がこの範囲内の候補までを「その区間の頭」とみなす。
     # 休憩の入りは秒単位で詰めるものではないので広めに取る。
-    BREAK_TITLE_TOLERANCE_MS = 30_000
+    # 表題の下書きに使う、追加位置まわりの窓。区切りの宣言（「じゃあ次は…」）は
+    # 区間の頭に来るので後ろを広く取る。手前も少し見るのは、言い終わってから
+    # ボタンを押すことがあるため。
+    TITLE_HINT_BEFORE_MS = 5_000
+    TITLE_HINT_AFTER_MS = 30_000
+    TITLE_HINT_MIN_CHARS = 10
+    TITLE_HINT_MAX_CHARS = 60
 
     def _initial_chapter_title(self, position_ms: int) -> str:
         """追加するチャプターの初期タイトル
 
-        休憩の候補が近くにあるときだけ `--休憩` を入れる。`--` は除外区間
-        （書き出し時にカット）に直結し、そのまま編集不要で使えるため。
-        演奏・コメントは結局曲名などに書き換えるので既定のままにする。
+        字幕が読み込まれていれば、その位置の直後の発話を下書きとして入れる。
+        入れるのは起こした素のテキストだけで、曲名や練習番号の解釈はしない。
+        そこは素材ごとの語彙に依存し、汎用の章立てツールが持つべきものではない。
+
+        字幕が無ければ従来どおり "New Chapter"。字幕の有無以外には依存しない
+        （外部コマンドも API 鍵も要らない）ので、無い環境でも挙動が変わらない。
         """
-        index = self._nearest_candidate_index(position_ms)
-        if index < 0:
-            return "New Chapter"
-        cand = self._segment_candidates[index]
-        if cand.kind != "break":
-            return "New Chapter"
-        if abs(cand.time_ms - position_ms) > self.BREAK_TITLE_TOLERANCE_MS:
-            return "New Chapter"
-        return cand.title
+        hint = self._speech_hint(position_ms)
+        return hint or "New Chapter"
+
+    def _speech_hint(self, position_ms: int) -> str:
+        """指定位置まわりの発話を1行にまとめて返す（無ければ空文字）
+
+        字幕の時刻はソースファイル内のローカル時刻なので、仮想タイムライン
+        （複数ソース連結）では位置とずれる。ずれた下書きを出すくらいなら
+        出さないほうがよいので、単一ソースのときだけ返す。
+        """
+        if len(self._state.sources) > 1 or not self._subtitle_manager.is_loaded:
+            return ""
+
+        lo = position_ms - self.TITLE_HINT_BEFORE_MS
+        hi = position_ms + self.TITLE_HINT_AFTER_MS
+        picked: List[str] = []
+        for sub in self._subtitle_manager.subtitles:
+            if sub.start_ms < lo:
+                continue
+            if sub.start_ms > hi:
+                break
+            text = " ".join(sub.text.split())
+            if not text:
+                continue
+            picked.append(text)
+            # 1つで足りるならそこで止める。短い相槌だけ拾って終わらないよう、
+            # 短すぎる場合だけ次の発話も足す。
+            if sum(len(t) for t in picked) >= self.TITLE_HINT_MIN_CHARS:
+                break
+
+        if not picked:
+            return ""
+        joined = " ".join(picked)
+        return joined[: self.TITLE_HINT_MAX_CHARS]
 
     def _remove_chapter(self):
         """選択チャプターのみ削除（ソースは残す）"""
@@ -4482,6 +4618,9 @@ class MainWorkspace(QWidget):
 
     def _on_chapter_edited(self, row: int, column: int):
         """チャプター編集後に波形を更新"""
+        if column == 0:
+            # 時刻を直したときだけ、検証してから時刻順へ入れ直す
+            self._commit_time_edit(row)
         self._chapters_edited = True
         self._update_waveform_chapters()
         self._update_chapter_buttons()
@@ -5309,15 +5448,6 @@ class MainWorkspace(QWidget):
         # 候補が元から空でもここは通す。音声キャッシュ破棄に伴う Detect の
         # 無効化がこの経路に乗っているため、早期 return すると取り残される。
         self._update_segment_buttons()
-
-    def _nearest_candidate_index(self, position_ms: int) -> int:
-        """再生位置に最も近い候補の添字（無ければ -1）"""
-        if not self._segment_candidates:
-            return -1
-        return min(
-            range(len(self._segment_candidates)),
-            key=lambda i: abs(self._segment_candidates[i].time_ms - position_ms),
-        )
 
     def _goto_candidate(self, index: int):
         """候補の位置へシークする（再生状態は維持）"""
@@ -6779,7 +6909,12 @@ class MainWorkspace(QWidget):
                 pos = event.position().toPoint()
                 index = self._table.indexAt(pos)
                 if index.isValid():
-                    # ダブルクリックでその位置から再生開始
+                    if index.column() == 0:
+                        # 時刻列だけは編集を開く。時刻を直す機会は少ないので
+                        # ダブルクリック限定にし、Enter は従来どおりタイトルへ通す。
+                        self._begin_time_edit(index.row())
+                        return True
+                    # それ以外はダブルクリックでその位置から再生開始
                     self._on_chapter_double_clicked(index.row(), index.column())
                 return True  # 編集をブロック
 
