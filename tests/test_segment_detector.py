@@ -52,7 +52,7 @@ def session():
         ("play", 200.0),
         ("talk", 90.0),
         ("play", 150.0),
-        ("break", 300.0),
+        ("break", 540.0),   # 実素材の休憩は 9 分前後。min_break_sec より十分長く取る
         ("talk", 60.0),
         ("play", 180.0),
     ]
@@ -99,6 +99,82 @@ class TestDetection:
         assert {s.title for s in segs} <= set(KIND_TITLES.values())
 
 
+class TestNoodlingBreak:
+    """各自が楽器を吹いている休憩
+
+    実素材（みん吹リハ 2026-08-29）で判明した失敗ケース。休憩中も多くの奏者が
+    個別に音を出すので静かにならず、「静穏＝休憩」で組んだ判別は取り逃す。
+    レベルではなくコヒーレンス（共有テンポの有無）で分ける必要がある。
+    """
+
+    LAYOUT = [("talk", 70.0), ("play", 200.0), ("talk", 90.0), ("play", 150.0),
+              ("break_noodling", 420.0), ("talk", 60.0), ("play", 180.0)]
+
+    def test_noodling_break_is_found(self):
+        """既定（拾い目）では、休憩を包含する候補が 1 つ出ること
+
+        端が多少はみ出すのは許容する。候補は人が確認して詰めるので、
+        見逃し（長尺の手作業走査）より端の余りの方がはるかに安い。
+        """
+        audio, truth = build_session(self.LAYOUT, seed=7)
+        segs = detect_segments(audio, SR)
+        got = [s for s in segs if s.kind == "break"]
+        assert len(got) == 1, format_summary(segs)
+        want = [(a, b) for k, a, b in truth if k == "break"][0]
+        assert got[0].start_ms / 1000 <= want[0] + 30, format_summary(segs)
+        assert got[0].end_ms / 1000 >= want[1] - 30, format_summary(segs)
+
+    def test_noodling_break_bounds_are_tight_when_strict(self):
+        """厳しめの感度なら境界が 30 秒以内に収まること"""
+        audio, truth = build_session(self.LAYOUT, seed=7)
+        segs = detect_segments(audio, SR, sensitivity="strict")
+        got = [s for s in segs if s.kind == "break"]
+        assert len(got) == 1, format_summary(segs)
+        want = [(a, b) for k, a, b in truth if k == "break"][0]
+        assert abs(got[0].start_ms / 1000 - want[0]) <= 30, format_summary(segs)
+        assert abs(got[0].end_ms / 1000 - want[1]) <= 30, format_summary(segs)
+
+    def test_sensitivity_is_monotonic(self):
+        """感度を上げるほど候補が減らないこと"""
+        audio, _ = build_session(self.LAYOUT, seed=7)
+        counts = []
+        for level in ("strict", "balanced", "loose", "loosest"):
+            segs = detect_segments(audio, SR, sensitivity=level)
+            counts.append(sum(s.duration_ms for s in segs if s.kind == "break"))
+        assert counts == sorted(counts), counts
+
+    def test_unknown_sensitivity_rejected(self):
+        audio, _ = build_session([("play", 30.0)], seed=3)
+        with pytest.raises(ValueError):
+            detect_segments(audio, SR, sensitivity="ゆるゆる")
+
+    def test_noodling_break_is_not_silent(self):
+        """合成が実素材の regime にあること
+
+        休憩が演奏よりずっと静かな合成では、判別が「静穏の検出」で通ってしまい
+        実素材へ移らない。休憩と演奏のレベル差が 15dB を超えたら合成が甘い。
+        """
+        from .synth_rehearsal import make_break, make_break_noodling, make_play
+
+        def rms_db(x):
+            return 20 * np.log10(float(np.sqrt(np.mean(x.astype(np.float64) ** 2))) + 1e-12)
+
+        play = rms_db(make_play(60.0, seed=2))
+        for name, maker in (("break", make_break), ("break_noodling", make_break_noodling)):
+            gap = play - rms_db(maker(60.0, seed=3))
+            assert 0.0 < gap < 15.0, f"{name}: 演奏との差 {gap:.1f}dB（実素材は 4-11dB）"
+
+    def test_quiet_ensemble_is_not_a_break(self):
+        """静かな合奏を休憩と取り違えない
+
+        実素材で新方式が最初に誤検出したのがこれ。レベルも定常性も休憩に似るが、
+        全員が同一テンポで発音するので onset 包絡に周期が立つ（pulse が高い）。
+        """
+        audio, _ = build_session([("play", 200.0), ("talk", 60.0), ("play", 600.0)], seed=55)
+        segs = detect_segments(audio, SR)
+        assert "break" not in {s.kind for s in segs}, format_summary(segs)
+
+
 class TestNoFalsePositives:
     """無いものを作らない"""
 
@@ -125,7 +201,7 @@ class TestSubtitleFusion:
     """字幕を併用したときの補正"""
 
     def test_break_keyword_relaxes_threshold(self):
-        audio, _ = build_session([("play", 200.0), ("break", 90.0), ("play", 200.0)], seed=41)
+        audio, _ = build_session([("play", 200.0), ("break", 200.0), ("play", 200.0)], seed=41)
         cues = [Cue(196_000, 199_000, "はい、じゃあ10分休憩にします")]
         segs = detect_segments(audio, SR, cues=cues)
         breaks = [s for s in segs if s.kind == "break"]
@@ -168,7 +244,7 @@ class TestInputHandling:
 
     def test_low_sample_rate(self):
         """AudioCache は長尺だと 4000 Hz まで落とす。そこでも破綻しないこと"""
-        audio, truth = build_session([("talk", 60.0), ("play", 200.0), ("break", 200.0)], seed=13)
+        audio, truth = build_session([("talk", 60.0), ("play", 200.0), ("break", 540.0)], seed=13)
         decimated = audio[::4]  # 16000 → 4000 Hz
         segs = detect_segments(decimated, SR // 4)
         acc = _frame_accuracy(segs, _truth_ms(truth), len(decimated) / (SR // 4) * 1000)
