@@ -4313,9 +4313,34 @@ class MainWorkspace(QWidget):
 
         字幕が無ければ従来どおり "New Chapter"。字幕の有無以外には依存しない
         （外部コマンドも API 鍵も要らない）ので、無い環境でも挙動が変わらない。
+
+        休憩の候補が近くにあるときだけは、発話より優先して `--休憩` を入れる。
+        `--` は除外区間（書き出し時にカット）に直結し、そのまま編集せずに使える。
+        この位置の発話は「はい、10分休憩します」のような文になり、表題としては
+        `--休憩` に劣る。
         """
-        hint = self._speech_hint(position_ms)
-        return hint or "New Chapter"
+        break_title = self._break_candidate_title(position_ms)
+        if break_title:
+            return break_title
+        return self._speech_hint(position_ms) or "New Chapter"
+
+    # 現在位置がこの範囲内の候補までを「その区間の頭」とみなす。
+    # 休憩の入りは秒単位で詰めるものではないので広めに取る。
+    BREAK_TITLE_TOLERANCE_MS = 30_000
+
+    def _break_candidate_title(self, position_ms: int) -> str:
+        """近くに休憩の候補があればその既定名を返す（無ければ空文字）"""
+        if not self._segment_candidates:
+            return ""
+        nearest = min(
+            self._segment_candidates,
+            key=lambda c: abs(c.time_ms - position_ms),
+        )
+        if nearest.kind != "break":
+            return ""
+        if abs(nearest.time_ms - position_ms) > self.BREAK_TITLE_TOLERANCE_MS:
+            return ""
+        return nearest.title
 
     def _speech_hint(self, position_ms: int) -> str:
         """指定位置まわりの発話を1行にまとめて返す（無ければ空文字）

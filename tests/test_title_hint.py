@@ -14,7 +14,7 @@ pytest.importorskip("PySide6")
 from PySide6.QtCore import QCoreApplication
 from PySide6.QtWidgets import QApplication
 
-from chaptr.ui.models import SourceFile
+from chaptr.ui.models import SegmentCandidate, SourceFile
 
 
 SRT = """1
@@ -121,3 +121,46 @@ def _write_long_srt(tmp_path) -> pathlib.Path:
         encoding="utf-8",
     )
     return p
+
+
+class TestBreakTitleWins:
+    """休憩候補が近ければ、発話の下書きより `--休憩` を優先する
+
+    `--` は除外区間に直結してそのまま使えるのに対し、この位置の発話は
+    「はい、10分休憩します」のような文になり表題としては劣る。
+    """
+
+    def test_break_candidate_beats_speech(self, workspace, tmp_path, srt_path):
+        workspace._subtitle_manager.load_srt(srt_path)
+        _single_source(workspace, tmp_path)
+        workspace._segment_candidates = [
+            SegmentCandidate(time_ms=M34_58, kind="break", title="--休憩", confidence=0.9)
+        ]
+        try:
+            assert workspace._initial_chapter_title(M34_58) == "--休憩"
+        finally:
+            workspace._segment_candidates = []
+
+    def test_non_break_candidate_falls_through_to_speech(self, workspace, tmp_path, srt_path):
+        workspace._subtitle_manager.load_srt(srt_path)
+        _single_source(workspace, tmp_path)
+        workspace._segment_candidates = [
+            SegmentCandidate(time_ms=M34_58, kind="play", title="演奏", confidence=0.9)
+        ]
+        try:
+            assert workspace._initial_chapter_title(M34_58) == "じゃあ頭からお願いします"
+        finally:
+            workspace._segment_candidates = []
+
+    def test_distant_break_candidate_ignored(self, workspace, tmp_path, srt_path):
+        """遠い休憩候補には引きずられない"""
+        workspace._subtitle_manager.load_srt(srt_path)
+        _single_source(workspace, tmp_path)
+        far = M34_58 + workspace.BREAK_TITLE_TOLERANCE_MS + 10_000
+        workspace._segment_candidates = [
+            SegmentCandidate(time_ms=far, kind="break", title="--休憩", confidence=0.9)
+        ]
+        try:
+            assert workspace._initial_chapter_title(M34_58) == "じゃあ頭からお願いします"
+        finally:
+            workspace._segment_candidates = []
