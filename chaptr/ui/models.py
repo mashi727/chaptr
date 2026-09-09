@@ -151,6 +151,26 @@ class ChapterInfo:
         return cls(local_time_ms=max(0, local_time_ms), title=title, source_index=source_index)
 
 
+@dataclass
+class SegmentCandidate:
+    """自動検出された区間の境界（チャプター候補）
+
+    チャプターそのものではない。検出は当たりを付けるところまでで、境界の 1 秒は
+    人が決める。候補はスキップ移動の行き先として使い、微調整のうえ確定した時点で
+    初めてチャプターになる。確定済みの候補は消さずに残し、取りこぼしを見えるようにする。
+    """
+
+    time_ms: int              # 区間の開始時刻（全体タイムライン上の絶対時刻）
+    kind: str                 # "play" | "talk" | "break"
+    title: str                # 確定時に使う既定のチャプター名
+    confidence: float = 0.0
+    committed: bool = False   # 確定してチャプターにしたか
+
+    @property
+    def time_str(self) -> str:
+        return _format_time_ms(self.time_ms)
+
+
 def compute_excluded_regions(
     chapters: List[ChapterInfo], duration_ms: int
 ) -> List[Tuple[int, int]]:

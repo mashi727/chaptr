@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **区間の自動判別（演奏 / コメント / 休憩）**: 音声から切れ目を推定し、波形上に候補として表示
+  - `Detect` で検出（既に常駐している全長 PCM を使うので再デコードなし。1h45m の素材で約 4 秒）
+  - `◀候補` / `候補▶` で候補へスキップ、送り戻しで詰めてから `確定` でチャプター化
+  - 確定はテーブルへの一括流し込みではなく、**いまの再生位置**を最寄り候補の種別名で 1 本ずつ立てる
+  - 休憩は `--休憩` として確定され、既存の除外チャプターの仕組みでそのままカットされる
+  - 単一ソースで SRT を読み込み済みなら、発話の裏付けと「休憩」の合図を併用する
+  - 判別ロジックは `chaptr/pipeline/segment_detector.py`（Qt 非依存・numpy のみ）
+
 ### Changed
 
 - **Rebrand to Chaptr**: GUI を `media-scribe-workflow` から本リポジトリ `chaptr` として分離・改名

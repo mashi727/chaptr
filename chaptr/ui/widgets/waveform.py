@@ -9,9 +9,9 @@ from typing import List, Optional, Tuple
 
 from PySide6.QtWidgets import QWidget, QSizePolicy
 from PySide6.QtCore import Qt, Signal, QPoint
-from PySide6.QtGui import QPainter, QColor, QPen, QBrush, QImage
+from PySide6.QtGui import QPainter, QColor, QPen, QBrush, QImage, QPolygon
 
-from ..models import ChapterInfo, compute_excluded_regions
+from ..models import ChapterInfo, SegmentCandidate, compute_excluded_regions
 from ..theme import ColorRole, get_theme_manager
 
 # 寒色寄りのカラーマップ（藍〜緑〜黄）。上段と下段を見分けるために使う
@@ -43,6 +43,15 @@ _OVERLAY_ON_COOL = {          # viridis / cividis（紺〜青緑〜黄）には�
     "chapter": QColor(255, 255, 255),      # 白（細線・高頻度）
     "playback": QColor(233, 82, 149),      # 躑躅色 #e95295（黄のピークと衝突しない）
 }
+
+# 自動検出した区間候補の色。波形（暗い背景）とスペクトログラムの
+# どちらに重ねても沈まないよう、彩度の高い色を種類ごとに割り当てる。
+_CANDIDATE_COLORS = {
+    "play": QColor(56, 161, 219),    # 露草色 — 演奏
+    "talk": QColor(248, 181, 0),     # 山吹色 — コメント
+    "break": QColor(233, 84, 100),   # 韓紅 — 休憩（除外チャプターと同じ赤系）
+}
+_CANDIDATE_FALLBACK = QColor(200, 200, 200)
 
 # numpy の有無をチェック
 try:
@@ -110,6 +119,9 @@ class WaveformWidget(QWidget):
         # ホイールの積算値（閾値を越えたときだけ1段動かす）
         self._wheel_accumulator: int = 0
 
+        # 自動検出の区間候補（チャプターではない。確定前の当たり）
+        self._segment_candidates: List[SegmentCandidate] = []
+
         # 左下の注記（区間の幅と倍率）
         self._corner_label: str = ""
 
@@ -129,6 +141,17 @@ class WaveformWidget(QWidget):
         if duration_ms > 0:
             self._duration_ms = duration_ms
         self.update()
+
+    def set_segment_candidates(self, candidates: List[SegmentCandidate]):
+        """自動検出した区間候補を設定（チャプターとは別レイヤで描く）"""
+        self._segment_candidates = list(candidates)
+        self.update()
+
+    def clear_segment_candidates(self):
+        """区間候補をクリア"""
+        if self._segment_candidates:
+            self._segment_candidates = []
+            self.update()
 
     def set_file_boundaries(self, boundaries: List[float]):
         """ファイル境界位置を設定（仮想タイムライン用）
@@ -810,6 +833,34 @@ class WaveformWidget(QWidget):
                 x = int(self._ms_to_x(boundary_pos * self._duration_ms, w))
                 if -3 <= x <= w + 3:
                     painter.drawLine(x, 0, x, h)
+
+        # 自動検出の区間候補（破線＋上端の三角）。チャプターより先に描いて下に敷く
+        if self._duration_ms > 0 and self._segment_candidates:
+            for cand in self._segment_candidates:
+                x = int(self._ms_to_x(cand.time_ms, w))
+                if not (-4 <= x <= w + 4):
+                    continue
+                base = _CANDIDATE_COLORS.get(cand.kind, _CANDIDATE_FALLBACK)
+                # 確定済みは薄く残す（どこを拾い終えたかが見えるように）
+                alpha = 90 if cand.committed else 220
+                color = QColor(base.red(), base.green(), base.blue(), alpha)
+
+                pen = QPen(color)
+                pen.setWidthF(1.0 if cand.committed else 1.5)
+                pen.setStyle(Qt.PenStyle.DashLine)
+                painter.setPen(pen)
+                painter.drawLine(x, marker_height, x, h - marker_height)
+
+                # 上端の三角。線だけだとチャプターと見分けが付かない
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(QBrush(color))
+                tri = QPolygon([
+                    QPoint(x - 5, 0),
+                    QPoint(x + 5, 0),
+                    QPoint(x, marker_height),
+                ])
+                painter.drawPolygon(tri)
+                painter.setBrush(Qt.BrushStyle.NoBrush)
 
         # チャプターマーカーを描画
         if self._duration_ms > 0 and self._chapters:

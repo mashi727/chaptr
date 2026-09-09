@@ -39,6 +39,11 @@ class SubtitleManager(QObject):
         return len(self._subtitles) > 0
 
     @property
+    def subtitles(self) -> list[Subtitle]:
+        """読み込み済み字幕のリスト（区間の自動判別で発話の裏付けに使う）"""
+        return self._subtitles
+
+    @property
     def srt_path(self) -> Optional[Path]:
         """読み込み済みSRTファイルのパス"""
         return self._srt_path

@@ -25,6 +25,9 @@ from .media_analysis import (
     MultiSourceChapterExtractWorker,
 )
 
+# Segment detection worker
+from .segment_detection import SegmentDetectWorker
+
 # YouTube workers
 
 __all__ = [
@@ -43,5 +46,7 @@ __all__ = [
     "DurationDetectWorker",
     "ChapterExtractWorker",
     "MultiSourceChapterExtractWorker",
+    # Segment detection
+    "SegmentDetectWorker",
     # YouTube
 ]

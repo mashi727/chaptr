@@ -41,6 +41,7 @@ from .theme import ColorRole, get_theme_manager
 from .models import (
     ChapterInfo,
     ColorspaceInfo,
+    SegmentCandidate,
     SourceFile,
     ProjectState,
     detect_video_colorspace,
@@ -48,9 +49,10 @@ from .models import (
     detect_video_bitrate,
     detect_available_encoders,
 )
-from .workers import DurationDetectWorker
+from .workers import DurationDetectWorker, SegmentDetectWorker
 from .widgets import WaveformWidget, RegionBridge
 from .audio_cache import AudioCache, AudioCacheWorker
+from ..pipeline.segment_detector import Cue, KIND_TITLES
 from .styles import ButtonStyles
 from .ffmpeg_utils import get_ffmpeg_path, get_ffprobe_path, extract_chapters_with_ffmpeg, get_subprocess_kwargs, write_concat_file
 from .managers import (
@@ -1047,6 +1049,11 @@ class MainWorkspace(QWidget):
         self._cache_thread: Optional[QThread] = None
         self._cache_worker: Optional[AudioCacheWorker] = None
 
+        # 自動判別した区間候補（チャプターではない。確定するまで表には入れない）
+        self._segment_candidates: List[SegmentCandidate] = []
+        self._detect_thread: Optional[QThread] = None
+        self._detect_worker: Optional[SegmentDetectWorker] = None
+
         # 区間表示（下段）
         self._region_widget: Optional[WaveformWidget] = None
         self._region_bridge: Optional[RegionBridge] = None
@@ -1964,6 +1971,55 @@ class MainWorkspace(QWidget):
         btn_layout.addWidget(save_btn, 1)
 
         layout.addLayout(btn_layout)
+
+        # 区間の自動判別（演奏 / コメント / 休憩）
+        # 検出結果をそのままチャプター表へ流し込むと、境界の微修正がすべて
+        # 後追いの作業になる。ここでは候補として波形に出すだけにして、
+        # 「候補へ飛ぶ → 送り戻しで詰める → 確定」の順で人が拾えるようにする。
+        segment_layout = QHBoxLayout()
+        segment_layout.setSpacing(4)
+
+        segment_btn_style = chapter_btn_style.replace("padding: 2px 8px;", "padding: 0 6px;")
+
+        self._detect_btn = QPushButton("Detect")
+        self._detect_btn.setFixedHeight(28)
+        self._detect_btn.setStyleSheet(segment_btn_style)
+        self._detect_btn.setToolTip("演奏・コメント・休憩の切れ目を自動検出して候補を出す")
+        self._detect_btn.clicked.connect(self._detect_segments)
+        self._detect_btn.setEnabled(False)
+        segment_layout.addWidget(self._detect_btn)
+
+        self._prev_candidate_btn = QPushButton("◀候補")
+        self._prev_candidate_btn.setFixedHeight(28)
+        self._prev_candidate_btn.setStyleSheet(segment_btn_style)
+        self._prev_candidate_btn.setToolTip("前の候補へスキップ")
+        self._prev_candidate_btn.clicked.connect(self._goto_prev_candidate)
+        self._prev_candidate_btn.setEnabled(False)
+        segment_layout.addWidget(self._prev_candidate_btn)
+
+        self._next_candidate_btn = QPushButton("候補▶")
+        self._next_candidate_btn.setFixedHeight(28)
+        self._next_candidate_btn.setStyleSheet(segment_btn_style)
+        self._next_candidate_btn.setToolTip("次の候補へスキップ")
+        self._next_candidate_btn.clicked.connect(self._goto_next_candidate)
+        self._next_candidate_btn.setEnabled(False)
+        segment_layout.addWidget(self._next_candidate_btn)
+
+        self._commit_candidate_btn = QPushButton("確定")
+        self._commit_candidate_btn.setFixedHeight(28)
+        self._commit_candidate_btn.setStyleSheet(segment_btn_style)
+        self._commit_candidate_btn.setToolTip(
+            "現在の再生位置を、最寄り候補の種別でチャプターにする（確定後は次の候補へ）"
+        )
+        self._commit_candidate_btn.clicked.connect(self._commit_candidate)
+        self._commit_candidate_btn.setEnabled(False)
+        segment_layout.addWidget(self._commit_candidate_btn)
+
+        self._segment_status_label = QLabel("")
+        self._segment_status_label.setStyleSheet("color: #909090; font-size: 11px;")
+        segment_layout.addWidget(self._segment_status_label, 1)
+
+        layout.addLayout(segment_layout)
 
         return self._chapter_group
 
@@ -3295,6 +3351,9 @@ class MainWorkspace(QWidget):
             source="Waveform"
         )
 
+        # 新しいキャッシュ＝別素材。前の候補は時刻の基準が違うので持ち越さない
+        self._clear_segment_candidates()
+
         self._apply_overview_envelope()
 
         if len(self._state.sources) > 1:
@@ -3368,6 +3427,7 @@ class MainWorkspace(QWidget):
         if self._waveform_widget:
             self._waveform_widget.set_error(message)
         self._audio_cache = None
+        self._clear_segment_candidates()
         self._log_panel.warning(f"Audio cache error: {message}", source="Waveform")
 
     # === 区間表示（下段）===
@@ -3588,6 +3648,7 @@ class MainWorkspace(QWidget):
     def _reset_region_view(self):
         """区間表示を初期状態へ戻す"""
         self._audio_cache = None
+        self._clear_segment_candidates()
         self._region_pinned = False
         self._region_start_ms = 0
         self._region_timer.stop()
@@ -5134,6 +5195,212 @@ class MainWorkspace(QWidget):
             self._on_chapter_clicked(last_row, 0)
             self._table.selectRow(last_row)
 
+    # === 区間の自動判別（演奏 / コメント / 休憩）===
+
+    def _detection_cues(self) -> List[Cue]:
+        """判別の補助に使う字幕
+
+        字幕の時刻はソースファイル内のローカル時刻なので、仮想タイムライン
+        （複数ソース連結）では候補の時刻とずれる。ずらして使うくらいなら
+        音だけで判断させたほうが安全なので、単一ソースのときだけ渡す。
+        """
+        if len(self._state.sources) > 1 or not self._subtitle_manager.is_loaded:
+            return []
+        return [
+            Cue(sub.start_ms, sub.end_ms, sub.text)
+            for sub in self._subtitle_manager.subtitles
+        ]
+
+    def _detect_segments(self):
+        """音声から演奏・コメント・休憩の切れ目を検出して候補を出す"""
+        if self._audio_cache is None:
+            self._log_panel.warning("Audio cache is not ready yet", source="Segment")
+            return
+        if self._detect_thread is not None:
+            return  # 実行中
+
+        duration = self._display_duration() or self._audio_cache.duration_ms
+        cues = self._detection_cues()
+
+        self._detect_btn.setEnabled(False)
+        self._segment_status_label.setText("検出中…")
+        self._log_panel.info(
+            f"Detecting segments: {duration / 1000:.0f}s @ {self._audio_cache.sample_rate} Hz"
+            + (f", {len(cues)} subtitle cues" if cues else ""),
+            source="Segment",
+        )
+
+        self._detect_thread = QThread()
+        self._detect_worker = SegmentDetectWorker(
+            self._audio_cache.samples,
+            self._audio_cache.sample_rate,
+            duration,
+            cues=cues,
+        )
+        self._detect_worker.moveToThread(self._detect_thread)
+
+        self._detect_thread.started.connect(self._detect_worker.run)
+        self._detect_worker.progress.connect(self._on_detect_progress)
+        self._detect_worker.finished.connect(self._on_detect_finished)
+        self._detect_worker.error.connect(self._on_detect_error)
+        self._detect_worker.finished.connect(self._detect_thread.quit)
+        self._detect_worker.error.connect(self._detect_thread.quit)
+
+        self._detect_thread.start()
+
+    def _on_detect_progress(self, value: int):
+        self._segment_status_label.setText(f"検出中… {value}%")
+
+    def _on_detect_finished(self, segments):
+        """検出完了 - 区間の先頭を候補として波形に出す"""
+        summary = self._detect_worker.summary if self._detect_worker else ""
+        self._cleanup_detect_thread()
+
+        self._segment_candidates = [
+            SegmentCandidate(
+                time_ms=seg.start_ms,
+                kind=seg.kind,
+                # 休憩は除外チャプター（--）にして、書き出し時にそのままカットさせる
+                title=("--" + seg.title) if seg.kind == "break" else seg.title,
+                confidence=seg.confidence,
+            )
+            for seg in segments
+        ]
+        self._apply_segment_candidates()
+        self._update_segment_buttons()
+        self._log_panel.info(f"Detected {summary}", source="Segment")
+        # 検出しただけで再生位置は動かさない。どこから拾うかは人が決める
+
+    def _on_detect_error(self, message: str):
+        self._cleanup_detect_thread()
+        self._update_segment_buttons()
+        self._log_panel.warning(message, source="Segment")
+
+    def _cleanup_detect_thread(self):
+        """判別スレッドを停止して参照を落とす
+
+        走行中の QThread を破棄すると abort するので、必ず quit()→wait() で畳む。
+        検出は純粋な計算なのでキャンセル要求は次の進捗報告で効く。
+        """
+        if self._detect_worker:
+            self._detect_worker.cancel()
+        if self._detect_thread:
+            self._detect_thread.quit()
+            if not self._detect_thread.wait(5000):
+                self._log_panel.warning("Segment detection thread did not stop", source="Segment")
+        self._detect_thread = None
+        self._detect_worker = None
+
+    def _apply_segment_candidates(self):
+        """候補を上下両方の波形ウィジェットへ反映する"""
+        for widget in (self._waveform_widget, self._region_widget):
+            if widget:
+                widget.set_segment_candidates(self._segment_candidates)
+
+    def _clear_segment_candidates(self):
+        """候補を捨てる（素材が変わると時刻の基準が変わるため）"""
+        self._segment_candidates = []
+        for widget in (self._waveform_widget, self._region_widget):
+            if widget:
+                widget.clear_segment_candidates()
+        # 候補が元から空でもここは通す。音声キャッシュ破棄に伴う Detect の
+        # 無効化がこの経路に乗っているため、早期 return すると取り残される。
+        self._update_segment_buttons()
+
+    def _nearest_candidate_index(self, position_ms: int) -> int:
+        """再生位置に最も近い候補の添字（無ければ -1）"""
+        if not self._segment_candidates:
+            return -1
+        return min(
+            range(len(self._segment_candidates)),
+            key=lambda i: abs(self._segment_candidates[i].time_ms - position_ms),
+        )
+
+    def _goto_candidate(self, index: int):
+        """候補の位置へシークする（再生状態は維持）"""
+        if not (0 <= index < len(self._segment_candidates)):
+            return
+        self._seek_virtual(self._segment_candidates[index].time_ms)
+        self._update_segment_buttons(current=index)
+
+    def _goto_next_candidate(self):
+        """次の候補へスキップ"""
+        current = self._get_virtual_position()
+        for i, cand in enumerate(self._segment_candidates):
+            # 直前にシークした候補へ戻らないよう、チャプター送りと同じ 500ms を空ける
+            if cand.time_ms > current + 500:
+                self._goto_candidate(i)
+                return
+        self._goto_candidate(len(self._segment_candidates) - 1)
+
+    def _goto_prev_candidate(self):
+        """前の候補へスキップ"""
+        current = self._get_virtual_position()
+        for i in range(len(self._segment_candidates) - 1, -1, -1):
+            if self._segment_candidates[i].time_ms < current - 500:
+                self._goto_candidate(i)
+                return
+        self._goto_candidate(0)
+
+    def _commit_candidate(self):
+        """現在の再生位置を、最寄り候補の種別でチャプターとして確定する
+
+        時刻は候補ではなく再生位置を使う。候補はあくまで当たりで、送り戻しで
+        詰めた位置こそが人の判断だから。
+        """
+        position = self._get_virtual_position()
+        index = self._nearest_candidate_index(position)
+        if index < 0:
+            return
+        cand = self._segment_candidates[index]
+
+        if len(self._state.sources) > 1:
+            source_index, local_time_ms = self._virtual_to_source(position)
+        else:
+            source_index, local_time_ms = 0, position
+
+        self._add_chapter_at_position(local_time_ms, cand.title, source_index)
+        cand.committed = True
+
+        self._log_panel.info(
+            f"Committed '{cand.title}' at {self._format_time(position)} "
+            f"({position - cand.time_ms:+d} ms from the candidate)",
+            source="Segment",
+        )
+
+        self._update_waveform_chapters()
+        self._apply_segment_candidates()
+        self._update_chapter_buttons()
+        self._update_chapter_drag_enabled()
+        self._update_output_preview()
+        self._goto_next_candidate()
+
+    def _update_segment_buttons(self, current: Optional[int] = None):
+        """検出まわりのボタンとステータス表示を更新する"""
+        if not hasattr(self, "_detect_btn"):
+            return
+
+        self._detect_btn.setEnabled(
+            self._audio_cache is not None and self._detect_thread is None
+        )
+
+        has_candidates = bool(self._segment_candidates)
+        self._prev_candidate_btn.setEnabled(has_candidates)
+        self._next_candidate_btn.setEnabled(has_candidates)
+        self._commit_candidate_btn.setEnabled(has_candidates)
+
+        if not has_candidates:
+            self._segment_status_label.setText("")
+            return
+
+        committed = sum(1 for c in self._segment_candidates if c.committed)
+        text = f"候補 {len(self._segment_candidates)} / 確定 {committed}"
+        if current is not None and 0 <= current < len(self._segment_candidates):
+            cand = self._segment_candidates[current]
+            kind = KIND_TITLES.get(cand.kind, cand.kind)
+            text += f" · {current + 1}番目 {kind}（確度 {cand.confidence:.2f}）"
+        self._segment_status_label.setText(text)
+
     def _update_chapter_buttons(self):
         """チャプタースキップボタンの有効/無効を更新
 
@@ -6526,6 +6793,8 @@ class MainWorkspace(QWidget):
         """リソースクリーンアップ"""
         # 音声キャッシュ構築スレッドをクリーンアップ
         self._cleanup_cache_thread()
+        # 区間判別スレッドをクリーンアップ
+        self._cleanup_detect_thread()
         self._region_timer.stop()
         self._audio_cache = None
 
