@@ -842,11 +842,11 @@ class WaveformWidget(QWidget):
                     continue
                 base = _CANDIDATE_COLORS.get(cand.kind, _CANDIDATE_FALLBACK)
                 # 確定済みは薄く残す（どこを拾い終えたかが見えるように）
-                alpha = 90 if cand.committed else 220
+                alpha = 220
                 color = QColor(base.red(), base.green(), base.blue(), alpha)
 
                 pen = QPen(color)
-                pen.setWidthF(1.0 if cand.committed else 1.5)
+                pen.setWidthF(1.5)
                 pen.setStyle(Qt.PenStyle.DashLine)
                 painter.setPen(pen)
                 painter.drawLine(x, marker_height, x, h - marker_height)

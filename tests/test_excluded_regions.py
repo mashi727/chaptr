@@ -1,6 +1,7 @@
 """除外チャプター（--プレフィックス）区間のテスト
 
-WaveformWidgetの除外区間計算、ExportWorkerの除外処理など。
+WaveformWidget / models.compute_excluded_regions の除外区間計算。
+（書き出し側の除外処理は f3f9585 で CLI へ移行済み）
 """
 
 from chaptr.ui.models import ChapterInfo

@@ -64,7 +64,6 @@ class ChapterInfo:
     local_time_ms: int  # ソースファイル内のローカル時間（ミリ秒）
     title: str
     source_index: Optional[int] = None  # 所属するソースファイルのインデックス
-    rotation: int = 0  # チャプター単位の回転角（度・時計回り、0/90/180/270）
 
     @property
     def local_time_str(self) -> str:
@@ -157,14 +156,13 @@ class SegmentCandidate:
 
     チャプターそのものではない。検出は当たりを付けるところまでで、境界の 1 秒は
     人が決める。候補はスキップ移動の行き先として使い、微調整のうえ確定した時点で
-    初めてチャプターになる。確定済みの候補は消さずに残し、取りこぼしを見えるようにする。
+    初めてチャプターになる。候補はチャプター追加位置の目印として使う。
     """
 
     time_ms: int              # 区間の開始時刻（全体タイムライン上の絶対時刻）
     kind: str                 # "play" | "talk" | "break"
     title: str                # 確定時に使う既定のチャプター名
     confidence: float = 0.0
-    committed: bool = False   # 確定してチャプターにしたか
 
     @property
     def time_str(self) -> str:
@@ -567,36 +565,6 @@ def calculate_target_properties(sources_props: List[VideoProperties]) -> Optiona
         is_interlaced=False,
         field_order="progressive"
     )
-
-
-def build_rotation_filter(rotation: int) -> str:
-    """回転角（度・時計回り）から ffmpeg のビデオフィルタ文字列を生成
-
-    チャプター（セグメント）単位の回転で、プレビューと出力を一致させるための
-    単一情報源。90°単位のみ対応し、端数は最近接の90°にスナップする。
-
-    対応（時計回りCWを正方向とする）:
-        0°   → ""（no-op）
-        90°  → "transpose=1"            （90° CW）
-        180° → "transpose=1,transpose=1"
-        270° → "transpose=2"            （90° CCW）
-
-    ffmpeg transpose: 1=90°CW, 2=90°CCW。
-
-    Args:
-        rotation: 回転角（度）。任意の整数を 0/90/180/270 に正規化する。
-
-    Returns:
-        ffmpeg フィルタ文字列（回転不要なら空文字）
-    """
-    r = round((rotation % 360) / 90) * 90 % 360
-    if r == 90:
-        return "transpose=1"
-    if r == 180:
-        return "transpose=1,transpose=1"
-    if r == 270:
-        return "transpose=2"
-    return ""
 
 
 def build_scaling_filter(

@@ -30,7 +30,6 @@ class TestSegmentCandidate:
 
     def test_defaults(self):
         cand = SegmentCandidate(time_ms=1000, kind="play", title="演奏")
-        assert cand.committed is False
         assert cand.confidence == 0.0
 
     def test_time_str(self):
@@ -138,7 +137,6 @@ class TestWiring:
             "_cleanup_detect_thread",
             "_goto_prev_candidate",
             "_goto_next_candidate",
-            "_commit_candidate",
             "_clear_segment_candidates",
             "_update_segment_buttons",
         ],
