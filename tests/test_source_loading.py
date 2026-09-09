@@ -303,25 +303,34 @@ class TestSourceFileManagerIntegration:
 class TestDropBehavior:
     """ドロップ動作のテスト
 
-    既存ソースがある場合とない場合で動作が異なること。
+    単一ソース運用。bf02ad3 以降、動画/音声のドロップは既存ソースの有無に
+    かかわらず「差し替え」に統一された（束ねる _add_sources_to_existing の
+    呼び出しは廃止。メソッド自体は死コードとして残置）。
     """
 
-    def test_on_files_dropped_initial_mode(self):
-        """既存ソースがない場合は新規モード"""
+    def test_media_drop_always_replaces(self):
+        """動画/音声のドロップは常に差し替え（新規ロード扱い）"""
         from chaptr.ui.main_workspace import MainWorkspace
         source = inspect.getsource(MainWorkspace._on_files_dropped)
 
-        # 既存ソースがない場合の処理
-        assert "if not self._state.sources:" in source
         assert "_handle_initial_drop" in source
+        # 既存ソースの有無で分岐しない
+        assert "if not self._state.sources:" not in source
 
-    def test_on_files_dropped_add_mode(self):
-        """既存ソースがある場合は追加モード"""
+    def test_media_drop_does_not_append(self):
+        """束ねる経路は呼ばれない"""
         from chaptr.ui.main_workspace import MainWorkspace
         source = inspect.getsource(MainWorkspace._on_files_dropped)
 
-        # 追加モードの処理
-        assert "_add_sources_to_existing" in source
+        assert "_add_sources_to_existing" not in source
+
+    def test_project_file_drop_takes_precedence(self):
+        """プロジェクトファイルがあれば他を無視して読み込む"""
+        from chaptr.ui.main_workspace import MainWorkspace
+        source = inspect.getsource(MainWorkspace._on_files_dropped)
+
+        assert "classified.has_project" in source
+        assert "_load_project" in source
 
 
 class TestMediaStatusHandlingEnhancements:
