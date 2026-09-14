@@ -150,3 +150,54 @@ class TestWiring:
         from chaptr.ui.managers.subtitle_manager import SubtitleManager
 
         assert isinstance(SubtitleManager.subtitles, property)
+
+
+class TestSensitivityWiring:
+    """検出感度の UI 配線
+
+    プリセットは実素材で校正してあるので、UI 側は「選んだ値がワーカーへ
+    そのまま渡ること」と「壊れた設定値で落ちないこと」を守れば足りる。
+    """
+
+    def test_worker_forwards_sensitivity(self):
+        """ワーカーが sensitivity を detect_segments へ渡すこと"""
+        from chaptr.ui.workers import SegmentDetectWorker
+        from chaptr.pipeline import segment_detector as sd
+
+        audio, _ = build_session([("play", 30.0)], seed=5)
+        pcm = (np.clip(audio, -1.0, 1.0) * 32767).astype(np.int16)
+        seen = {}
+        orig = sd.detect_segments
+
+        def spy(*a, **kw):
+            seen["sensitivity"] = kw.get("sensitivity")
+            return orig(*a, **kw)
+
+        import chaptr.ui.workers.segment_detection as mod
+        mod.detect_segments = spy
+        try:
+            worker = SegmentDetectWorker(
+                pcm, SR, int(len(pcm) / SR * 1000), sensitivity="strict"
+            )
+            worker.run()
+        finally:
+            mod.detect_segments = orig
+        assert seen["sensitivity"] == "strict"
+
+    def test_workspace_exposes_sensitivity_api(self):
+        from chaptr.ui.main_workspace import MainWorkspace
+
+        for name in ("_load_sensitivity", "_current_sensitivity", "_on_sensitivity_changed"):
+            assert hasattr(MainWorkspace, name)
+
+    def test_presets_cover_all_levels(self):
+        from chaptr.pipeline.segment_detector import (
+            SENSITIVITY_LEVELS,
+            SENSITIVITY_PRESETS,
+            SENSITIVITY_TITLES,
+            DEFAULT_SENSITIVITY,
+        )
+
+        assert set(SENSITIVITY_PRESETS) == set(SENSITIVITY_LEVELS)
+        assert set(SENSITIVITY_TITLES) == set(SENSITIVITY_LEVELS)
+        assert DEFAULT_SENSITIVITY in SENSITIVITY_LEVELS

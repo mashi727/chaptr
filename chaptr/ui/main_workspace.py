@@ -52,7 +52,13 @@ from .models import (
 from .workers import DurationDetectWorker, SegmentDetectWorker
 from .widgets import WaveformWidget, RegionBridge
 from .audio_cache import AudioCache, AudioCacheWorker, RegionSpectrogramWorker
-from ..pipeline.segment_detector import Cue, KIND_TITLES
+from ..pipeline.segment_detector import (
+    Cue,
+    KIND_TITLES,
+    DEFAULT_SENSITIVITY,
+    SENSITIVITY_LEVELS,
+    SENSITIVITY_TITLES,
+)
 from .styles import ButtonStyles
 from .ffmpeg_utils import get_ffmpeg_path, get_ffprobe_path, extract_chapters_with_ffmpeg, get_subprocess_kwargs, write_concat_file
 from .managers import (
@@ -1535,8 +1541,7 @@ class MainWorkspace(QWidget):
         output_label.setStyleSheet("color: #a0a0a0;")
         bottom_row.addWidget(output_label)
 
-        self._audio_device_combo = AudioDeviceComboBox()
-        self._audio_device_combo.setStyleSheet("""
+        combo_style = """
             QComboBox {
                 background: #1a1a1a;
                 color: #f0f0f0;
@@ -1551,12 +1556,38 @@ class MainWorkspace(QWidget):
                 color: #f0f0f0;
                 selection-background-color: #1e50a2;
             }
-        """)
+        """
+
+        self._audio_device_combo = AudioDeviceComboBox()
+        self._audio_device_combo.setStyleSheet(combo_style)
         self._audio_device_combo.setToolTip("音声出力デバイス")
         self._audio_device_combo.set_refresh_callback(self._populate_audio_devices)
         self._populate_audio_devices()
         self._audio_device_combo.currentIndexChanged.connect(self._on_audio_device_changed)
         bottom_row.addWidget(self._audio_device_combo)
+
+        bottom_row.addSpacing(12)
+
+        # 区間判別の感度。トランスポート行ではなくこちらへ置く。操作ではなく
+        # 設定なので、表示モード・出力デバイスと同じ行に並ぶのが素直。
+        sens_label = QLabel("候補:")
+        sens_label.setStyleSheet("color: #a0a0a0;")
+        sens_label.setToolTip("区間判別の感度（休憩などの候補をどれだけ拾うか）")
+        bottom_row.addWidget(sens_label)
+
+        self._sensitivity_combo = QComboBox()
+        self._sensitivity_combo.setStyleSheet(combo_style)
+        self._sensitivity_combo.setToolTip(
+            "拾い目にするほど候補が増える。見逃すと長尺を手で走査することになるが、"
+            "余分な候補はスキップ1回で消える"
+        )
+        for level in SENSITIVITY_LEVELS:
+            self._sensitivity_combo.addItem(SENSITIVITY_TITLES[level], level)
+        self._sensitivity_combo.setCurrentIndex(
+            max(0, SENSITIVITY_LEVELS.index(self._load_sensitivity()))
+        )
+        self._sensitivity_combo.currentIndexChanged.connect(self._on_sensitivity_changed)
+        bottom_row.addWidget(self._sensitivity_combo)
 
         bottom_row.addStretch()
 
@@ -3350,6 +3381,45 @@ class MainWorkspace(QWidget):
         from PySide6.QtCore import QSettings
         settings = QSettings("mashi727", "Chaptr")
         settings.setValue("waveform/region_span_ms", self._region_span_ms)
+
+    # === 区間判別の感度 ===
+
+    def _load_sensitivity(self) -> str:
+        """前回使った感度を復元する"""
+        from PySide6.QtCore import QSettings
+        settings = QSettings("mashi727", "Chaptr")
+        value = settings.value("segment/sensitivity", DEFAULT_SENSITIVITY)
+        # 設定が壊れていても破綻させない（未知の値は既定へ落とす）
+        return value if value in SENSITIVITY_LEVELS else DEFAULT_SENSITIVITY
+
+    def _current_sensitivity(self) -> str:
+        """コンボの現在値。UI 構築前でも既定を返す"""
+        combo = getattr(self, "_sensitivity_combo", None)
+        if combo is None:
+            return self._load_sensitivity()
+        level = combo.currentData()
+        return level if level in SENSITIVITY_LEVELS else DEFAULT_SENSITIVITY
+
+    def _on_sensitivity_changed(self, _index: int):
+        """感度が変わったら保存し、その場で判別をやり直す
+
+        再検出は 2.24h の素材で約 4 秒。専用ボタンを置くほどの重さではないので、
+        選んだ瞬間に結果が入れ替わるようにする。
+        """
+        from PySide6.QtCore import QSettings
+        level = self._current_sensitivity()
+        QSettings("mashi727", "Chaptr").setValue("segment/sensitivity", level)
+        self._log_panel.debug(
+            f"Segment sensitivity: {SENSITIVITY_TITLES[level]}", source="Segment"
+        )
+        if self._audio_cache is None:
+            return  # まだ構築前。完了時の自動検出が新しい感度で走る
+
+        # 実行中なら畳んでからやり直す。_detect_segments は実行中だと黙って
+        # 返るので、ここで止めないと感度の変更が無視される。
+        if self._detect_thread is not None:
+            self._cleanup_detect_thread()
+        self._detect_segments()
 
     def _display_duration(self) -> int:
         """オーバーレイ座標の基準となる全体尺（ミリ秒）"""
@@ -5403,6 +5473,7 @@ class MainWorkspace(QWidget):
             self._audio_cache.sample_rate,
             duration,
             cues=cues,
+            sensitivity=self._current_sensitivity(),
         )
         self._detect_worker.moveToThread(self._detect_thread)
 

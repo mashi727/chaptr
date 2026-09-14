@@ -35,6 +35,7 @@ class SegmentDetectWorker(QObject):
         duration_ms: int,
         cues: Optional[Sequence[Cue]] = None,
         params: Optional[Dict[str, float]] = None,
+        sensitivity: Optional[str] = None,
     ):
         super().__init__()
         self._samples = samples
@@ -42,6 +43,7 @@ class SegmentDetectWorker(QObject):
         self._duration_ms = int(duration_ms)
         self._cues: List[Cue] = list(cues or [])
         self._params = dict(params or {})
+        self._sensitivity = sensitivity
         self._cancelled = False
         self._summary = ""
 
@@ -68,6 +70,7 @@ class SegmentDetectWorker(QObject):
                 cues=self._cues,
                 duration_ms=self._duration_ms,
                 progress=self._report,
+                sensitivity=self._sensitivity,
             )
         except _Cancelled:
             return  # 破棄されるので通知しない
