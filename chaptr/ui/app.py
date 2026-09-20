@@ -79,34 +79,43 @@ def get_system_fonts() -> dict:
         }
 
 
+def _sized(font: QFont, size: int) -> QFont:
+    """フォントのサイズをピクセルで与える
+
+    サイズは**ピクセル**で指定する。ポイント指定だと Qt の論理 DPI
+    （macOS 72 / Windows 96）の差がそのまま出て、同じ 16 が macOS では約 16px、
+    Windows では約 21px になる。アプリのスタイルシートは全面的に px 指定なので、
+    ポイントのままだとウィジェットのフォントだけが Windows で 3 割大きくなり、
+    固定幅のボタンからラベルがはみ出す（`Mel Spectrogram` が欠ける等）。
+    """
+    font.setPixelSize(size)
+    return font
+
+
 def get_monospace_font(size: int = 11) -> QFont:
-    """クロスプラットフォーム対応の等幅フォントを取得"""
+    """クロスプラットフォーム対応の等幅フォントを取得（size はピクセル）"""
     fonts = get_system_fonts()
 
     # 優先フォントを試行
     for font_name in [fonts["mono"], fonts["mono_fallback"]]:
         if QFontDatabase.hasFamily(font_name) and QFontDatabase.isFixedPitch(font_name):
-            return QFont(font_name, size)
+            return _sized(QFont(font_name), size)
 
     # フォールバック: システムの等幅フォント
-    font = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
-    font.setPointSize(size)
-    return font
+    return _sized(QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont), size)
 
 
 def get_ui_font(size: int = 13) -> QFont:
-    """クロスプラットフォーム対応のUIフォントを取得"""
+    """クロスプラットフォーム対応のUIフォントを取得（size はピクセル）"""
     fonts = get_system_fonts()
 
     for font_name in [fonts["ui"], fonts["ui_fallback"]]:
-        font = QFont(font_name, size)
+        font = QFont(font_name)
         if font.exactMatch() or QFontDatabase.hasFamily(font_name):
-            return font
+            return _sized(font, size)
 
     # フォールバック: システムフォント
-    font = QFontDatabase.systemFont(QFontDatabase.SystemFont.GeneralFont)
-    font.setPointSize(size)
-    return font
+    return _sized(QFontDatabase.systemFont(QFontDatabase.SystemFont.GeneralFont), size)
 
 
 class Chaptr(QMainWindow):
@@ -771,6 +780,21 @@ def main():
     # 環境変数が既にあればそちらを尊重する（外から上書きできるように）
     if UI_SCALE != 1.0:
         os.environ.setdefault("QT_SCALE_FACTOR", str(UI_SCALE))
+
+    # Windows のメディアバックエンド。QApplication 作成前に設定する必要がある。
+    #
+    # PySide6 6.9 は Windows でも既定が ffmpeg バックエンドだが、
+    # ffmpegmediaplugin.dll が同梱の FFmpeg DLL（avcodec-*.dll 等、PySide6/ 直下に
+    # あってプラグインの隣には無い）を解決できず読み込みに失敗する環境がある。
+    # 問題は Qt がそこで WMF へフォールバックせず「バックエンドなし」で止まること。
+    # QMediaPlayer の生成自体が失敗し、**エラーも出さずに**尺 0・再生不能になる
+    # （Windows 11 / Python 3.13 で実際に遭遇。波形は ffmpeg サブプロセスなので
+    # 正常に出てしまい、切り分けが難しい）。
+    #
+    # WMF 側は無傷なのでそちらを既定にする。setdefault なので、環境変数で
+    # QT_MEDIA_BACKEND=ffmpeg を与えれば従来どおり ffmpeg も選べる。
+    if sys.platform == "win32":
+        os.environ.setdefault("QT_MEDIA_BACKEND", "windows")
 
     # High DPI対応（QApplication作成前に設定）
     # PySide6では自動的にHigh DPI対応されるが、明示的に設定

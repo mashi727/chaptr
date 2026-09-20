@@ -1012,17 +1012,26 @@ class MainWorkspace(QWidget):
 
     @staticmethod
     def _get_monospace_font(size: int = 11) -> QFont:
-        """クロスプラットフォーム対応の等幅フォントを取得"""
+        """クロスプラットフォーム対応の等幅フォントを取得（size はピクセル）
+
+        サイズは**ピクセル**で指定する。ポイント指定だと Qt の論理 DPI
+        （macOS 72 / Windows 96）の差がそのまま出て、同じ 16 が macOS では約 16px、
+        Windows では約 21px になる。アプリのスタイルシートは全面的に px 指定なので、
+        ポイントのままだとウィジェットのフォントだけが Windows で 3 割大きくなり、
+        固定幅のボタンからラベルがはみ出す（`Mel Spectrogram` が欠ける等）。
+        """
         system = platform.system()
         font_names = MainWorkspace.MONO_FONTS.get(system, ["monospace"])
 
         for font_name in font_names:
             if QFontDatabase.hasFamily(font_name) and QFontDatabase.isFixedPitch(font_name):
-                return QFont(font_name, size)
+                font = QFont(font_name)
+                font.setPixelSize(size)
+                return font
 
         # フォールバック: システムの等幅フォント
         font = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
-        font.setPointSize(size)
+        font.setPixelSize(size)
         return font
 
     def __init__(self, work_dir: Optional[Path] = None, parent=None):
@@ -1302,6 +1311,17 @@ class MainWorkspace(QWidget):
         self._media_player.errorOccurred.connect(self._on_media_error)
         self._media_player.mediaStatusChanged.connect(self._on_media_status_changed)
         self._media_player.playbackStateChanged.connect(self._on_playback_state_changed)
+
+        # バックエンドが1つも読めていないと QMediaPlayer は生成自体に失敗し、
+        # 以後 setSource しても尺 0 のまま無反応になる。エラーも飛ばないので、
+        # ここで明示しないと「なぜか再生できない」だけが残る（Windows で実際に
+        # 発生）。起動時に一度だけ知らせる。
+        if not self._media_player.isAvailable():
+            self._log_panel.error(
+                "QMediaPlayer is unavailable: no QtMultimedia backend could be loaded. "
+                "Playback and the video preview will not work.",
+                source="Video",
+            )
 
         # === 中央揃えのコントロール行（movie-viewerスタイル）===
         ctrl_row = QHBoxLayout()
@@ -3097,9 +3117,14 @@ class MainWorkspace(QWidget):
             self._subtitle_label.hide()
         self._refresh_video_frame_height()
 
-    def _on_media_error(self, error):
-        """メディアエラー"""
-        self._log_panel.error(f"Media error: {error}", source="Video")
+    def _on_media_error(self, error, error_string: str = ""):
+        """メディアエラー
+
+        errorOccurred(error, errorString) の第2引数まで受ける。enum だけだと
+        「FormatError」までしか分からず、遠隔での切り分けで何往復も要る。
+        """
+        detail = f": {error_string}" if error_string else ""
+        self._log_panel.error(f"Media error: {error}{detail}", source="Video")
 
     def _format_time(self, ms: int) -> str:
         """ミリ秒を h:mm:ss.sss 形式に変換"""

@@ -93,17 +93,26 @@ class LogPanel(QWidget):
 
     @staticmethod
     def _get_monospace_font(size: int = 11) -> QFont:
-        """クロスプラットフォーム対応の等幅フォントを取得"""
+        """クロスプラットフォーム対応の等幅フォントを取得（size はピクセル）
+
+        サイズは**ピクセル**で指定する。ポイント指定だと Qt の論理 DPI
+        （macOS 72 / Windows 96）の差がそのまま出て、同じ 16 が macOS では約 16px、
+        Windows では約 21px になる。アプリのスタイルシートは全面的に px 指定なので、
+        ポイントのままだとウィジェットのフォントだけが Windows で 3 割大きくなり、
+        固定幅のボタンからラベルがはみ出す（`Mel Spectrogram` が欠ける等）。
+        """
         system = platform.system()
         font_names = LogPanel.MONO_FONTS.get(system, ["monospace"])
 
         for font_name in font_names:
             if QFontDatabase.hasFamily(font_name) and QFontDatabase.isFixedPitch(font_name):
-                return QFont(font_name, size)
+                font = QFont(font_name)
+                font.setPixelSize(size)
+                return font
 
         # フォールバック: システムの等幅フォント
         font = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
-        font.setPointSize(size)
+        font.setPixelSize(size)
         return font
 
     def _setup_ui(self):
