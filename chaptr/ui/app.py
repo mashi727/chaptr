@@ -781,21 +781,6 @@ def main():
     if UI_SCALE != 1.0:
         os.environ.setdefault("QT_SCALE_FACTOR", str(UI_SCALE))
 
-    # Windows のメディアバックエンド。QApplication 作成前に設定する必要がある。
-    #
-    # PySide6 6.9 は Windows でも既定が ffmpeg バックエンドだが、
-    # ffmpegmediaplugin.dll が同梱の FFmpeg DLL（avcodec-*.dll 等、PySide6/ 直下に
-    # あってプラグインの隣には無い）を解決できず読み込みに失敗する環境がある。
-    # 問題は Qt がそこで WMF へフォールバックせず「バックエンドなし」で止まること。
-    # QMediaPlayer の生成自体が失敗し、**エラーも出さずに**尺 0・再生不能になる
-    # （Windows 11 / Python 3.13 で実際に遭遇。波形は ffmpeg サブプロセスなので
-    # 正常に出てしまい、切り分けが難しい）。
-    #
-    # WMF 側は無傷なのでそちらを既定にする。setdefault なので、環境変数で
-    # QT_MEDIA_BACKEND=ffmpeg を与えれば従来どおり ffmpeg も選べる。
-    if sys.platform == "win32":
-        os.environ.setdefault("QT_MEDIA_BACKEND", "windows")
-
     # High DPI対応（QApplication作成前に設定）
     # PySide6では自動的にHigh DPI対応されるが、明示的に設定
     QApplication.setHighDpiScaleFactorRoundingPolicy(
