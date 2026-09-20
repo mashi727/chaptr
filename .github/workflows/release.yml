@@ -56,11 +56,21 @@ jobs:
           mkdir -p dmg_contents
           cp -r "dist/Chaptr.app" dmg_contents/
           sync
-          sleep 2
-          hdiutil create -volname "Chaptr" \
-            -srcfolder dmg_contents \
-            -ov -format UDZO \
-            "Video-Chapter-Editor-${VERSION}-macOS-Intel.dmg"
+          # hdiutil は runner 上で "Resource busy" を散発する（Spotlight 等が
+          # 掴んだまま離さない）。実際に Intel 側だけ落ちたことがあるので、
+          # 待って数回やり直す。1回で決め打たない。
+          for attempt in 1 2 3 4 5; do
+            sleep $((attempt * 5))
+            if hdiutil create -volname "Chaptr" \
+                 -srcfolder dmg_contents \
+                 -ov -format UDZO \
+                 "Video-Chapter-Editor-${VERSION}-macOS-Intel.dmg"; then
+              exit 0
+            fi
+            echo "hdiutil failed (attempt $attempt), retrying..."
+          done
+          echo "hdiutil create failed after 5 attempts"
+          exit 1
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -109,11 +119,21 @@ jobs:
           mkdir -p dmg_contents
           cp -r "dist/Chaptr.app" dmg_contents/
           sync
-          sleep 2
-          hdiutil create -volname "Chaptr" \
-            -srcfolder dmg_contents \
-            -ov -format UDZO \
-            "Video-Chapter-Editor-${VERSION}-macOS-AppleSilicon.dmg"
+          # hdiutil は runner 上で "Resource busy" を散発する（Spotlight 等が
+          # 掴んだまま離さない）。実際に Intel 側だけ落ちたことがあるので、
+          # 待って数回やり直す。1回で決め打たない。
+          for attempt in 1 2 3 4 5; do
+            sleep $((attempt * 5))
+            if hdiutil create -volname "Chaptr" \
+                 -srcfolder dmg_contents \
+                 -ov -format UDZO \
+                 "Video-Chapter-Editor-${VERSION}-macOS-AppleSilicon.dmg"; then
+              exit 0
+            fi
+            echo "hdiutil failed (attempt $attempt), retrying..."
+          done
+          echo "hdiutil create failed after 5 attempts"
+          exit 1
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
