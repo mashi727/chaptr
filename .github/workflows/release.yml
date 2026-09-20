@@ -176,6 +176,10 @@ jobs:
 
       - name: Build with Nuitka (onefile mode)
         run: |
+          # --include-qt-plugins: 既定の sensible は platforms/styles/imageformats
+          # までで multimedia が入らない。入っていないと QMediaPlayer が生成できず、
+          # 尺0・再生不能・エラーも出ない状態になる（v2.3.1-rc1 で実際に発生した）。
+          # なおバックティック継続の途中にコメントは置けない（継続が壊れる）。
           python -m nuitka `
             --standalone `
             --onefile `
@@ -183,6 +187,7 @@ jobs:
             --windows-console-mode=disable `
             --windows-icon-from-ico=assets/icon.ico `
             --enable-plugin=pyside6 `
+            --include-qt-plugins=sensible,multimedia `
             --include-package=chaptr `
             --include-package-data=chaptr `
             --include-module=cv2 `
@@ -191,6 +196,20 @@ jobs:
             --output-filename=Chaptr.exe `
             --output-dir=dist `
             run_chaptr.py
+
+      - name: Verify Qt multimedia plugins are bundled
+        shell: pwsh
+        run: |
+          # onefile でも Nuitka は先に .dist を作る。そこにプラグインが無ければ
+          # exe にも入っていない。実機で気付くのではなくここで落とす。
+          $dist = Get-ChildItem -Path dist -Directory -Filter "*.dist" | Select-Object -First 1
+          if (-not $dist) { Write-Host "no .dist directory (onefile only); skipping"; exit 0 }
+          $found = Get-ChildItem -Path $dist.FullName -Recurse -Filter "*mediaplugin.dll" -ErrorAction SilentlyContinue
+          if (-not $found) {
+            Write-Error "QtMultimedia plugins are missing from the build. Playback would fail silently."
+            exit 1
+          }
+          $found | ForEach-Object { Write-Host "  bundled: $($_.Name)" }
 
       - name: Rename to versioned exe (single-file distribution)
         run: |

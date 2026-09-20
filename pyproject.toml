@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "chaptr"
-version = "2.3.1-rc1"
+version = "2.3.1-rc2"
 description = "動画チャプター編集・書き出しデスクトップアプリ（PySide6 + ffmpeg、GPU エンコード対応）"
 readme = "README.md"
 license = {text = "MIT"}
