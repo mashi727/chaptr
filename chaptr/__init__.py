@@ -26,5 +26,5 @@ import sys as _sys
 if _sys.platform == "win32":
     _os.environ.setdefault("QT_MEDIA_BACKEND", "windows")
 
-__version__ = "2.3.0"
+__version__ = "2.3.1-rc1"
 __author__ = "mashi727"

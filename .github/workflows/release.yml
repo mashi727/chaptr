@@ -238,6 +238,9 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ github.event.inputs.version || github.ref_name }}
+          # semver のプレリリース（v2.3.1-rc1 のようにハイフンを含む）は
+          # 正式版として出さない。Latest を上書きしてしまうため。
+          prerelease: ${{ contains(github.ref_name, '-') }}
           files: |
             *.dmg
             *.exe
