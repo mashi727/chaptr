@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version tag (e.g., v2.1.0)'
-        required: true
-        default: 'v2.1.0'
+        description: '成果物に付けるバージョン表記（省略時はブランチ/タグ名。例 v2.3.1）'
+        required: false
+        default: ''
 
 env:
   VERSION: ${{ github.event.inputs.version || github.ref_name }}
@@ -22,7 +22,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.version || github.ref }}
+          # ref は起動元をそのまま使う。以前ここに version 入力を流用していたため、
+          # 手動実行すると「バージョン表記」を git の ref として checkout しようとし、
+          # 存在しないタグ（既定値 v2.1.0）で即失敗していた。存在するタグを入れた
+          # 場合も、ブランチではなくそのタグの古いコードがビルドされてしまう。
+          ref: ${{ github.ref }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -45,7 +49,10 @@ jobs:
 
       - name: Create DMG
         run: |
+          # ブランチから手動実行すると ref_name に `/` が入り、ファイル名が壊れる
+          # （try/segment-detect → ディレクトリ扱いになる）。区切りを潰しておく。
           VERSION="${{ github.event.inputs.version || github.ref_name }}"
+          VERSION="${VERSION//\//-}"
           mkdir -p dmg_contents
           cp -r "dist/Chaptr.app" dmg_contents/
           sync
@@ -68,7 +75,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.version || github.ref }}
+          # ref は起動元をそのまま使う。以前ここに version 入力を流用していたため、
+          # 手動実行すると「バージョン表記」を git の ref として checkout しようとし、
+          # 存在しないタグ（既定値 v2.1.0）で即失敗していた。存在するタグを入れた
+          # 場合も、ブランチではなくそのタグの古いコードがビルドされてしまう。
+          ref: ${{ github.ref }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -91,7 +102,10 @@ jobs:
 
       - name: Create DMG
         run: |
+          # ブランチから手動実行すると ref_name に `/` が入り、ファイル名が壊れる
+          # （try/segment-detect → ディレクトリ扱いになる）。区切りを潰しておく。
           VERSION="${{ github.event.inputs.version || github.ref_name }}"
+          VERSION="${VERSION//\//-}"
           mkdir -p dmg_contents
           cp -r "dist/Chaptr.app" dmg_contents/
           sync
@@ -114,7 +128,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.version || github.ref }}
+          # ref は起動元をそのまま使う。以前ここに version 入力を流用していたため、
+          # 手動実行すると「バージョン表記」を git の ref として checkout しようとし、
+          # 存在しないタグ（既定値 v2.1.0）で即失敗していた。存在するタグを入れた
+          # 場合も、ブランチではなくそのタグの古いコードがビルドされてしまう。
+          ref: ${{ github.ref }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -158,6 +176,8 @@ jobs:
         run: |
           $version = "${{ github.event.inputs.version }}"
           if (-not $version) { $version = "${{ github.ref_name }}" }
+          # ブランチ名の `/` はファイル名に使えないので潰す
+          $version = $version -replace '/', '-'
           # --onefile なので Chaptr.exe 単体で自己完結（ffmpeg も内包）。
           # zip 梱包せず、バージョン名を付けた exe をそのまま配布する。
           Copy-Item "dist/Chaptr.exe" "Video-Chapter-Editor-${version}-Windows.exe"
@@ -171,6 +191,10 @@ jobs:
   release:
     needs: [build-macos-intel, build-macos-arm, build-windows]
     runs-on: ubuntu-latest
+    # リリース作成はタグ push のときだけ。ブランチから手動実行するのは
+    # 動作確認用のビルドが欲しい場面で、そこでリリースやタグを作られると困る
+    # （tag_name にブランチ名が入ってしまう）。成果物は Artifacts から取れる。
+    if: startsWith(github.ref, 'refs/tags/')
     permissions:
       contents: write
 
