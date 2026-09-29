@@ -83,6 +83,10 @@ REGION_SPAN_LADDER_MS = (5_000, 10_000, 20_000, 30_000, 60_000, 120_000, 300_000
 REGION_DEFAULT_SPAN_MS = REGION_SPAN_LADDER_MS[-1]  # 既定は最大(600s)
 # 手が止まってから精細化するまでの待ち
 REGION_SHARPEN_DELAY_MS = 120
+
+# シーク前後をミュートする時間。デコーダが新しい位置の音を出し始めるまでの
+# 段差を隠すためのもので、長いと操作が鈍く聞こえ、短いと段差が漏れる。
+SEEK_MUTE_MS = 120
 # 移動中は列数・行数を落として追従を優先する（止まれば精細版に置き換わる）
 REGION_COARSE_DIVISOR = 4
 # 粗描画の最短間隔（ミリ秒）。これ以上詰めても人には見えない
@@ -1088,6 +1092,12 @@ class MainWorkspace(QWidget):
         self._region_timer.timeout.connect(self._refresh_region_view)
         self._region_last_draw: float = 0.0
 
+        # シーク直後にミュートを解く単発タイマー。連続クリックでは張り直すだけ
+        self._seek_unmute_timer = QTimer(self)
+        self._seek_unmute_timer.setSingleShot(True)
+        self._seek_unmute_timer.setInterval(SEEK_MUTE_MS)
+        self._seek_unmute_timer.timeout.connect(self._end_seek_mute)
+
         # カバー画像
         self._cover_image = None  # QImage
 
@@ -1633,7 +1643,7 @@ class MainWorkspace(QWidget):
         current = self._media_player.position()
         duration = self._media_player.duration()
         new_pos = max(0, min(duration, current + delta_ms))
-        self._media_player.setPosition(new_pos)
+        self._seek_player(new_pos)
 
         # 再生状態を復元（一時停止中だった場合は一時停止を維持）
         if not was_playing:
@@ -2589,7 +2599,7 @@ class MainWorkspace(QWidget):
                 current_source == self._target_source_url and
                 self._pending_seek_position is not None):
                 self._log_panel.debug(f"Applying pending seek: {self._pending_seek_position}", source="Media")
-                self._media_player.setPosition(self._pending_seek_position)
+                self._seek_player(self._pending_seek_position)
                 self._pending_seek_position = None
                 self._target_source_url = None
                 # 保存された再生状態を復元
@@ -2673,7 +2683,7 @@ class MainWorkspace(QWidget):
         if len(self._state.sources) <= 1:
             # 単一ファイル: 直接シーク
             if self._media_player:
-                self._media_player.setPosition(virtual_pos)
+                self._seek_player(virtual_pos)
                 if restore_paused:
                     self._media_player.pause()
                     self._play_btn.setIcon(self._play_icon)
@@ -2697,14 +2707,58 @@ class MainWorkspace(QWidget):
         else:
             # 同じファイル内: 直接シーク
             if self._media_player:
-                self._media_player.setPosition(local_pos)
+                self._seek_player(local_pos)
                 if restore_paused:
                     self._media_player.pause()
                     self._play_btn.setIcon(self._play_icon)
 
+    def _audio_out(self):
+        """現在の QAudioOutput（デバイス切替で差し替わるので都度取り直す）"""
+        if self._media_player is None:
+            return None
+        return self._media_player.audioOutput()
+
+    def _seek_player(self, position_ms: int):
+        """再生位置を変える（前後を一瞬ミュートする）
+
+        setPosition はデコード済みのバッファを捨てて別の位置へ飛ぶので、
+        出力波形が不連続になりプチッと鳴る。新しい位置の音が出揃うまでの
+        わずかな間だけ黙らせて、その段差を聞かせない。
+
+        連続クリックでもタイマーを張り直すだけなので、最後のシークから
+        SEEK_MUTE_MS 後に一度だけ解除される。
+        """
+        if self._media_player is None:
+            return
+        out = self._audio_out()
+        if out is not None and not out.isMuted():
+            out.setMuted(True)
+        self._media_player.setPosition(position_ms)
+        self._seek_unmute_timer.start()
+
+    def _end_seek_mute(self):
+        """シーク用のミュートを解除する"""
+        out = self._audio_out()
+        if out is not None:
+            out.setMuted(False)
+
+    def _silence_audio(self):
+        """音を即座に止める（終了時に最初に呼ぶ）
+
+        スレッドの join より後に stop すると、待っている数秒のあいだ音が
+        出続けたうえ、最後にバッファごと断ち切られてガリッと鳴る。
+        ミュートしてから止めることで段差そのものを消す。
+        """
+        self._seek_unmute_timer.stop()
+        out = self._audio_out()
+        if out is not None:
+            out.setMuted(True)
+        if self._media_player is not None:
+            self._media_player.stop()
+
     def _seek_video(self, position: int):
         """シーク"""
-        self._media_player.setPosition(position)
+        self._seek_player(position)
 
     def _populate_audio_devices(self):
         """音声出力デバイス一覧を取得してコンボボックスに設定"""
@@ -2776,7 +2830,7 @@ class MainWorkspace(QWidget):
 
             # 再生状態を復元
             if was_playing:
-                self._media_player.setPosition(current_pos)
+                self._seek_player(current_pos)
                 self._media_player.play()
 
             self._log_panel.info(
@@ -3147,7 +3201,7 @@ class MainWorkspace(QWidget):
 
         if not chapters:
             # チャプターがない場合は先頭へ
-            self._media_player.setPosition(0)
+            self._seek_player(0)
             if not was_playing:
                 self._media_player.pause()
             return
@@ -3165,11 +3219,11 @@ class MainWorkspace(QWidget):
                 break
 
         if prev_chapter:
-            self._media_player.setPosition(prev_chapter.time_ms)
+            self._seek_player(prev_chapter.time_ms)
             self._log_panel.debug(f"Skip to: {prev_chapter.title}", source="Playback")
         else:
             # 最初のチャプターより前なら先頭へ
-            self._media_player.setPosition(0)
+            self._seek_player(0)
 
         # 再生状態を復元
         if not was_playing:
@@ -3195,7 +3249,7 @@ class MainWorkspace(QWidget):
         # 現在位置より後のチャプターを探す
         for ch in sorted_chapters:
             if ch.time_ms > current_pos + 500:  # 500ms マージン
-                self._media_player.setPosition(ch.time_ms)
+                self._seek_player(ch.time_ms)
                 # 再生状態を復元
                 if not was_playing:
                     self._media_player.pause()
@@ -3751,7 +3805,7 @@ class MainWorkspace(QWidget):
             duration = self._media_player.duration()
             if duration > 0:
                 new_position = int(position * duration)
-                self._media_player.setPosition(new_position)
+                self._seek_player(new_position)
                 self._log_panel.debug(f"Seek to {self._format_time(new_position)}", source="Waveform")
                 # 一時停止状態を維持（macOSでsetPositionが再生を開始する場合の対策）
                 if not was_playing:
@@ -6975,7 +7029,17 @@ class MainWorkspace(QWidget):
         self._open_source_dialog()
 
     def cleanup(self):
-        """リソースクリーンアップ"""
+        """リソースクリーンアップ
+
+        **音を最初に止める。** 以前はスレッドの join を先に行い、最後に stop して
+        いた。join は最大 5 秒待つので、その間ずっと音が鳴り続けたうえ、最後に
+        バッファごと断ち切られてガリッと鳴っていた。
+
+        併せて PlaybackManager.cleanup() を通す。ここを呼ばないと
+        setAudioOutput(None) が走らず、QAudioOutput の破棄が GC 任せになる。
+        """
+        self._silence_audio()
+
         # 音声キャッシュ構築スレッドをクリーンアップ
         self._cleanup_cache_thread()
         # 区間判別スレッドをクリーンアップ
@@ -6983,8 +7047,8 @@ class MainWorkspace(QWidget):
         self._region_timer.stop()
         self._audio_cache = None
 
-        if self._media_player:
-            self._media_player.stop()
+        # 出力の切り離しまで明示的に行う（GC 任せにしない）
+        self._playback_manager.cleanup()
 
     def closeEvent(self, event):
         """ウィジェット終了時"""
