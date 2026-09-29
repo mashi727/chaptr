@@ -258,3 +258,46 @@ class TestInputHandling:
         audio, _ = build_session([("play", 30.0)], seed=3)
         with pytest.raises(ValueError):
             detect_segments(audio, SR, params={"bogus": 1.0})
+
+
+class TestMemoryFootprint:
+    """長尺素材での確保量
+
+    判別は読み込み直後に自動で走るので、ここが膨らむと再生中の音に
+    プチノイズが乗る（実機で確認。3.5時間の素材で一時 2.6GB を確保していた）。
+    """
+
+    def test_no_full_length_float_copy(self):
+        """全長を float へ起こしていないこと
+
+        _mono は型変換せず係数だけ返し、変換はフレームに切ってから行う。
+        ここが float 配列を返すようになったら、長尺で数 GB を掴む実装へ
+        逆戻りしている。
+        """
+        from .synth_rehearsal import SR
+        from chaptr.pipeline.segment_detector import _mono
+
+        pcm = np.zeros(SR, dtype=np.int16)
+        arr, scale = _mono(pcm)
+        assert arr.dtype == np.int16, "入力の型のまま返すこと"
+        assert scale == pytest.approx(1.0 / np.iinfo(np.int16).max)
+
+    def test_block_conversion_matches_full_conversion(self):
+        """ブロック変換が従来の全長変換と一致すること"""
+        from chaptr.pipeline.segment_detector import _mono, _to_float_mono
+
+        rng = np.random.default_rng(3)
+        pcm = (rng.standard_normal(50_000) * 8000).astype(np.int16)
+        arr, scale = _mono(pcm)
+        assert np.abs(_to_float_mono(pcm) - arr.astype(np.float32) * scale).max() == 0.0
+
+    def test_int16_and_float_inputs_agree(self):
+        """入力型が変わっても同じ区間になること"""
+        from .synth_rehearsal import SR, build_session
+        from chaptr.pipeline.segment_detector import detect_segments
+
+        audio, _ = build_session([("talk", 40.0), ("play", 150.0)], seed=9)
+        pcm = (np.clip(audio, -1.0, 1.0) * 32767).astype(np.int16)
+        a = [(s.kind, s.start_ms) for s in detect_segments(audio, SR)]
+        b = [(s.kind, s.start_ms) for s in detect_segments(pcm, SR)]
+        assert a == b

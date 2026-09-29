@@ -176,17 +176,36 @@ class Features:
     pulse: np.ndarray      # onset 包絡の自己相関ピーク（共有テンポの有無）
 
 
-def _to_float_mono(samples: Sequence[float] | np.ndarray) -> np.ndarray:
-    """int16/int32/float の配列を -1.0〜1.0 の float32 モノラルに揃える"""
+def _mono(samples: Sequence[float] | np.ndarray) -> Tuple[np.ndarray, float]:
+    """モノラル配列と、-1.0〜1.0 へ直すための係数を返す
+
+    **ここで型変換しない。** 全長を float32 へ起こすと 3.5 時間の素材で 1.1GB、
+    しかも下の 1 行で 3 回コピーを作っていたため一時 3GB を超えていた
+    （実測: 1/4 長で +0.66GB、実素材への外挿で約 2.6GB）。読み込み直後に
+    自動で走る処理がこれだけ確保すると、再生中の音にプチノイズが乗る。
+    フレームに切ってから変換すれば、確保はブロック分だけで済む。
+    """
     arr = np.asarray(samples)
     if arr.ndim > 1:
         arr = arr.mean(axis=1)
     if np.issubdtype(arr.dtype, np.integer):
-        return (arr.astype(np.float32) / float(np.iinfo(arr.dtype).max)).astype(np.float32)
-    return arr.astype(np.float32)
+        return arr, 1.0 / float(np.iinfo(arr.dtype).max)
+    return arr, 1.0
 
 
-def _short_frames(x: np.ndarray, frame: int, hop: int):
+def _to_float_mono(samples: Sequence[float] | np.ndarray) -> np.ndarray:
+    """int16/int32/float の配列を -1.0〜1.0 の float32 モノラルに揃える
+
+    全長を一度に起こすので、長尺では [[_mono]] とブロック変換を使うこと。
+    """
+    arr, scale = _mono(samples)
+    out = arr.astype(np.float32)
+    if scale != 1.0:
+        out *= scale          # in-place。コピーを増やさない
+    return out
+
+
+def _short_frames(x: np.ndarray, frame: int, hop: int, scale: float = 1.0):
     """短時間フレームの rms / zcr / スペクトルフラックス / スペクトル平坦度"""
     n = 1 + max(0, (len(x) - frame) // hop)
     if n <= 0:
@@ -205,8 +224,11 @@ def _short_frames(x: np.ndarray, frame: int, hop: int):
     for s in range(0, n, block):
         e = min(n, s + block)
         idx = np.arange(frame)[None, :] + hop * np.arange(s, e)[:, None]
-        frames = x[idx]
-        rms[s:e] = np.sqrt(np.maximum(np.mean(frames.astype(np.float32) ** 2, axis=1), 1e-20))
+        # 切り出してから float へ。全長を起こすと長尺で GB 単位の確保になる
+        frames = x[idx].astype(np.float32)
+        if scale != 1.0:
+            frames *= scale
+        rms[s:e] = np.sqrt(np.maximum(np.mean(frames ** 2, axis=1), 1e-20))
         sign = np.sign(frames)
         zcr[s:e] = (np.abs(np.diff(sign, axis=1)) > 0).mean(axis=1)
         mag = np.abs(np.fft.rfft(frames * window, axis=1)).astype(np.float32)
@@ -226,10 +248,10 @@ def extract_features(
     samples: np.ndarray, sample_rate: int, params: Dict[str, float]
 ) -> Features:
     """テクスチャ窓ごとの特徴量を計算する"""
-    x = _to_float_mono(samples)
+    x, scale = _mono(samples)
     frame = max(64, int(round(FRAME_SEC * sample_rate)))
     hop = max(32, int(round(HOP_SEC * sample_rate)))
-    rms, zcr, flux, flatness = _short_frames(x, frame, hop)
+    rms, zcr, flux, flatness = _short_frames(x, frame, hop, scale)
 
     fps = sample_rate / hop
     win = max(4, int(round(params["window_sec"] * fps)))

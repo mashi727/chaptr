@@ -3332,11 +3332,16 @@ class MainWorkspace(QWidget):
         return self._media_player.duration() if self._media_player else 0
 
     def _on_cache_progress(self, progress: int):
-        """音声キャッシュ構築の進捗（上下とも待ち状態にする）"""
+        """音声キャッシュ構築の進捗（上下とも待ち状態にする）
+
+        ここで processEvents() を呼ばない。スロットの中から入れ子で
+        イベントループを回すことになり、描画・タイマー・他スレッドからの
+        キュー済みシグナルが割り込む順序が読めなくなる。進捗はキュー経由で
+        届くので、再描画はイベントループに任せれば足りる。
+        """
         for widget in (self._waveform_widget, self._region_widget):
             if widget:
                 widget.set_loading(progress)
-        QApplication.processEvents()
 
     def _on_cache_finished(self, cache):
         """音声キャッシュ構築完了 - 上段の包絡と下段の区間を描く"""
