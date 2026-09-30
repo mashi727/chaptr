@@ -259,7 +259,6 @@ class ProjectState:
     """プロジェクト状態"""
     work_dir: Path = field(default_factory=Path.cwd)
     sources: List['SourceFile'] = field(default_factory=list)
-    cover_image_path: Optional[Path] = None
     chapters: List[ChapterInfo] = field(default_factory=list)
     output_path: Optional[Path] = None
     output_dir: Optional[Path] = None  # 出力先ディレクトリ（Noneの場合はwork_dir）

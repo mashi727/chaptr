@@ -994,7 +994,7 @@ class MainWorkspace(QWidget):
     │ 2. [チャプターテーブル]     │                               │
     │    [Add] [Remove] [Copy YT] ├───────────────────────────────┤
     ├─────────────────────────────┤     [波形表示]                │
-    │ 3. [Cover] [Output] [Export]├───────────────────────────────┤
+    │ 3. [Output]                 ├───────────────────────────────┤
     ├─────────────────────────────┤ [Load][Play][Stop] [Vol]      │
     │ 4. [ログパネル]             │ [シークバー] 00:00/00:00      │
     └─────────────────────────────┴───────────────────────────────┘
@@ -1099,7 +1099,6 @@ class MainWorkspace(QWidget):
         self._seek_unmute_timer.timeout.connect(self._end_seek_mute)
 
         # カバー画像
-        self._cover_image = None  # QImage
 
         # 出力ファイル名のベース（ソースから自動決定。編集UIは廃止）
         self._output_base: str = ""
@@ -1714,11 +1713,11 @@ class MainWorkspace(QWidget):
         # 既存コード（show/hide/lower/setGeometry）との互換のため view を指す
         self._video_widget = self._video_view
 
-        # Cover Image表示用（音声のみの場合）
-        self._cover_image_label = QLabel(self._video_container)
-        self._cover_image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._cover_image_label.setStyleSheet("background: #0f0f0f;")
-        self._cover_image_label.hide()  # 初期状態は非表示
+        # 音声のみのときの下地。動画ウィジェットを隠した裏が見えないよう塞ぎ、
+        # チャプター名オーバーレイの背景にもなる
+        self._audio_backdrop = QLabel(self._video_container)
+        self._audio_backdrop.setStyleSheet("background: #0f0f0f;")
+        self._audio_backdrop.hide()
 
         # チャプター名オーバーレイ（音声モードのみ）
         # 動画モードではQVideoWidgetがCore Animation/AVFoundationを使用するため
@@ -2049,16 +2048,6 @@ class MainWorkspace(QWidget):
         self._segment_status_label.setText(text)
         self._segment_status_label.setVisible(bool(text))
 
-    def _on_cover_image_changed(self, cover_image):
-        """カバー画像変更時のハンドラ"""
-        self._cover_image = cover_image
-        self._log_panel.info(f"Cover image updated, is_audio_only={self._is_audio_only}", source="UI")
-        # 音声のみの場合はCover Imageを表示
-        if self._is_audio_only:
-            self._update_cover_image_display()
-        else:
-            self._log_panel.debug("Skipping cover image display (not audio only)", source="UI")
-
     def _resize_video_overlays(self):
         """ビデオコンテナ内の全ウィジェットをリサイズ"""
         if not hasattr(self, '_video_container'):
@@ -2071,12 +2060,8 @@ class MainWorkspace(QWidget):
         # （ビューの setGeometry は VideoGraphicsView.resizeEvent を発火し、
         #  確定後の viewport サイズで _fit_video_item が呼ばれる）
         self._video_widget.setGeometry(rect)
-        self._cover_image_label.setGeometry(rect)
+        self._audio_backdrop.setGeometry(rect)
         self._drop_overlay.setGeometry(rect)
-
-        # Cover Image が表示中なら再スケール（先に処理してz-orderを確保）
-        if self._cover_image is not None and self._cover_image_label.isVisible():
-            self._update_cover_image_display()
 
         # チャプターオーバーレイを更新（音声モードのみ）
         if self._is_audio_only and self._chapter_overlay_label.isVisible():
@@ -2165,74 +2150,31 @@ class MainWorkspace(QWidget):
             self._source_display_size = None
         return self._source_display_size
 
-    def _update_cover_image_display(self):
-        """Cover Image表示を更新"""
-        if not hasattr(self, '_cover_image_label'):
-            self._log_panel.debug("No _cover_image_label", source="UI")
-            return
+    def _update_video_pane_for_mode(self):
+        """プレビュー枠を音声/動画モードに合わせる
 
-        # まずジオメトリを設定（レイアウトがないため手動で設定が必要）
-        container_rect = self._video_container.rect()
-        self._cover_image_label.setGeometry(container_rect)
-        self._log_panel.debug(f"Cover image label geometry: {container_rect.x()},{container_rect.y()} {container_rect.width()}x{container_rect.height()}", source="UI")
+        音声のみのときは動画ウィジェットを隠して黒い下地を出し、その上へ
+        チャプター名を重ねる。動画では QVideoWidget が Core Animation /
+        AVFoundation を使うためオーバーレイを重ねられないので、音声のときだけ。
 
-        if self._cover_image is not None:
-            # QImageをQLabelのサイズに合わせてスケール
-            pixmap = QPixmap.fromImage(self._cover_image)
-            label_size = self._cover_image_label.size()
-            self._log_panel.debug(f"Cover image label size: {label_size.width()}x{label_size.height()}", source="UI")
-            if not pixmap.isNull():
-                scaled = pixmap.scaled(
-                    label_size,
-                    Qt.AspectRatioMode.KeepAspectRatio,
-                    Qt.TransformationMode.SmoothTransformation
-                )
-                self._cover_image_label.setPixmap(scaled)
-                self._cover_image_label.show()
-                self._cover_image_label.raise_()  # 前面に持ってくる
-                self._video_widget.lower()  # 動画ウィジェットを最下層に
-                # チャプターオーバーレイは常に最前面
-                if hasattr(self, '_chapter_overlay_label'):
-                    self._chapter_overlay_label.raise_()
-                self._log_panel.info(f"Cover image displayed: {scaled.width()}x{scaled.height()}", source="UI")
-            else:
-                self._cover_image_label.clear()
-                self._cover_image_label.hide()
-                self._log_panel.debug("Cover image pixmap is null", source="UI")
-        else:
-            self._cover_image_label.clear()
-            self._cover_image_label.hide()
-            self._log_panel.debug("No cover image set", source="UI")
-
-    def _show_cover_image_for_audio(self):
-        """音声ファイルの場合にCover Image（または黒背景）を表示"""
+        かつてここはカバー画像を出す処理だったが、それは「音声＋カバー画像から
+        動画を作る」機能のプレビューであり、エンコード層の削除（f3f9585）で
+        相手が居なくなっていた。設定する経路も無く常に None だったので外した。
+        """
         if not self._is_audio_only:
-            self._cover_image_label.hide()
-            self._video_widget.show()  # 動画モードでは動画ウィジェットを表示
-            # 動画モード: オーバーレイは使用しない
+            self._audio_backdrop.hide()
+            self._video_widget.show()
             if hasattr(self, '_chapter_overlay_label'):
                 self._chapter_overlay_label.hide()
             return
 
-        # 音声のみの場合は動画ウィジェットを非表示
         self._video_widget.hide()
-
-        # ジオメトリを設定
-        container_rect = self._video_container.rect()
-        self._cover_image_label.setGeometry(container_rect)
-        self._log_panel.debug(f"Cover image geometry set: {container_rect.width()}x{container_rect.height()}", source="UI")
-
-        if self._cover_image is not None:
-            self._update_cover_image_display()
-        else:
-            # Cover Imageがない場合は黒背景のまま表示
-            self._cover_image_label.clear()
-            self._cover_image_label.setStyleSheet("background: #0f0f0f;")
-            self._cover_image_label.show()
-            self._cover_image_label.raise_()
-            # チャプターオーバーレイは常に最前面
-            if hasattr(self, '_chapter_overlay_label'):
-                self._chapter_overlay_label.raise_()
+        self._audio_backdrop.setGeometry(self._video_container.rect())
+        self._audio_backdrop.show()
+        self._audio_backdrop.raise_()
+        # チャプターオーバーレイは常に最前面
+        if hasattr(self, '_chapter_overlay_label'):
+            self._chapter_overlay_label.raise_()
 
     def _browse_output(self):
         """出力先ディレクトリ選択"""
@@ -2288,17 +2230,14 @@ class MainWorkspace(QWidget):
         # ソースリストを更新
         self._source_list.set_sources(self._state.sources)
 
-        # ファイル拡張子で判定
-        VIDEO_EXTENSIONS = {'.mp4', '.mov', '.avi', '.mkv', '.m4v'}
-        AUDIO_EXTENSIONS = {'.mp3', '.m4a', '.wav', '.aac', '.flac'}
-
+        # ファイル拡張子で判定（モジュール先頭の定数を使う）
         first_source = self._state.sources[0]
         file_path = first_source.path
         ext = file_path.suffix.lower()
 
         if ext in VIDEO_EXTENSIONS:
             # 動画モード: 品質選択を有効化
-            self._update_quality_combo_for_mode(is_audio=False)
+            self._set_audio_only_mode(is_audio=False)
 
             if len(self._state.sources) == 1:
                 # 単一動画: そのまま読み込み
@@ -2328,7 +2267,7 @@ class MainWorkspace(QWidget):
 
         elif ext in AUDIO_EXTENSIONS:
             # 音声モード: 品質選択を静止画用に固定
-            self._update_quality_combo_for_mode(is_audio=True)
+            self._set_audio_only_mode(is_audio=True)
 
             if len(self._state.sources) == 1:
                 # 単一音声: そのまま読み込み（チャプター編集用）
@@ -2364,8 +2303,12 @@ class MainWorkspace(QWidget):
         if srt_path.exists():
             self.load_subtitles(srt_path)
 
-    def _update_quality_combo_for_mode(self, is_audio: bool):
-        """音声/動画モードを記録（設定ダイアログ移行後は内部フラグのみ）"""
+    def _set_audio_only_mode(self, is_audio: bool):
+        """音声のみのモードかを記録する
+
+        プレビュー枠の出し方（下地＋チャプター名オーバーレイ）だけに効く。
+        名前は品質コンボを切り替えていた頃の名残だったので実態に合わせた。
+        """
         self._is_audio_only = is_audio
 
     def _on_source_clicked(self, index: int):
@@ -2614,8 +2557,8 @@ class MainWorkspace(QWidget):
             else:
                 self._log_panel.debug("LoadedMedia - keeping paused state", source="Media")
                 self._play_btn.setIcon(self._play_icon)
-            # 音声ファイルの場合はCover Imageを表示
-            self._show_cover_image_for_audio()
+            # 音声ファイルの場合は下地＋チャプター名を出す
+            self._update_video_pane_for_mode()
         elif status == QMediaPlayer.MediaStatus.EndOfMedia:
             # 仮想タイムライン: 次のファイルへ自動切り替え
             self._switch_to_next_source()
