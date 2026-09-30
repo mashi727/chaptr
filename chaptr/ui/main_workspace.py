@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (
     QStyledItemDelegate, QStyleOptionViewItem, QMenu,
     QGraphicsView, QGraphicsScene
 )
-from PySide6.QtCore import Qt, Signal, QUrl, QThread, QObject, QTimer, QEvent, QMimeData, QPoint, QSize, QSizeF
+from PySide6.QtCore import Qt, Signal, QUrl, QThread, QObject, QTimer, QEvent, QMimeData, QPoint, QSize, QSizeF, QEventLoop
 from PySide6.QtGui import QFont, QFontDatabase, QPainter, QColor, QPen, QBrush, QPixmap, QIcon, QPolygon, QKeyEvent, QTransform
 from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput, QMediaDevices
 from PySide6.QtMultimediaWidgets import QVideoWidget, QGraphicsVideoItem
@@ -87,9 +87,8 @@ REGION_SHARPEN_DELAY_MS = 120
 # 段差を隠すためのもので、長いと操作が鈍く聞こえ、短いと段差が漏れる。
 SEEK_MUTE_MS = 120
 
-# 終了時に音量を段階的に落とすときの1段あたりの待ち。音声スレッドが次の
-# バッファで拾うまでの猶予で、合計でも 4 段 x これだけ。終了時にしか使わない。
-AUDIO_FADE_STEP_SEC = 0.03
+# 終了時、一時停止が実際に効くのを待つ上限。終了時にしか通らない。
+AUDIO_SETTLE_SEC = 0.35
 # 移動中は列数・行数を落として追従を優先する（止まれば精細版に置き換わる）
 REGION_COARSE_DIVISOR = 4
 # 粗描画の最短間隔（ミリ秒）。これ以上詰めても人には見えない
@@ -2715,16 +2714,21 @@ class MainWorkspace(QWidget):
         if player is None:
             return
 
-        out = player.audioOutput()
-        if out is not None and player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
-            # 音量の変更は音声スレッドが次のバッファで拾うので、**同じ呼び出しの
-            # 中では効かない**。落とした直後に stop すると、鳴っている波形の
-            # 途中で断ち切ることになる。拾われるまで待ってから畳む。
-            # ミュートではなく音量を使うのは、ミュートも同じ遅れを持つうえ、
-            # 段階的に下げられないため。
-            for level in (0.5, 0.2, 0.05, 0.0):
-                out.setVolume(level)
-                time.sleep(AUDIO_FADE_STEP_SEC)
+        if player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
+            # **鳴っている最中に畳むと鳴る。** 手で「一時停止 → 終了」すると
+            # 鳴らないことが実機で確認できたので、その手順をそのまま行う。
+            #
+            # ここで time.sleep() を使ってはいけない。メインスレッドを止めると
+            # 状態遷移がバックエンドへ伝わらず、再生中のまま次へ進んでしまう
+            # （音量を段階的に下げる実装が効かなかったのはこれが理由）。
+            # イベントループを回しながら、実際に止まるのを待つ。
+            player.pause()
+            deadline = time.monotonic() + AUDIO_SETTLE_SEC
+            while (time.monotonic() < deadline
+                   and player.playbackState() == QMediaPlayer.PlaybackState.PlayingState):
+                QApplication.processEvents(
+                    QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents, 10
+                )
 
         player.stop()
         # 掴んでいるものを手放す順に。ソース → 映像 → 音声

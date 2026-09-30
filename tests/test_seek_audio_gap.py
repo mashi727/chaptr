@@ -146,15 +146,18 @@ class TestCloseEventOrder:
         win.close()
 
 
-class TestFadeOnShutdown:
-    """終了時は音量を落としきってから畳む
+class TestPauseBeforeTeardown:
+    """終了時は一時停止してから畳む
 
-    音量やミュートの変更は音声スレッドが次のバッファで拾うので、**同じ
-    呼び出しの中では効かない**。落とした直後に stop すると、鳴っている波形の
-    途中で断ち切ることになる。段階的に下げ、拾われるまで待ってから畳む。
+    実機で切り分けた結果、**鳴っている最中に畳むと鳴る**（手で一時停止して
+    から終了すると鳴らない）。その手順をそのまま行う。
+
+    time.sleep() で待ってはいけない。メインスレッドを止めると状態遷移が
+    バックエンドへ伝わらず、再生中のまま次へ進む。音量を段階的に下げる実装が
+    効かなかったのはこれが理由だった。
     """
 
-    def test_fades_down_before_stopping_when_playing(self, tmp_path):
+    def _playing_workspace(self, tmp_path):
         import subprocess
         import time as _time
 
@@ -168,47 +171,53 @@ class TestFadeOnShutdown:
         wav = tmp_path / "tone.wav"
         subprocess.run(
             ["ffmpeg", "-v", "error", "-y", "-f", "lavfi",
-             "-i", "sine=frequency=440:duration=8", "-ac", "2", "-ar", "48000", str(wav)],
+             "-i", "sine=frequency=440:duration=10", "-ac", "2", "-ar", "48000", str(wav)],
             check=True, timeout=60,
         )
-
         ws = MainWorkspace()
         ws.show()
         ws._media_player.setSource(QUrl.fromLocalFile(str(wav)))
         ws._media_player.play()
-        for _ in range(60):
+        for _ in range(80):
             app.processEvents()
             _time.sleep(0.02)
             if ws._media_player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
                 break
         if ws._media_player.playbackState() != QMediaPlayer.PlaybackState.PlayingState:
             pytest.skip("この環境では再生状態にならない")
+        return ws
 
-        seen = []
-        out = ws._media_player.audioOutput()
-        original = out.setVolume
-        out.setVolume = lambda v, _o=original: (seen.append(round(v, 2)), _o(v))[1]
+    def test_not_playing_when_stop_is_called(self, tmp_path):
+        """stop に入る時点で再生が止まっていること（これが要件）"""
+        from PySide6.QtMultimedia import QMediaPlayer
 
+        ws = self._playing_workspace(tmp_path)
+        state_at_stop = []
+        original = ws._media_player.stop
+
+        def spy(_o=original):
+            state_at_stop.append(ws._media_player.playbackState())
+            return _o()
+
+        ws._media_player.stop = spy
         ws.cleanup()
-        assert seen, "再生中なら音量を落としてから止めること"
-        assert seen[-1] == 0.0, seen
-        assert seen == sorted(seen, reverse=True), f"単調に下げること: {seen}"
+        assert state_at_stop, "stop が呼ばれること"
+        assert state_at_stop[0] != QMediaPlayer.PlaybackState.PlayingState, state_at_stop
         ws.close()
 
-    def test_no_fade_when_not_playing(self):
-        """止まっているならフェードで待たない（終了が遅くならない）"""
+    def test_no_wait_when_already_stopped(self):
+        """止まっているなら待たない（終了が遅くならない）"""
+        import time as _time
+
         from PySide6.QtWidgets import QApplication
 
         app = QApplication.instance() or QApplication([])
-        from chaptr.ui.main_workspace import MainWorkspace
+        from chaptr.ui.main_workspace import MainWorkspace, AUDIO_SETTLE_SEC
 
         ws = MainWorkspace()
         ws.show()
         app.processEvents()
-        seen = []
-        out = ws._media_player.audioOutput()
-        original = out.setVolume
-        out.setVolume = lambda v, _o=original: (seen.append(v), _o(v))[1]
+        t0 = _time.perf_counter()
         ws.cleanup()
-        assert seen == []
+        assert (_time.perf_counter() - t0) < AUDIO_SETTLE_SEC
         ws.close()
