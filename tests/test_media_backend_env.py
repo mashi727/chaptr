@@ -47,8 +47,19 @@ class TestMediaBackendEnv:
         # 設定しても効かない（実際に app.main() へ置いて効かなかった）。
         assert loaded == "multimedia_loaded=False"
 
+    def test_macos_gets_avfoundation_backend(self):
+        """macOS は darwin(AVFoundation) を使う
+
+        ffmpeg バックエンドはシークのたびに音声シンクを作り直し、停止時も
+        即座に落とすため、その継ぎ目がプチッと鳴る。
+        """
+        value, loaded = _run(PROBE.format(platform="darwin")).splitlines()
+        assert value == "'darwin'"
+        assert loaded == "multimedia_loaded=False"
+
     def test_other_platforms_untouched(self):
-        value, _ = _run(PROBE.format(platform="darwin")).splitlines()
+        """Linux 等では Qt の既定に任せる（純正バックエンドが無い）"""
+        value, _ = _run(PROBE.format(platform="linux")).splitlines()
         assert value == "None"
 
     def test_explicit_value_is_respected(self):
