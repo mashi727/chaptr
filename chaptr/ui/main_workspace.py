@@ -1324,6 +1324,12 @@ class MainWorkspace(QWidget):
         # 以後 setSource しても尺 0 のまま無反応になる。エラーも飛ばないので、
         # ここで明示しないと「なぜか再生できない」だけが残る（Windows で実際に
         # 発生）。起動時に一度だけ知らせる。
+        # どのバックエンドで鳴っているかを残す。ここが分からないために、
+        # 再生不能（Windows）とクリック音（macOS）の切り分けで何度も往復した。
+        import os as _os
+        backend = _os.environ.get("QT_MEDIA_BACKEND") or "(Qt の既定)"
+        self._log_panel.info(f"Media backend: {backend}", source="Video")
+
         if not self._media_player.isAvailable():
             self._log_panel.error(
                 "QMediaPlayer is unavailable: no QtMultimedia backend could be loaded. "
