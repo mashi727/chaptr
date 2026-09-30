@@ -187,8 +187,40 @@ class TestPauseBeforeTeardown:
             pytest.skip("この環境では再生状態にならない")
         return ws
 
+    def test_waits_real_time_after_pausing(self, tmp_path):
+        """一時停止してから実時間で待つこと
+
+        状態フラグが PausedState へ変わるのは即座（実測 0ms）で、音声エンジンが
+        落ち着くのはその後。「状態が変わるまで」待つ版はループが 0ms で抜けて
+        しまい効かなかった。
+        """
+        import time as _time
+
+        from chaptr.ui.main_workspace import AUDIO_SETTLE_SEC
+
+        ws = self._playing_workspace(tmp_path)
+        t0 = _time.perf_counter()
+        ws.cleanup()
+        elapsed = _time.perf_counter() - t0
+        assert elapsed >= AUDIO_SETTLE_SEC * 0.9, f"{elapsed:.3f}s"
+        ws.close()
+
+    def test_settle_time_is_tunable(self):
+        """現地で詰められるよう環境変数で上書きできること"""
+        import subprocess
+        import sys
+
+        out = subprocess.run(
+            [sys.executable, "-c",
+             "import os;os.environ['CHAPTR_AUDIO_SETTLE_SEC']='0.8';"
+             "os.environ['QT_QPA_PLATFORM']='offscreen';"
+             "from chaptr.ui.main_workspace import AUDIO_SETTLE_SEC;print(AUDIO_SETTLE_SEC)"],
+            capture_output=True, text=True, timeout=120,
+        )
+        assert out.stdout.strip() == "0.8", out.stderr
+
     def test_not_playing_when_stop_is_called(self, tmp_path):
-        """stop に入る時点で再生が止まっていること（これが要件）"""
+        """stop に入る時点で再生が止まっていること"""
         from PySide6.QtMultimedia import QMediaPlayer
 
         ws = self._playing_workspace(tmp_path)

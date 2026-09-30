@@ -87,8 +87,11 @@ REGION_SHARPEN_DELAY_MS = 120
 # 段差を隠すためのもので、長いと操作が鈍く聞こえ、短いと段差が漏れる。
 SEEK_MUTE_MS = 120
 
-# 終了時、一時停止が実際に効くのを待つ上限。終了時にしか通らない。
-AUDIO_SETTLE_SEC = 0.35
+# 終了時、一時停止してから畳むまでに置く時間。状態フラグは即座に変わるが
+# 音声エンジンが落ち着くのはその後なので、実時間で待つ必要がある。
+# 終了時にしか通らないので、体感を損なわない範囲で長めに取ってある。
+# 環境変数 CHAPTR_AUDIO_SETTLE_SEC で上書きできる（現地で詰めるため）。
+AUDIO_SETTLE_SEC = float(os.environ.get("CHAPTR_AUDIO_SETTLE_SEC", "0.35"))
 # 移動中は列数・行数を落として追従を優先する（止まれば精細版に置き換わる）
 REGION_COARSE_DIVISOR = 4
 # 粗描画の最短間隔（ミリ秒）。これ以上詰めても人には見えない
@@ -2715,17 +2718,19 @@ class MainWorkspace(QWidget):
             return
 
         if player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
-            # **鳴っている最中に畳むと鳴る。** 手で「一時停止 → 終了」すると
-            # 鳴らないことが実機で確認できたので、その手順をそのまま行う。
+            # **鳴っている最中に畳むと鳴る。** 手で「一時停止 → 少し置く →
+            # 終了」なら鳴らないことが実機で確認できたので、その手順を行う。
             #
-            # ここで time.sleep() を使ってはいけない。メインスレッドを止めると
-            # 状態遷移がバックエンドへ伝わらず、再生中のまま次へ進んでしまう
-            # （音量を段階的に下げる実装が効かなかったのはこれが理由）。
-            # イベントループを回しながら、実際に止まるのを待つ。
+            # 状態フラグが PausedState へ変わるのは即座（実測 0ms）だが、
+            # 音声エンジンが実際に落ち着くのはその後。だから「状態が変わるまで」
+            # ではなく**実時間で**待つ必要がある。状態を条件に待っていた版は
+            # ループが 0ms で抜けてしまい、効かなかった。
+            #
+            # time.sleep() も使えない。メインスレッドを止めると一時停止自体が
+            # バックエンドへ伝わらない。イベントループを回しながら待つ。
             player.pause()
             deadline = time.monotonic() + AUDIO_SETTLE_SEC
-            while (time.monotonic() < deadline
-                   and player.playbackState() == QMediaPlayer.PlaybackState.PlayingState):
+            while time.monotonic() < deadline:
                 QApplication.processEvents(
                     QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents, 10
                 )
