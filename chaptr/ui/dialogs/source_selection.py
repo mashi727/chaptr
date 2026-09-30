@@ -8,6 +8,12 @@ from pathlib import Path
 from typing import Optional, List
 
 from ..models import detect_video_duration, SourceFile
+from ..media_types import (
+    AUDIO_EXTENSIONS,
+    VIDEO_EXTENSIONS,
+    MEDIA_EXTENSIONS,
+    CHAPTER_EXTENSIONS,
+)
 from ..styles import ButtonStyles
 
 from PySide6.QtWidgets import (
@@ -38,9 +44,6 @@ class SourceSelectionDialog(QDialog):
     sources_changed = Signal(list)  # List[SourceFile]
 
     # ファイル拡張子
-    AUDIO_EXTENSIONS = {'.mp3', '.m4a', '.wav', '.aac', '.flac'}
-    VIDEO_EXTENSIONS = {'.mp4', '.mov', '.avi', '.mkv', '.m4v'}
-    CHAPTER_EXTENSIONS = {'.chapters', '.txt'}
     PROJECT_EXTENSIONS = {'.vce.json'}
 
     # ダイアログサイズ
@@ -52,21 +55,19 @@ class SourceSelectionDialog(QDialog):
 
     def __init__(self, parent=None, initial_sources: Optional[List[SourceFile]] = None,
                  work_dir: Optional[Path] = None, mode: str = "source",
-                 initial_filter: Optional[str] = None, show_filter_buttons: bool = True):
+                 show_filter_buttons: bool = True):
         """
         Args:
             parent: 親ウィジェット
             initial_sources: 初期選択ソース
             work_dir: 作業ディレクトリ
             mode: "source" (動画/音声選択), "chapter" (チャプターファイル選択), or "directory" (ディレクトリ選択)
-            initial_filter: 初期フィルタモード ("mp3" or "mp4", sourceモード時のみ)
-            show_filter_buttons: フィルタ切替ボタンを表示するか (sourceモード時のみ)
+            show_filter_buttons: 対応拡張子のラベルを表示するか (sourceモード時のみ)
         """
         super().__init__(parent)
         self._sources: List[SourceFile] = initial_sources or []
         self._work_dir = work_dir or Path.cwd()
         self._mode = mode  # "source" or "chapter"
-        self._filter_mode = initial_filter or "mp4"  # "mp3" or "mp4" (source mode only)
         self._show_filter_buttons = show_filter_buttons
         self._resizing = False  # リサイズ中フラグ
         self._setup_ui()
@@ -123,25 +124,17 @@ class SourceSelectionDialog(QDialog):
         layout.setSpacing(12)
         layout.setContentsMargins(16, 16, 16, 16)
 
-        # フィルタトグルボタン（sourceモードかつshow_filter_buttons=Trueの場合のみ）
+        # 対応拡張子の表示（モードごと）
         filter_layout = QHBoxLayout()
 
         if self._mode == "source" and self._show_filter_buttons:
-            self._mp4_btn = QPushButton("Video")
-            self._mp4_btn.setFixedHeight(40)
-            self._mp4_btn.setCheckable(True)
-            self._mp4_btn.setChecked(self._filter_mode == "mp4")
-            self._mp4_btn.setStyleSheet(self._toggle_button_style())
-            self._mp4_btn.clicked.connect(lambda: self._set_filter_mode("mp4"))
-            filter_layout.addWidget(self._mp4_btn)
-
-            self._mp3_btn = QPushButton("Audio")
-            self._mp3_btn.setFixedHeight(40)
-            self._mp3_btn.setCheckable(True)
-            self._mp3_btn.setChecked(self._filter_mode == "mp3")
-            self._mp3_btn.setStyleSheet(self._toggle_button_style())
-            self._mp3_btn.clicked.connect(lambda: self._set_filter_mode("mp3"))
-            filter_layout.addWidget(self._mp3_btn)
+            # 映像と音声を分けない。以前は Video/Audio の排他トグルで、既定が
+            # Video だったため音声ファイルが最初から見えず、開くたびに切り替えを
+            # 強いていた。両方を一度に出す方が素直で、混在フォルダでも迷わない。
+            media_label = QLabel("Media Files")
+            media_label.setStyleSheet("color: #a0a0a0; font-size: 14px;")
+            media_label.setToolTip("対応拡張子: " + " ".join(sorted(MEDIA_EXTENSIONS)))
+            filter_layout.addWidget(media_label)
         elif self._mode == "chapter":
             # chapterモード: ラベルのみ表示
             chapter_label = QLabel("Chapter Files (*.chapters, *.txt)")
@@ -162,7 +155,7 @@ class SourceSelectionDialog(QDialog):
             project_label = QLabel("Project Files (*.vce.json) - Multiple Selection")
             project_label.setStyleSheet("color: #a0a0a0; font-size: 14px;")
             filter_layout.addWidget(project_label)
-        # sourceモードでshow_filter_buttons=Falseの場合はボタンもラベルも表示しない
+        # sourceモードで show_filter_buttons=False ならラベルも出さない
 
         filter_layout.addStretch()
         layout.addLayout(filter_layout)
@@ -272,14 +265,15 @@ class SourceSelectionDialog(QDialog):
         self._file_proxy = MediaFilterProxyModel(self)
         self._file_proxy.setSourceModel(self._file_model)
         if self._mode == "chapter":
-            self._file_proxy.set_allowed_extensions(self.CHAPTER_EXTENSIONS)
+            self._file_proxy.set_allowed_extensions(CHAPTER_EXTENSIONS)
         elif self._mode == "directory":
             # ディレクトリモード: 拡張子フィルタなし（フォルダのみ表示）
             self._file_proxy.set_allowed_extensions(set())  # ファイルは非表示
         elif self._mode in ("project", "project_multi"):
             self._file_proxy.set_allowed_extensions(self.PROJECT_EXTENSIONS)
         else:
-            self._file_proxy.set_allowed_extensions(self.VIDEO_EXTENSIONS)
+            # source モード: 映像・音声をまとめて出す
+            self._file_proxy.set_allowed_extensions(MEDIA_EXTENSIONS)
 
         self._file_tree = QTreeView()
         self._file_tree.setModel(self._file_proxy)
@@ -636,27 +630,6 @@ class SourceSelectionDialog(QDialog):
                     self._selected_directory = folder_path
                     self._update_info()
 
-    def _set_filter_mode(self, mode: str):
-        """フィルタモードを設定"""
-        self._filter_mode = mode
-        self._mp3_btn.setChecked(mode == "mp3")
-        self._mp4_btn.setChecked(mode == "mp4")
-
-        # プロキシモデルのフィルタを更新
-        if mode == "mp3":
-            self._file_proxy.set_allowed_extensions(self.AUDIO_EXTENSIONS)
-        else:
-            self._file_proxy.set_allowed_extensions(self.VIDEO_EXTENSIONS)
-
-        # モード変更時は選択をクリア
-        self._selected_files = []
-        self._file_tree.clearSelection()
-
-        self._update_info()
-
-        # ファイルリストにフォーカス
-        self._focus_file_tree()
-
     def _focus_file_tree(self):
         """ファイルリストにフォーカスを設定"""
         self._file_tree.setFocus()
@@ -737,10 +710,7 @@ class SourceSelectionDialog(QDialog):
         elif count == 1:
             self._info_label.setText("1 file selected")
         else:
-            if self._filter_mode == "mp3":
-                self._info_label.setText(f"{count} MP3 files (will be merged)")
-            else:
-                self._info_label.setText(f"{count} files selected")
+            self._info_label.setText(f"{count} files selected")
 
     def get_sources(self) -> List[SourceFile]:
         """選択されたソースを取得"""

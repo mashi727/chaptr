@@ -74,8 +74,7 @@ from .managers import (
 
 
 # ファイル拡張子定義
-AUDIO_EXTENSIONS = {'.mp3', '.m4a', '.wav', '.aac', '.flac'}
-VIDEO_EXTENSIONS = {'.mp4', '.mov', '.avi', '.mkv', '.m4v'}
+from .media_types import AUDIO_EXTENSIONS, VIDEO_EXTENSIONS, MEDIA_EXTENSIONS
 
 # 区間表示（下段）の設定
 # ホイールで選べる区間幅。長尺リハーサルでは 1 分前後が曲の出入りを見るのに合う
