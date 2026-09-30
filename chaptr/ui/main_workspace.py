@@ -3958,15 +3958,13 @@ class MainWorkspace(QWidget):
                 self._load_chapters_for_all_sources()
 
 
-        # 追加したファイルの最初のチャプターをハイライト
-        # insert_indexに対応するチャプター行を探す
-        for row in range(self._table.rowCount()):
-            time_item = self._table.item(row, 0)
-            if time_item:
-                source_idx = time_item.data(Qt.ItemDataRole.UserRole + 1)
-                if source_idx == insert_index:
-                    self._set_current_chapter_row(row)
-                    break
+        # 先頭のチャプターをハイライトする。
+        # ここには insert_index を参照する強調処理が残っていたが、この経路は
+        # ソースの「差し替え」であって挿入ではないため、その変数は存在せず
+        # NameError で落ちていた（bf02ad3 でドラッグ&ドロップを差し替えへ
+        # 変えたときの取り残し）。差し替えでは先頭を選ぶのが素直。
+        if self._table.rowCount() > 0:
+            self._set_current_chapter_row(0)
 
         # 波形を再生成
         self._start_waveform_generation(self._state.sources[0].path)
