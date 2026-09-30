@@ -144,3 +144,71 @@ class TestCloseEventOrder:
         assert order and order[0] == "audio", order
         assert ws._media_player.audioOutput() is None
         win.close()
+
+
+class TestFadeOnShutdown:
+    """終了時は音量を落としきってから畳む
+
+    音量やミュートの変更は音声スレッドが次のバッファで拾うので、**同じ
+    呼び出しの中では効かない**。落とした直後に stop すると、鳴っている波形の
+    途中で断ち切ることになる。段階的に下げ、拾われるまで待ってから畳む。
+    """
+
+    def test_fades_down_before_stopping_when_playing(self, tmp_path):
+        import subprocess
+        import time as _time
+
+        from PySide6.QtCore import QUrl
+        from PySide6.QtMultimedia import QMediaPlayer
+        from PySide6.QtWidgets import QApplication
+
+        app = QApplication.instance() or QApplication([])
+        from chaptr.ui.main_workspace import MainWorkspace
+
+        wav = tmp_path / "tone.wav"
+        subprocess.run(
+            ["ffmpeg", "-v", "error", "-y", "-f", "lavfi",
+             "-i", "sine=frequency=440:duration=8", "-ac", "2", "-ar", "48000", str(wav)],
+            check=True, timeout=60,
+        )
+
+        ws = MainWorkspace()
+        ws.show()
+        ws._media_player.setSource(QUrl.fromLocalFile(str(wav)))
+        ws._media_player.play()
+        for _ in range(60):
+            app.processEvents()
+            _time.sleep(0.02)
+            if ws._media_player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
+                break
+        if ws._media_player.playbackState() != QMediaPlayer.PlaybackState.PlayingState:
+            pytest.skip("この環境では再生状態にならない")
+
+        seen = []
+        out = ws._media_player.audioOutput()
+        original = out.setVolume
+        out.setVolume = lambda v, _o=original: (seen.append(round(v, 2)), _o(v))[1]
+
+        ws.cleanup()
+        assert seen, "再生中なら音量を落としてから止めること"
+        assert seen[-1] == 0.0, seen
+        assert seen == sorted(seen, reverse=True), f"単調に下げること: {seen}"
+        ws.close()
+
+    def test_no_fade_when_not_playing(self):
+        """止まっているならフェードで待たない（終了が遅くならない）"""
+        from PySide6.QtWidgets import QApplication
+
+        app = QApplication.instance() or QApplication([])
+        from chaptr.ui.main_workspace import MainWorkspace
+
+        ws = MainWorkspace()
+        ws.show()
+        app.processEvents()
+        seen = []
+        out = ws._media_player.audioOutput()
+        original = out.setVolume
+        out.setVolume = lambda v, _o=original: (seen.append(v), _o(v))[1]
+        ws.cleanup()
+        assert seen == []
+        ws.close()

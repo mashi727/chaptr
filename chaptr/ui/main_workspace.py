@@ -86,6 +86,10 @@ REGION_SHARPEN_DELAY_MS = 120
 # シーク前後をミュートする時間。デコーダが新しい位置の音を出し始めるまでの
 # 段差を隠すためのもので、長いと操作が鈍く聞こえ、短いと段差が漏れる。
 SEEK_MUTE_MS = 120
+
+# 終了時に音量を段階的に落とすときの1段あたりの待ち。音声スレッドが次の
+# バッファで拾うまでの猶予で、合計でも 4 段 x これだけ。終了時にしか使わない。
+AUDIO_FADE_STEP_SEC = 0.03
 # 移動中は列数・行数を落として追従を優先する（止まれば精細版に置き換わる）
 REGION_COARSE_DIVISOR = 4
 # 粗描画の最短間隔（ミリ秒）。これ以上詰めても人には見えない
@@ -2710,9 +2714,18 @@ class MainWorkspace(QWidget):
         player = self._media_player
         if player is None:
             return
+
         out = player.audioOutput()
-        if out is not None:
-            out.setMuted(True)
+        if out is not None and player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
+            # 音量の変更は音声スレッドが次のバッファで拾うので、**同じ呼び出しの
+            # 中では効かない**。落とした直後に stop すると、鳴っている波形の
+            # 途中で断ち切ることになる。拾われるまで待ってから畳む。
+            # ミュートではなく音量を使うのは、ミュートも同じ遅れを持つうえ、
+            # 段階的に下げられないため。
+            for level in (0.5, 0.2, 0.05, 0.0):
+                out.setVolume(level)
+                time.sleep(AUDIO_FADE_STEP_SEC)
+
         player.stop()
         # 掴んでいるものを手放す順に。ソース → 映像 → 音声
         player.setSource(QUrl())
