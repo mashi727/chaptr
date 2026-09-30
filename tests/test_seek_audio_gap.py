@@ -68,11 +68,38 @@ class TestSeekMute:
 
 
 class TestShutdown:
-    def test_cleanup_silences_before_joining_threads(self, workspace):
-        """終了時、音を止めてから後片付けへ進むこと"""
+    def test_cleanup_releases_everything_first(self, workspace):
+        """終了時、掴んでいるものを全部返してから後片付けへ進むこと
+
+        止めるだけでは足りない。出力の切り離しがスレッドの join より後だと、
+        その間デバイスを掴んだままになり、最後の解放が鳴っていた。
+        """
         ws, _ = workspace
         ws._seek_player(1_000)
         ws.cleanup()
         assert not ws._seek_unmute_timer.isActive()
-        # 出力の切り離しまで明示的に行う（GC 任せにしない）
         assert ws._media_player.audioOutput() is None
+        assert ws._media_player.videoOutput() is None
+        assert ws._media_player.source().toString() == ""
+
+    def test_cleanup_is_idempotent(self, workspace):
+        """二重に呼ばれても壊れないこと
+
+        終了経路が closeEvent と aboutToQuit の2つあるため。
+        """
+        ws, _ = workspace
+        ws.cleanup()
+        ws.cleanup()
+
+    def test_about_to_quit_is_wired(self):
+        """closeEvent を通らない終了でも後片付けが走ること
+
+        macOS の Cmd+Q はウィンドウの close を経ずに落ちることがあり、
+        以前はそこで後片付けが丸ごと走っていなかった。
+        """
+        import inspect
+
+        from chaptr.ui import app as app_module
+
+        src = inspect.getsource(app_module.main)
+        assert "aboutToQuit" in src

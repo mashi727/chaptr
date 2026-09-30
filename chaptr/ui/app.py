@@ -812,6 +812,16 @@ def main():
     window = Chaptr(work_dir)
     window.show()
 
+    # 終了経路は closeEvent だけではない。macOS の Cmd+Q やドックからの終了は
+    # ウィンドウの close を経ずにアプリが落ちることがあり、その場合に後片付けが
+    # 丸ごと走らず、音声デバイスを掴んだままプロセスが消えて終了音が鳴っていた。
+    # aboutToQuit はどの経路でも必ず発火する。cleanup は二重呼び出しに耐える。
+    def _teardown():
+        if window._workspace:
+            window._workspace.cleanup()
+
+    app.aboutToQuit.connect(_teardown)
+
     sys.exit(app.exec())
 
 

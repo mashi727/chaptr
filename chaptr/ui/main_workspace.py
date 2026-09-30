@@ -2697,18 +2697,27 @@ class MainWorkspace(QWidget):
             out.setMuted(False)
 
     def _silence_audio(self):
-        """音を即座に止める（終了時に最初に呼ぶ）
+        """音声を完全に切り離す（終了時に最初に呼ぶ）
 
-        スレッドの join より後に stop すると、待っている数秒のあいだ音が
-        出続けたうえ、最後にバッファごと断ち切られてガリッと鳴る。
-        ミュートしてから止めることで段差そのものを消す。
+        止めるだけでは足りない。以前はここでミュートと stop だけを行い、
+        出力の切り離し（setAudioOutput(None)）は最大 10 秒のスレッド join の
+        後に回っていた。その間デバイスを掴んだままなので、最後の解放が
+        ガリガリと鳴っていた。掴んでいるものをここで全部返す。
+
+        二重に呼ばれても安全（終了経路が closeEvent と aboutToQuit の2つある）。
         """
         self._seek_unmute_timer.stop()
-        out = self._audio_out()
+        player = self._media_player
+        if player is None:
+            return
+        out = player.audioOutput()
         if out is not None:
             out.setMuted(True)
-        if self._media_player is not None:
-            self._media_player.stop()
+        player.stop()
+        # 掴んでいるものを手放す順に。ソース → 映像 → 音声
+        player.setSource(QUrl())
+        player.setVideoOutput(None)
+        player.setAudioOutput(None)
 
     def _seek_video(self, position: int):
         """シーク"""
@@ -6988,13 +6997,17 @@ class MainWorkspace(QWidget):
     def cleanup(self):
         """リソースクリーンアップ
 
-        **音を最初に止める。** 以前はスレッドの join を先に行い、最後に stop して
-        いた。join は最大 5 秒待つので、その間ずっと音が鳴り続けたうえ、最後に
-        バッファごと断ち切られてガリッと鳴っていた。
+        **音声を最初に完全に切り離す。** 以前はスレッドの join を先に行い、
+        最後に stop していた。join は最大 5 秒待つので、その間ずっと音が
+        鳴り続けたうえ、最後にバッファごと断ち切られていた。
 
-        併せて PlaybackManager.cleanup() を通す。ここを呼ばないと
-        setAudioOutput(None) が走らず、QAudioOutput の破棄が GC 任せになる。
+        終了経路は closeEvent と aboutToQuit の2つあるので、二重に呼ばれても
+        安全なようにしてある。
         """
+        if getattr(self, "_cleaned_up", False):
+            return
+        self._cleaned_up = True
+
         self._silence_audio()
 
         # 音声キャッシュ構築スレッドをクリーンアップ
@@ -7003,9 +7016,6 @@ class MainWorkspace(QWidget):
         self._cleanup_detect_thread()
         self._region_timer.stop()
         self._audio_cache = None
-
-        # 出力の切り離しまで明示的に行う（GC 任せにしない）
-        self._playback_manager.cleanup()
 
     def closeEvent(self, event):
         """ウィジェット終了時"""
