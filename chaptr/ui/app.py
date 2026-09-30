@@ -760,16 +760,22 @@ class Chaptr(QMainWindow):
         super().resizeEvent(event)
 
     def closeEvent(self, event):
-        """アプリケーション終了時のクリーンアップ"""
+        """アプリケーション終了時のクリーンアップ
+
+        **音声の切り離しを最初に行う。** 以前はアップデート確認とダウンロードの
+        スレッドを先に畳んでおり（それぞれ wait(1000)）、その間ずっと音声
+        デバイスを掴んだままだった。MainWorkspace 内部で直したのと同じ構図が、
+        ここに1段上として残っていた。
+        """
+        # MainWorkspace のクリーンアップ（音声の切り離しを含む）を最優先で
+        if self._workspace:
+            self._workspace.cleanup()
+
         # アップデートチェックスレッドをクリーンアップ
         self._cleanup_update_check()
 
         # ダウンロードスレッドをクリーンアップ
         self._cleanup_download()
-
-        # MainWorkspaceのクリーンアップ
-        if self._workspace:
-            self._workspace.cleanup()
 
         super().closeEvent(event)
 

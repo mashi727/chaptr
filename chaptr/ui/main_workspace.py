@@ -7014,6 +7014,12 @@ class MainWorkspace(QWidget):
         self._cleanup_cache_thread()
         # 区間判別スレッドをクリーンアップ
         self._cleanup_detect_thread()
+        # 尺の検出スレッド。読み込み中に閉じるとここが走行中のまま残り、
+        # QThread を破棄した時点で abort する
+        if self._duration_detect_worker:
+            self._duration_detect_worker.requestInterruption()
+            self._duration_detect_worker.wait(1000)
+            self._duration_detect_worker = None
         self._region_timer.stop()
         self._audio_cache = None
 

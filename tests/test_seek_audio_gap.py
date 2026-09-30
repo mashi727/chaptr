@@ -103,3 +103,44 @@ class TestShutdown:
 
         src = inspect.getsource(app_module.main)
         assert "aboutToQuit" in src
+
+
+class TestCloseEventOrder:
+    """✕ で閉じたときの順序
+
+    以前は closeEvent がアップデート確認とダウンロードのスレッドを先に畳んで
+    おり（それぞれ wait(1000)）、その間ずっと音声デバイスを掴んだままだった。
+    MainWorkspace 内部で直したのと同じ構図が1段上に残っていた。
+    """
+
+    def test_audio_is_released_before_other_threads(self):
+        from PySide6.QtGui import QCloseEvent
+        from PySide6.QtWidgets import QApplication
+
+        app = QApplication.instance() or QApplication([])
+        from chaptr.ui.app import Chaptr
+
+        win = Chaptr()
+        win.show()
+        for _ in range(2):
+            app.processEvents()
+
+        order = []
+        ws = win._workspace
+        for owner, name, label in (
+            (ws, "_silence_audio", "audio"),
+            (win, "_cleanup_update_check", "update"),
+            (win, "_cleanup_download", "download"),
+        ):
+            original = getattr(owner, name)
+
+            def wrapped(_o=original, _l=label):
+                order.append(_l)
+                return _o()
+
+            setattr(owner, name, wrapped)
+
+        win.closeEvent(QCloseEvent())
+        assert order and order[0] == "audio", order
+        assert ws._media_player.audioOutput() is None
+        win.close()
