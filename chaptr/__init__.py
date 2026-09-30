@@ -33,5 +33,5 @@ _NATIVE_MEDIA_BACKEND = {"win32": "windows", "darwin": "darwin"}
 if _sys.platform in _NATIVE_MEDIA_BACKEND:
     _os.environ.setdefault("QT_MEDIA_BACKEND", _NATIVE_MEDIA_BACKEND[_sys.platform])
 
-__version__ = "2.3.1-rc3"
+__version__ = "2.3.1-rc4"
 __author__ = "mashi727"
