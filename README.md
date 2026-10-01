@@ -14,7 +14,9 @@ PySide6 + ffmpeg ベース、GPU ハードウェアエンコード対応。
 ![Media](https://img.shields.io/badge/media-ffmpeg-007808?logo=ffmpeg&logoColor=white)
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows-lightgrey)
 
-<img src="docs/images/startup.png" alt="Chaptr のメイン画面" width="860">
+<img src="docs/images/editing.png" alt="Chaptr の編集画面：演奏会の録画を、チャプター表・2段の波形・メルスペクトログラムで区切っている" width="860">
+
+<sub>約 25 分の演奏会録画を区切っているところ。休憩と終演後の拍手は <code>--</code> で除外（赤い斜線）。<br>素材は撮影用に合成した架空の演奏会です。</sub>
 
 </div>
 
@@ -49,15 +51,12 @@ GPU エンコードまで、**書き出しまで一気通貫**です。
 一画面で「見る → 区切る → 書き出す」が完結します。
 
 <div align="center">
-<img src="docs/images/startup.png" alt="Chaptr メイン画面（起動直後）" width="860">
-</div>
-
-<!--
-チャプター編集（波形）ビューの実素材スクリーンショットを撮影したら、下を有効化してください:
-<div align="center">
 <img src="docs/images/editing.png" alt="チャプター編集（波形）ビュー" width="860">
 </div>
--->
+
+- **上段**は全体の波形。白い括弧が下段に拡大している範囲で、`--` で始まる除外チャプター（休憩・終演後の拍手）は赤い斜線で示されます。
+- **下段**はその範囲のメルスペクトログラム。曲の終わり → 拍手 → 休憩の静けさ、と音の性格の変わり目が色で見分けられます。
+- 上端の小さな印は、自動判別した区間の候補（演奏／コメント／休憩）です。
 
 ### 書き出し設定 ／ 環境設定
 
