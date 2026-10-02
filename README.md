@@ -20,6 +20,14 @@ PySide6 + ffmpeg ベース、GPU ハードウェアエンコード対応。
 
 </div>
 
+## 考え方
+
+何が問題で、それをどう解いているかを PAD（問題分析図）で示します。各段の詳細は下の各節を参照してください。
+
+<img src="docs/pad/concept.png" alt="考え方の PAD。長い録画を章で引けるようにするため、素材を読み込み、波形とメルスペクトログラムで音の変化を描き、人が境目を詰めてチャプターを打ち、章立てを保存・コピーする" width="100%">
+
+<sub>図の元は [`docs/pad/concept.spd`](docs/pad/concept.spd)。[padkit](https://github.com/mashi727/padkit) で検査・描画しています。</sub>
+
 ## なぜ Chaptr か
 
 長い録画から「どこで曲が変わるか」「どこが休憩か」を目で探すのは骨が折れます。
