@@ -204,6 +204,7 @@ Chaptr は単機能のチャプター編集に特化していますが、より�
 ワークフローの一部として設計されています。関連リポジトリ:
 
 - [media-scribe-workflow](https://github.com/mashi727/media-scribe-workflow) — Chaptr の派生元。章立ての `.txt` を読んで書き出す `vce-encode` / `vce-split` と、LaTeX レポート生成パイプラインを含む
+- [score-viewer](https://github.com/mashi727/score-viewer) — サポートツール。横に譜面を開き、曲名をコピーしてチャプター名に貼る／返し練習の開始小節を確かめる
 
 ## License
 
