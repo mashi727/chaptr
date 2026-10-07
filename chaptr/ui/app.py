@@ -283,6 +283,11 @@ class Chaptr(QMainWindow):
         # Edit メニュー
         edit_menu = menubar.addMenu("Edit")
 
+        copy_time_action = QAction("Copy Playback Time", self)
+        copy_time_action.setShortcut("Ctrl+C")
+        copy_time_action.triggered.connect(self._copy_playback_time)
+        edit_menu.addAction(copy_time_action)
+
         paste_action = QAction("Paste Chapters", self)
         paste_action.setShortcut("Ctrl+V")
         paste_action.triggered.connect(self._paste_chapters)
@@ -385,6 +390,15 @@ class Chaptr(QMainWindow):
     def _open_folder(self):
         """フォルダを開く（Select Sourceと同じ挙動）"""
         self._workspace._open_source_dialog()
+
+    def _copy_playback_time(self):
+        """Cmd/Ctrl-C。再生位置の時刻をコピーする
+
+        メニュー項目の名前どおりの動作だが、テキストを選択しているときだけは
+        通常のコピーへ譲る。ショートカットはウィジェットのキー処理より先に
+        走るため、譲らないと時刻・タイトルの編集中に文字列をコピーできなくなる。
+        """
+        self._workspace.handle_copy_shortcut()
 
     def _paste_chapters(self):
         """チャプターをペースト"""

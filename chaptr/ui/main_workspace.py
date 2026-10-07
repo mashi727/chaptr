@@ -2008,6 +2008,15 @@ class MainWorkspace(QWidget):
         add_btn.clicked.connect(self._add_chapter)
         btn_layout.addWidget(add_btn, 1)
 
+        copy_time_btn = QPushButton("Copy\nTime")
+        copy_time_btn.setFixedHeight(40)
+        copy_time_btn.setMinimumWidth(0)
+        copy_time_btn.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
+        copy_time_btn.setStyleSheet(chapter_btn_style.replace("padding: 0 8px;", "padding: 2px 4px;"))
+        copy_time_btn.setToolTip("再生位置の時刻をコピー（Cmd/Ctrl-C）")
+        copy_time_btn.clicked.connect(self.copy_playback_time)
+        btn_layout.addWidget(copy_time_btn, 1)
+
         remove_btn = QPushButton("Remove")
         remove_btn.setFixedHeight(40)
         remove_btn.setMinimumWidth(0)
@@ -6069,6 +6078,52 @@ class MainWorkspace(QWidget):
         clipboard.setText(youtube_text)
 
         self._log_panel.info(f"Copied {len(chapters)} chapters to clipboard (YouTube format)", source="UI")
+
+    def copy_playback_time(self):
+        """再生位置の時刻を H:MM:SS.mmm でクリップボードへ
+
+        出すのは**チャプター表に表示しているのと同じ絶対時間**（仮想タイムライン）。
+        Add Chapter が使う値と同一の求め方（`_get_virtual_position`）なので、
+        コピーした文字列はそのまま時刻セルへ貼れる。ローカル時間を出すと、
+        複数ソースを繋いでいるときに貼った先とずれる。
+        """
+        if not self._media_player:
+            self._log_panel.warning("No media loaded", source="UI")
+            return
+        text = self._format_time(self._get_virtual_position())
+        QApplication.clipboard().setText(text)
+        self._log_panel.info(f"Copied playback time: {text}", source="UI")
+
+    def _focused_widget_has_selection(self) -> bool:
+        """フォーカス中のウィジェットが「選択されたテキスト」を持つか
+
+        Cmd/Ctrl-C を再生位置のコピーに割り当てると、時刻やタイトルを編集中に
+        文字列のコピーができなくなる。ショートカットはウィジェットのキー処理より
+        先に走るため、ここで見分けて譲る必要がある。
+        """
+        fw = QApplication.focusWidget()
+        if fw is None or not callable(getattr(fw, "copy", None)):
+            return False
+        if hasattr(fw, "hasSelectedText"):            # QLineEdit 系
+            return bool(fw.hasSelectedText())
+        if hasattr(fw, "textCursor"):                 # QTextEdit / QPlainTextEdit 系
+            try:
+                return bool(fw.textCursor().hasSelection())
+            except Exception:
+                return False
+        return False
+
+    def handle_copy_shortcut(self):
+        """Cmd/Ctrl-C の入口
+
+        テキストを選択しているときは通常のコピーに譲り、それ以外は再生位置の
+        時刻をコピーする。選択が無ければテキスト欄でも時刻を出す（押して何も
+        起きないより、いつでも時刻が取れるほうが用途に合う）。
+        """
+        if self._focused_widget_has_selection():
+            QApplication.focusWidget().copy()
+            return
+        self.copy_playback_time()
 
     def _save_chapters(self):
         """チャプターをファイルに保存（--含む全チャプター）
