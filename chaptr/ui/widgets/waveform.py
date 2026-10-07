@@ -19,8 +19,6 @@ COOL_COLORMAPS = frozenset({"viridis", "cividis"})
 
 # ホバー中に下方向へこれ以上動いたら X 追従を止める（下段へ移る間の区間ズレ防止）。
 # ウィジェット高さ×RATIO と MIN(px) の大きい方。小さいほど「厳しめ」＝早く固定する。
-HOVER_X_LOCK_DY_RATIO = 0.15
-HOVER_X_LOCK_DY_MIN = 12
 
 # ホイールのズーム感度。angleDelta の積算がこの値を越えたら1段動かす。
 # 標準的なマウスの1ノッチが 120 なので 2ノッチ相当。大きくすると鈍くなる。
@@ -72,7 +70,6 @@ class WaveformWidget(QWidget):
 
     # シグナル
     position_clicked = Signal(float)  # クリック位置（全体に対する 0.0-1.0）
-    hover_moved = Signal(float)       # ホバー位置（全体に対する 0.0-1.0）
     hover_left = Signal()             # ホバー終了
     zoom_requested = Signal(int)      # ホイール操作（+1: 拡大 / -1: 縮小）
     resized = Signal()                # 幅・高さの変更（データの取り直しに使う）
@@ -225,7 +222,10 @@ class WaveformWidget(QWidget):
             self.update()
 
     def set_hover_enabled(self, enabled: bool):
-        """ホバー時刻表示と hover_moved の発行を有効にする"""
+        """ホバー時刻表示を有効にする
+
+        区間の追従には関与しない（区間を動かすのは再生カーソルだけ）。
+        """
         self._hover_enabled = enabled
 
     def set_corner_label(self, text: str):
@@ -1024,29 +1024,23 @@ class WaveformWidget(QWidget):
                 self.position_clicked.emit(self._x_to_position(event.position().x()))
 
     def mouseMoveEvent(self, event):
-        """ホバー位置を更新し、区間の再計算を要求する
+        """ホバー位置を更新する（時刻表示のためだけ）
 
-        下方向へ一定以上動いたら X 追従（hover_moved の発行）を止める。上段で X を
-        決めた後、下段へカーソルを移す最中に区間中心が動いて下段の表示領域がずれる
-        のを防ぐ。ホバー中の最上部 Y からの落差で判定し、leaveEvent でリセットする。
+        **区間の再計算は要求しない。** 以前はここから hover_moved を出して下段の
+        拡大区間を追従させていたが、positionChanged と交互に区間を動かして
+        奪い合い、カーソルを動かすたびに下段が揺れた。区間の中心を動かすのは
+        再生カーソルだけという仕様に変更した（2026-10-07）。
+
+        これに伴い「下端の帯に入ったら X 追従を止める」抑止も不要になり外した。
+        あれは hover_moved の発行を止めるためだけの仕掛けだった。
         """
         if not self._hover_enabled:
             return
-
-        # 下端の帯（lock_dy px）に入ったら X 追従（hover_moved）を止める。上段で X を
-        # 決めた後、下段へカーソルを移す最中に区間中心がずれるのを防ぐ。判定は「現在の
-        # 絶対 Y が下端帯にあるか」だけなので、上下に動かしても lock/unlock がトグルせず
-        # 安定する（履歴依存だった _hover_min_y 方式を廃止）。
-        y = int(event.position().y())
-        lock_dy = max(HOVER_X_LOCK_DY_MIN, int(self.height() * HOVER_X_LOCK_DY_RATIO))
-        x_locked = y > (self.height() - lock_dy)
 
         x = int(event.position().x())
         if x != self._hover_x:
             self._hover_x = x
             self.update()
-            if self._has_data() and 0 <= x < self.width() and not x_locked:
-                self.hover_moved.emit(self._x_to_position(x))
 
     def leaveEvent(self, event):
         """ホバー終了。区間は呼び出し側の判断で保持される"""

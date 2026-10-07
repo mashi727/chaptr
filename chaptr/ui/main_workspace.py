@@ -95,7 +95,6 @@ AUDIO_SETTLE_SEC = float(os.environ.get("CHAPTR_AUDIO_SETTLE_SEC", "0.35"))
 # 移動中は列数・行数を落として追従を優先する（止まれば精細版に置き換わる）
 REGION_COARSE_DIVISOR = 4
 # 粗描画の最短間隔（ミリ秒）。これ以上詰めても人には見えない
-REGION_MIN_FRAME_MS = 12
 # 動画表示の設定
 # 用途は「指揮者の動きと音のズレの確認」なので、判別できる大きさがあれば十分。
 # 高さに上限を設け、余った縦は波形（特に下段の区間表示）へ回す。
@@ -1086,8 +1085,8 @@ class MainWorkspace(QWidget):
         self._region_bridge: Optional[RegionBridge] = None
         self._region_span_ms: int = self._load_region_span()
         self._region_start_ms: int = 0
-        # ホバーで区間を動かしたあとは、そのまま留めて下段をクリックできるようにする。
-        # 再生位置追従へ戻すのはシーク時と、再生が区間外へ出たとき
+        # ホイールで区間幅を変えたあとは、そのまま留めて見たい場所を保つ。
+        # 再生位置追従へ戻すのは上段クリックと、再生が留めた区間へ追いついたとき
         self._region_pinned: bool = False
         # 手が止まったら精細版へ置き換えるためのタイマー。
         # 移動中の描画はこれに任せず、その場で粗く描く（下記 _apply_region_center）
@@ -1095,7 +1094,6 @@ class MainWorkspace(QWidget):
         self._region_timer.setSingleShot(True)
         self._region_timer.setInterval(REGION_SHARPEN_DELAY_MS)
         self._region_timer.timeout.connect(self._refresh_region_view)
-        self._region_last_draw: float = 0.0
 
         # シーク直後にミュートを解く単発タイマー。連続クリックでは張り直すだけ
         self._seek_unmute_timer = QTimer(self)
@@ -1823,12 +1821,14 @@ class MainWorkspace(QWidget):
         # 上段は viridis（寒色）で固定。下段はテーマ既定(inferno)に追従（上下の色を入替）
         self._waveform_widget.set_colormap(OVERVIEW_COLORMAP)
         self._waveform_widget.setToolTip(
-            "クリックで再生位置を移動 / なぞると下段が追従\n"
+            "クリックで再生位置を移動（下段はそこへ追従）\n"
+            "なぞると時刻を表示（下段は動かない）\n"
             "赤いハッチング: 除外区間（--チャプター）"
         )
         self._waveform_widget.set_hover_enabled(True)
         self._waveform_widget.position_clicked.connect(self._on_overview_clicked)
-        self._waveform_widget.hover_moved.connect(self._on_overview_hover)
+        # ホバーでは下段を動かさない。区間の中心は再生カーソルだけが動かす
+        # （2026-10-07 に仕様変更。以前は hover_moved で追従させていた）
         layout.addWidget(self._waveform_widget, stretch=4)
 
         # 上段の区間枠から下段の全幅へ広がる台形。
@@ -3528,26 +3528,20 @@ class MainWorkspace(QWidget):
         start = max(0, min(start, duration - span))
         return start, start + span
 
-    def _apply_region_center(self, center_ms: float, live: bool = False):
+    def _apply_region_center(self, center_ms: float):
         """区間の中心を移動する
 
-        live=True（ホバー追従）では、その場で粗く描いてから精細化を予約する。
-        デバウンスだけに任せると、移動イベントのたびにタイマーが再スタートして
-        手が緩んだ瞬間にしか更新されず、飛び飛びの更新＝ちらつきになる。
+        呼び手は再生カーソル側（positionChanged・シーク・読み込み）と、
+        ホイールでの区間幅変更だけ。以前はホバー追従用に live=True の
+        「その場で粗く描いてから精細化」経路があったが、ホバーで区間を
+        動かすのをやめた（2026-10-07）ため呼び手が無くなり外した。
         """
         start, end = self._region_bounds(center_ms)
         if end <= start:
             return
 
-        moved = start != self._region_start_ms
         self._region_start_ms = start
         self._update_region_indicators(start, end)
-
-        if live and moved:
-            now = time.monotonic()
-            if (now - self._region_last_draw) * 1000 >= REGION_MIN_FRAME_MS:
-                self._region_last_draw = now
-                self._render_region(start, end, coarse=True)
 
         # 手が止まったら精細版へ置き換える
         self._region_timer.start()
@@ -3633,7 +3627,9 @@ class MainWorkspace(QWidget):
         結果は _on_spectrogram_ready が描く。
 
         coarse=True では列数・行数を落として要求する（ウィジェット側が最近傍で
-        引き伸ばす）。手を速く動かしたときの初回描画を軽くするため。
+        引き伸ばす）。ホバー追従の初回描画を軽くするためのものだったので、
+        ホバーで区間を動かすのをやめた今は渡す呼び手が無い。描画側の選択肢
+        としては有効なので残してある。
         """
         widget = self._region_widget
         cache = self._audio_cache
@@ -3670,26 +3666,12 @@ class MainWorkspace(QWidget):
         self._region_start_ms = start
 
         self._render_region(start, end, coarse=False)
-        self._region_last_draw = time.monotonic()
         self._update_region_indicators(start, end)
 
     def _on_overview_clicked(self, position: float):
         """上段のクリック: そこへシークし、区間の留めを解除して追従へ戻す"""
         self._region_pinned = False
         self._on_waveform_clicked(position)
-
-    def _on_overview_hover(self, position: float):
-        """上段のホバーで区間を再計算する"""
-        if self._audio_cache is None:
-            return
-        duration = self._display_duration()
-        if duration <= 0:
-            return
-
-        # ホバーで動かしたら留める。離した瞬間に区間が戻ると、
-        # 狙って止めた場所を下段でクリックできない
-        self._region_pinned = True
-        self._apply_region_center(position * duration, live=True)
 
     def _on_region_zoom(self, direction: int):
         """ホイールで区間の幅を変える（中心は保つ）"""
@@ -3713,11 +3695,13 @@ class MainWorkspace(QWidget):
     def _sync_region_to_playback(self, position_ms: int):
         """再生位置に応じて区間を追従させる
 
-        留め（pin）は再生位置より常に優先する。ここを取り違えると、
-        ホバーがカーソル側へ、positionChanged が再生位置側へ交互に区間を
-        動かし、両者が奪い合ってちらつく。
+        **区間の中心を動かすのは再生カーソルだけ**（2026-10-07 の仕様変更）。
+        以前は上段のホバーでも動かしていたが、ホバーと positionChanged が
+        交互に区間を動かして奪い合い、カーソルを動かすたびに下段が揺れた。
+        ホバーは時刻表示だけを担い、区間には触らない。
 
-        留めが解けるのは次の2つだけ:
+        留め（pin）はホイールで区間幅を変えたときだけ立ち、再生位置より優先する。
+        解けるのは次の2つ:
           - 上段クリック（明示的に「そこへ行く」）… _on_overview_clicked
           - 再生が留めた区間へ追いついたとき（先を見ていた用が済んだ）
         """
