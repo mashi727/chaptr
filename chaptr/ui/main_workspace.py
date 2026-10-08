@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
     QGraphicsView, QGraphicsScene
 )
 from PySide6.QtCore import Qt, Signal, QUrl, QThread, QObject, QTimer, QEvent, QMimeData, QPoint, QSize, QSizeF, QEventLoop
-from PySide6.QtGui import QFont, QFontDatabase, QPainter, QColor, QPen, QBrush, QPixmap, QIcon, QPolygon, QKeyEvent, QTransform
+from PySide6.QtGui import QFont, QFontDatabase, QFontMetrics, QPainter, QColor, QPen, QBrush, QPixmap, QIcon, QPolygon, QKeyEvent, QTransform
 from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput, QMediaDevices
 from PySide6.QtMultimediaWidgets import QVideoWidget, QGraphicsVideoItem
 
@@ -1470,7 +1470,8 @@ class MainWorkspace(QWidget):
         self._audio_device_combo.set_refresh_callback(self._populate_audio_devices)
         self._populate_audio_devices()
         self._audio_device_combo.currentIndexChanged.connect(self._on_audio_device_changed)
-        bottom_row.addWidget(self._audio_device_combo)
+        # 余白を空のまま残さず、切り詰めの起きるデバイス名に回す
+        bottom_row.addWidget(self._audio_device_combo, 1)
 
         bottom_row.addSpacing(12)
 
@@ -1497,8 +1498,6 @@ class MainWorkspace(QWidget):
         self._sensitivity_combo.currentIndexChanged.connect(self._on_sensitivity_changed)
         bottom_row.addWidget(self._sensitivity_combo)
 
-        bottom_row.addStretch()
-
         # 時間表示
         self._time_label = QLabel("0:00:00.000 / 0:00:00.000")
         # 黄緑のLCD風をやめ、通常の文字色へ。現在位置と総尺の区別は
@@ -1507,6 +1506,11 @@ class MainWorkspace(QWidget):
             f"color: {Colors.get_text()}; background: transparent;")
         self._time_label.setFont(self._get_monospace_font(Scale.FONT_LG))
         self._time_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        # 時刻は桁が欠けると用を成さない。等幅の実測幅を最小幅として確保し、
+        # 行が詰まったときは隣のコンボ（切り詰めても困らない）に譲らせる。
+        self._time_label.setMinimumWidth(
+            QFontMetrics(self._time_label.font())
+            .horizontalAdvance("0:00:00.000 / 0:00:00.000") + Scale.SPACE_MD)
         bottom_row.addWidget(self._time_label)
 
         layout.addLayout(bottom_row)
@@ -1803,7 +1807,7 @@ class MainWorkspace(QWidget):
         chapter_btn_style = ButtonStyles.tonal()
 
         add_btn = QPushButton("Add\nChapter")
-        add_btn.setFixedHeight(40)
+        add_btn.setFixedHeight(Scale.H_XL)
         add_btn.setMinimumWidth(0)
         add_btn.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
         add_btn.setProperty("chaptr_style", "tonal")
@@ -1813,7 +1817,7 @@ class MainWorkspace(QWidget):
         btn_layout.addWidget(add_btn, 1)
 
         copy_time_btn = QPushButton("Copy\nTime")
-        copy_time_btn.setFixedHeight(40)
+        copy_time_btn.setFixedHeight(Scale.H_XL)
         copy_time_btn.setMinimumWidth(0)
         copy_time_btn.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
         copy_time_btn.setProperty("chaptr_style", "tonal")
@@ -1823,7 +1827,7 @@ class MainWorkspace(QWidget):
         btn_layout.addWidget(copy_time_btn, 1)
 
         remove_btn = QPushButton("Remove")
-        remove_btn.setFixedHeight(40)
+        remove_btn.setFixedHeight(Scale.H_XL)
         remove_btn.setMinimumWidth(0)
         remove_btn.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
         remove_btn.setProperty("chaptr_style", "tonal")
@@ -1833,7 +1837,7 @@ class MainWorkspace(QWidget):
         btn_layout.addWidget(remove_btn, 1)
 
         copy_btn = QPushButton("Copy to\nYoutube")
-        copy_btn.setFixedHeight(40)
+        copy_btn.setFixedHeight(Scale.H_XL)
         copy_btn.setMinimumWidth(0)
         copy_btn.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
         copy_btn.setProperty("chaptr_style", "tonal")
@@ -1843,7 +1847,7 @@ class MainWorkspace(QWidget):
         btn_layout.addWidget(copy_btn, 1)
 
         save_btn = QPushButton("Save")
-        save_btn.setFixedHeight(40)
+        save_btn.setFixedHeight(Scale.H_XL)
         save_btn.setMinimumWidth(0)
         save_btn.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
         save_btn.setProperty("chaptr_style", "tonal")

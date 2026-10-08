@@ -192,6 +192,7 @@ class Chaptr(QMainWindow):
         app = QApplication.instance()
         if app:
             app.setFont(get_ui_font(16))
+        self._apply_selection_palette()
         self._apply_tooltip_palette()
 
         # 配色はすべて ColorRole（base16・3配色）から。以前はここに #242424 などを
@@ -487,6 +488,31 @@ class Chaptr(QMainWindow):
             if widget is not None:
                 yield widget
 
+    def _apply_selection_palette(self):
+        """選択範囲の地と字をテーマから与える
+
+        スタイルシートで `selection-background-color` を指定しても、
+        `selection-color` を省くと文字色は QPalette 側（＝OS の既定）から来る。
+        さらに macOS では、フォーカスを失った選択が Inactive グループの灰色で
+        描かれるため、濃い灰の上に濃い灰の字という組み合わせが起きる。
+        チャプター表のセルを編集したときに字が読めなかったのはこれ。
+        Active / Inactive の両グループを配色から与える（2026-10-08）。
+        """
+        from PySide6.QtGui import QPalette, QColor
+
+        app = QApplication.instance()
+        if app is None:
+            return
+        highlight = QColor(Colors.get_primary())
+        on_highlight = QColor(Colors.get_on_primary())
+        palette = app.palette()
+        for group in (QPalette.ColorGroup.Active,
+                      QPalette.ColorGroup.Inactive,
+                      QPalette.ColorGroup.Normal):
+            palette.setColor(group, QPalette.ColorRole.Highlight, highlight)
+            palette.setColor(group, QPalette.ColorRole.HighlightedText, on_highlight)
+        app.setPalette(palette)
+
     def _apply_tooltip_palette(self):
         """ツールチップの地と字をテーマから与える
 
@@ -534,6 +560,7 @@ class Chaptr(QMainWindow):
         Color Scheme を変えてもほとんど見た目が変わらなかった。
         """
         self.setStyleSheet(app_stylesheet())
+        self._apply_selection_palette()
         self._apply_tooltip_palette()
         if hasattr(self._workspace, "reapply_theme"):
             self._workspace.reapply_theme()

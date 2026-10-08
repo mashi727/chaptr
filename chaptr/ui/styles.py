@@ -551,15 +551,17 @@ class Scale:
     SPACE_LG = 12
     SPACE_XL = 16
 
-    # 文字は3段階。基準は get_ui_font の既定と同じ 13px
-    FONT_SM = 11      # 補助情報・バッジ
-    FONT_MD = 13      # 本文・コントロール
-    FONT_LG = 15      # 見出し
+    # 文字は3段階。一度 19px（14pt 相当）まで上げたが情報量が落ちるため戻し、
+    # そこから 1px だけ上げた（2026-10-08）。段階の関係を保つため3つとも +1。
+    FONT_SM = 12      # 補助情報・バッジ
+    FONT_MD = 14      # 本文・コントロール
+    FONT_LG = 16      # 見出し
 
     # コントロールの高さ。これ以外の高さを個別に決めない
     H_SM = 22
     H_MD = 28
     H_LG = 36
+    H_XL = 44     # 2行ラベルのボタン（Add\nChapter など。14px では 42px 必要）
 
     # 境界線。フラットなので原則は背景の段差で分け、線は最小限
     BORDER = 1
@@ -587,6 +589,7 @@ def app_stylesheet() -> str:
     fg_dim = Colors.get_text_dim()
     fg_bright = Colors.get_text_bright()
     primary = Colors.get_primary()
+    on_primary = Colors.get_on_primary()
     r = Scale.RADIUS
 
     return f"""
@@ -630,14 +633,16 @@ def app_stylesheet() -> str:
             border: {Scale.BORDER}px solid {line}; border-radius: {r}px;
             padding: {Scale.SPACE_SM}px {Scale.SPACE_MD}px;
             min-height: {Scale.H_MD}px;
-            selection-background-color: {ctrl};
+            selection-background-color: {primary};
+            selection-color: {on_primary};
         }}
         QLineEdit:focus, QSpinBox:focus, QComboBox:focus {{ border-color: {primary}; }}
         QComboBox::drop-down {{ border: none; width: {Scale.SPACE_XL}px; }}
         QComboBox QAbstractItemView {{
             background: {panel}; color: {fg};
             border: {Scale.BORDER}px solid {line};
-            selection-background-color: {ctrl};
+            selection-background-color: {primary};
+            selection-color: {on_primary};
         }}
 
         QTableWidget, QTableView {{
@@ -751,6 +756,19 @@ class Surfaces:
                 background: {Colors.get_background_alt()};
                 color: {Colors.get_text_dim()};
                 border: none;
+            }}
+            QTableWidget QLineEdit {{
+                background: {Colors.get_background_alt()};
+                color: {Colors.get_text()};
+                border: {Scale.BORDER}px solid {Colors.get_primary()};
+                border-radius: {Scale.RADIUS}px;
+                padding: 0 {Scale.SPACE_SM}px;
+                /* 共通の QLineEdit は min-height を持つ。セル編集では行の高さを
+                   超えて次の行を覆ってしまうので、ここでは行に従わせる。 */
+                min-height: 0;
+                margin: 0;
+                selection-background-color: {Colors.get_primary()};
+                selection-color: {Colors.get_on_primary()};
             }}
         """
 
