@@ -14,7 +14,7 @@ from ..media_types import (
     MEDIA_EXTENSIONS,
     CHAPTER_EXTENSIONS,
 )
-from ..styles import ButtonStyles
+from ..styles import ButtonStyles, Colors, Scale
 
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
@@ -98,26 +98,26 @@ class SourceSelectionDialog(QDialog):
             self.resize(width, height)
         else:
             self.resize(self.DEFAULT_WIDTH, self.DEFAULT_HEIGHT)
-        self.setStyleSheet("""
-            QDialog {
-                background: #1a1a1a;
-            }
-            QLabel {
-                color: #f0f0f0;
-            }
-            QGroupBox {
-                color: #a0a0a0;
+        self.setStyleSheet(f"""
+            QDialog {{
+                background: {Colors.get_background_alt()};
+            }}
+            QLabel {{
+                color: {Colors.get_text()};
+            }}
+            QGroupBox {{
+                color: {Colors.get_text_dim()};
                 font-size: 13px;
-                border: 1px solid #3a3a3a;
+                border: 1px solid {Colors.get_border()};
                 border-radius: 6px;
                 margin-top: 8px;
                 padding-top: 12px;
-            }
-            QGroupBox::title {
+            }}
+            QGroupBox::title {{
                 subcontrol-origin: margin;
                 left: 12px;
                 padding: 0 4px;
-            }
+            }}
         """)
 
         layout = QVBoxLayout(self)
@@ -132,28 +132,28 @@ class SourceSelectionDialog(QDialog):
             # Video だったため音声ファイルが最初から見えず、開くたびに切り替えを
             # 強いていた。両方を一度に出す方が素直で、混在フォルダでも迷わない。
             media_label = QLabel("Media Files")
-            media_label.setStyleSheet("color: #a0a0a0; font-size: 14px;")
+            media_label.setStyleSheet(f"color: {Colors.get_text_dim()}; font-size: 14px;")
             media_label.setToolTip("対応拡張子: " + " ".join(sorted(MEDIA_EXTENSIONS)))
             filter_layout.addWidget(media_label)
         elif self._mode == "chapter":
             # chapterモード: ラベルのみ表示
             chapter_label = QLabel("Chapter Files (*.chapters, *.txt)")
-            chapter_label.setStyleSheet("color: #a0a0a0; font-size: 14px;")
+            chapter_label.setStyleSheet(f"color: {Colors.get_text_dim()}; font-size: 14px;")
             filter_layout.addWidget(chapter_label)
         elif self._mode == "directory":
             # directoryモード: ラベル表示
             dir_label = QLabel("Select a directory")
-            dir_label.setStyleSheet("color: #a0a0a0; font-size: 14px;")
+            dir_label.setStyleSheet(f"color: {Colors.get_text_dim()}; font-size: 14px;")
             filter_layout.addWidget(dir_label)
         elif self._mode == "project":
             # projectモード: ラベルのみ表示
             project_label = QLabel("Project Files (*.vce.json)")
-            project_label.setStyleSheet("color: #a0a0a0; font-size: 14px;")
+            project_label.setStyleSheet(f"color: {Colors.get_text_dim()}; font-size: 14px;")
             filter_layout.addWidget(project_label)
         elif self._mode == "project_multi":
             # project_multiモード: ラベルのみ表示（複数選択可能）
             project_label = QLabel("Project Files (*.vce.json) - Multiple Selection")
-            project_label.setStyleSheet("color: #a0a0a0; font-size: 14px;")
+            project_label.setStyleSheet(f"color: {Colors.get_text_dim()}; font-size: 14px;")
             filter_layout.addWidget(project_label)
         # sourceモードで show_filter_buttons=False ならラベルも出さない
 
@@ -162,11 +162,11 @@ class SourceSelectionDialog(QDialog):
 
         # ファイルブラウザ（スプリッター: フォルダツリー + ファイルリスト）
         self._browser_splitter = QSplitter()
-        self._browser_splitter.setStyleSheet("""
-            QSplitter::handle {
-                background: #3a3a3a;
+        self._browser_splitter.setStyleSheet(f"""
+            QSplitter::handle {{
+                background: {Colors.get_border()};
                 width: 2px;
-            }
+            }}
         """)
 
         # フォルダツリー
@@ -181,23 +181,23 @@ class SourceSelectionDialog(QDialog):
         for i in range(1, self._folder_model.columnCount()):
             self._folder_tree.hideColumn(i)
         self._folder_tree.clicked.connect(self._on_folder_clicked)
-        self._folder_tree.setStyleSheet("""
-            QTreeView {
-                background-color: #0f0f0f;
-                color: #f0f0f0;
-                border: 1px solid #3a3a3a;
+        self._folder_tree.setStyleSheet(f"""
+            QTreeView {{
+                background-color: {Colors.get_background()};
+                color: {Colors.get_text()};
+                border: 1px solid {Colors.get_border()};
                 border-radius: 6px;
-            }
-            QTreeView::item {
+            }}
+            QTreeView::item {{
                 padding: 4px;
-            }
-            QTreeView::item:hover {
-                background-color: #2d2d2d;
-            }
-            QTreeView::item:selected {
+            }}
+            QTreeView::item:hover {{
+                background-color: {Colors.get_selection()};
+            }}
+            QTreeView::item:selected {{
                 background-color: rgba(30, 80, 162, 0.5);
-                color: #ffffff;
-            }
+                color: {Colors.get_text_bright()};
+            }}
         """)
 
         # 現在のディレクトリを展開
@@ -288,30 +288,30 @@ class SourceSelectionDialog(QDialog):
         else:
             self._file_tree.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self._file_tree.doubleClicked.connect(self._on_file_double_clicked)
-        self._file_tree.setStyleSheet("""
-            QTreeView {
-                background-color: #0f0f0f;
-                color: #f0f0f0;
-                border: 1px solid #3a3a3a;
+        self._file_tree.setStyleSheet(f"""
+            QTreeView {{
+                background-color: {Colors.get_background()};
+                color: {Colors.get_text()};
+                border: 1px solid {Colors.get_border()};
                 border-radius: 6px;
-            }
-            QTreeView::item {
+            }}
+            QTreeView::item {{
                 padding: 4px;
-            }
-            QTreeView::item:hover {
-                background-color: #2d2d2d;
-            }
-            QTreeView::item:selected {
+            }}
+            QTreeView::item:hover {{
+                background-color: {Colors.get_selection()};
+            }}
+            QTreeView::item:selected {{
                 background-color: rgba(30, 80, 162, 0.5);
-                color: #ffffff;
-            }
-            QHeaderView::section {
-                background-color: #1a1a1a;
-                color: #a0a0a0;
+                color: {Colors.get_text_bright()};
+            }}
+            QHeaderView::section {{
+                background-color: {Colors.get_background_alt()};
+                color: {Colors.get_text_dim()};
                 border: none;
-                border-bottom: 1px solid #3a3a3a;
+                border-bottom: 1px solid {Colors.get_border()};
                 padding: 6px;
-            }
+            }}
         """)
 
         # カラム幅調整
@@ -335,7 +335,7 @@ class SourceSelectionDialog(QDialog):
         bottom_layout = QHBoxLayout()
 
         self._info_label = QLabel("")
-        self._info_label.setStyleSheet("color: #666666;")
+        self._info_label.setStyleSheet(f"color: {Colors.get_text_dim()};")
         bottom_layout.addWidget(self._info_label)
 
         bottom_layout.addStretch()
@@ -364,150 +364,165 @@ class SourceSelectionDialog(QDialog):
 
     def _toggle_button_style(self) -> str:
         """トグルボタンスタイル"""
-        return """
-            QPushButton {
-                background: #2d2d2d;
-                color: #f0f0f0;
-                border: 1px solid #3a3a3a;
+        return f"""
+            QPushButton {{
+                background: {Colors.get_selection()};
+                color: {Colors.get_text()};
+                border: 1px solid {Colors.get_border()};
                 border-radius: 6px;
                 padding: 10px 24px;
                 font-weight: bold;
                 font-size: 14px;
-            }
-            QPushButton:hover {
-                background: #363636;
-            }
-            QPushButton:checked {
-                background: #1e50a2;
-                color: white;
+            }}
+            QPushButton:hover {{
+                background: {Colors.get_background_hover()};
+            }}
+            QPushButton:checked {{
+                background: {Colors.get_primary()};
+                color: {Colors.get_on_primary()};
                 border: none;
-            }
-            QPushButton:checked:hover {
-                background: #3a6cb5;
-            }
+            }}
+            QPushButton:checked:hover {{
+                background: {Colors.get_primary_hover()};
+            }}
         """
 
     def _list_style(self) -> str:
         """リストスタイル"""
-        return """
-            QListWidget {
-                background: #0f0f0f;
-                color: #f0f0f0;
-                border: 1px solid #3a3a3a;
+        return f"""
+            QListWidget {{
+                background: {Colors.get_background()};
+                color: {Colors.get_text()};
+                border: 1px solid {Colors.get_border()};
                 border-radius: 8px;
                 padding: 4px;
                 font-size: 18px;
                 outline: none;
-            }
-            QListWidget::item {
+            }}
+            QListWidget::item {{
                 padding: 4px 8px;
                 border-radius: 4px;
-            }
-            QListWidget::item:hover {
-                background: #2d2d2d;
-            }
-            QListWidget::item:selected {
-                background: rgba(30, 80, 162, 0.5);
-                color: #ffffff;
-            }
-            QListWidget::item:selected:hover {
-                background: rgba(30, 80, 162, 0.6);
-                color: #ffffff;
-            }
+            }}
+            QListWidget::item:hover {{
+                background: {Colors.get_selection()};
+            }}
+            QListWidget::item:selected {{
+                background: {Colors.rgba(Colors.get_primary(), 0.5)};
+                color: {Colors.get_on_primary()};
+            }}
+            QListWidget::item:selected:hover {{
+                background: {Colors.rgba(Colors.get_primary(), 0.6)};
+                color: {Colors.get_on_primary()};
+            }}
         """
 
     def _file_dialog_dark_style(self) -> str:
-        """ファイルダイアログ用ダークテーマスタイル"""
-        return """
-            QFileDialog {
-                background-color: #1a1a1a;
-                color: #f0f0f0;
-            }
-            QFileDialog QLabel {
-                color: #f0f0f0;
-            }
-            QFileDialog QLineEdit {
-                background-color: #0f0f0f;
-                color: #f0f0f0;
-                border: 1px solid #3a3a3a;
+        """ファイルダイアログのスタイル
+
+        以前は配色を直書きしていた（メソッド名の "dark" はその名残）。
+        明色テーマでダイアログだけ暗くなるため ColorRole 経由にする。
+        現状この CSS はどこからも適用されていない（2026-10-07 時点）。
+        """
+        panel = Colors.get_background_alt()
+        stage = Colors.get_background()
+        ctrl = Colors.get_selection()
+        hover = Colors.get_background_hover()
+        line = Colors.get_border()
+        fg = Colors.get_text()
+        fg_bright = Colors.get_text_bright()
+        fg_dim = Colors.get_text_dim()
+        primary = Colors.get_primary()
+        primary_hover = Colors.get_primary_hover()
+        return f"""
+            QFileDialog {{
+                background-color: {panel};
+                color: {fg};
+            }}
+            QFileDialog QLabel {{
+                color: {fg};
+            }}
+            QFileDialog QLineEdit {{
+                background-color: {stage};
+                color: {fg};
+                border: 1px solid {line};
                 border-radius: 4px;
                 padding: 6px;
-            }
-            QFileDialog QPushButton {
-                background-color: #2d2d2d;
-                color: #f0f0f0;
-                border: 1px solid #3a3a3a;
+            }}
+            QFileDialog QPushButton {{
+                background-color: {ctrl};
+                color: {fg};
+                border: 1px solid {line};
                 border-radius: 6px;
                 padding: 6px 16px;
-            }
-            QFileDialog QPushButton:hover {
-                background-color: #363636;
-            }
-            QFileDialog QTreeView, QFileDialog QListView {
-                background-color: #0f0f0f;
-                color: #f0f0f0;
-                border: 1px solid #3a3a3a;
-                selection-background-color: #1e50a2;
-            }
-            QFileDialog QTreeView::item:hover, QFileDialog QListView::item:hover {
-                background-color: #2d2d2d;
-            }
-            QFileDialog QTreeView::item:selected, QFileDialog QListView::item:selected {
+            }}
+            QFileDialog QPushButton:hover {{
+                background-color: {hover};
+            }}
+            QFileDialog QTreeView, QFileDialog QListView {{
+                background-color: {stage};
+                color: {fg};
+                border: 1px solid {line};
+                selection-background-color: {primary};
+            }}
+            QFileDialog QTreeView::item:hover, QFileDialog QListView::item:hover {{
+                background-color: {ctrl};
+            }}
+            QFileDialog QTreeView::item:selected, QFileDialog QListView::item:selected {{
                 background-color: rgba(30, 80, 162, 0.5);
-                color: #ffffff;
-            }
-            QFileDialog QHeaderView::section {
-                background-color: #1a1a1a;
-                color: #a0a0a0;
+                color: {fg_bright};
+            }}
+            QFileDialog QHeaderView::section {{
+                background-color: {panel};
+                color: {fg_dim};
                 border: none;
-                border-bottom: 1px solid #3a3a3a;
+                border-bottom: 1px solid {line};
                 padding: 6px;
-            }
-            QFileDialog QComboBox {
-                background-color: #2d2d2d;
-                color: #f0f0f0;
-                border: 1px solid #3a3a3a;
+            }}
+            QFileDialog QComboBox {{
+                background-color: {ctrl};
+                color: {fg};
+                border: 1px solid {line};
                 border-radius: 4px;
                 padding: 6px;
-            }
-            QFileDialog QComboBox::drop-down {
+            }}
+            QFileDialog QComboBox::drop-down {{
                 border: none;
-            }
-            QFileDialog QComboBox QAbstractItemView {
-                background-color: #1a1a1a;
-                color: #f0f0f0;
-                selection-background-color: #1e50a2;
-            }
-            QFileDialog QScrollBar:vertical {
-                background: #0f0f0f;
+            }}
+            QFileDialog QComboBox QAbstractItemView {{
+                background-color: {panel};
+                color: {fg};
+                selection-background-color: {primary};
+            }}
+            QFileDialog QScrollBar:vertical {{
+                background: {stage};
                 width: 12px;
                 border-radius: 6px;
-            }
-            QFileDialog QScrollBar::handle:vertical {
-                background: #3a3a3a;
+            }}
+            QFileDialog QScrollBar::handle:vertical {{
+                background: {line};
                 border-radius: 6px;
                 min-height: 20px;
-            }
-            QFileDialog QScrollBar::handle:vertical:hover {
-                background: #4a4a4a;
-            }
-            QFileDialog QScrollBar:horizontal {
-                background: #0f0f0f;
+            }}
+            QFileDialog QScrollBar::handle:vertical:hover {{
+                background: {line};
+            }}
+            QFileDialog QScrollBar:horizontal {{
+                background: {stage};
                 height: 12px;
                 border-radius: 6px;
-            }
-            QFileDialog QScrollBar::handle:horizontal {
-                background: #3a3a3a;
+            }}
+            QFileDialog QScrollBar::handle:horizontal {{
+                background: {line};
                 border-radius: 6px;
                 min-width: 20px;
-            }
-            QFileDialog QScrollBar::add-line, QFileDialog QScrollBar::sub-line {
+            }}
+            QFileDialog QScrollBar::add-line, QFileDialog QScrollBar::sub-line {{
                 width: 0;
                 height: 0;
-            }
-            QFileDialog QSplitter::handle {
-                background: #3a3a3a;
-            }
+            }}
+            QFileDialog QSplitter::handle {{
+                background: {line};
+            }}
         """
 
     def _on_folder_clicked(self, index):

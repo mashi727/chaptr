@@ -59,7 +59,7 @@ from ..pipeline.segment_detector import (
     SENSITIVITY_LEVELS,
     SENSITIVITY_TITLES,
 )
-from .styles import ButtonStyles
+from .styles import ButtonStyles, Colors, Scale, Surfaces, transport_icon
 from .ffmpeg_utils import get_ffmpeg_path, get_ffprobe_path, extract_chapters_with_ffmpeg, get_subprocess_kwargs, write_concat_file
 from .managers import (
     PlaybackManager,
@@ -280,7 +280,7 @@ class FileBoundaryDelegate(QStyledItemDelegate):
     def __init__(self, table: QTableWidget, parent=None):
         super().__init__(parent)
         self._table = table
-        self._border_color = QColor("#00bcd4")  # シアン
+        self._border_color = QColor(Colors.get_chapter())
         self._border_width = 1
 
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index):
@@ -428,11 +428,10 @@ class DropOverlay(QWidget):
 
     def _update_style(self, active: bool):
         if active:
-            self.setStyleSheet("""
-                background: rgba(59, 130, 246, 0.2);
-                border: 2px solid #1e50a2;
-                border-radius: 4px;
-            """)
+            self.setStyleSheet(
+                f"background: {Colors.rgba(Colors.get_primary(), 0.2)};"
+                f"border: 2px solid {Colors.get_primary()};"
+                f"border-radius: {Scale.RADIUS}px;")
         else:
             self.setStyleSheet("background: transparent;")
 
@@ -668,7 +667,8 @@ class DragDropTableWidget(QTableWidget):
         # 水平線を描画
         painter = QPainter(self.viewport())
         # 外部ドロップは青、内部ドラッグは赤
-        indicator_color = QColor("#1e50a2") if self._is_external_drag else QColor("#ef4444")
+        indicator_color = QColor(
+            Colors.get_primary() if self._is_external_drag else Colors.get_danger())
         pen = QPen(indicator_color)
         pen.setWidth(5)
         painter.setPen(pen)
@@ -785,22 +785,7 @@ class DropVideoFrame(QFrame):
 
     def _update_drag_style(self, active: bool):
         """ドラッグ中のスタイル更新"""
-        if active:
-            self.setStyleSheet("""
-                QFrame {
-                    background: #1a1a1a;
-                    border: 2px solid #1e50a2;
-                    border-radius: 8px;
-                }
-            """)
-        else:
-            self.setStyleSheet("""
-                QFrame {
-                    background: #1a1a1a;
-                    border: 1px solid #3a3a3a;
-                    border-radius: 8px;
-                }
-            """)
+        self.setStyleSheet(Surfaces.panel_drop() if active else Surfaces.panel())
 
 
 class SourceListWidget(QWidget):
@@ -839,6 +824,7 @@ class SourceListWidget(QWidget):
         self._rows: List[QLabel] = []
         for i in range(3):
             row = QLabel()
+            row.setProperty("chaptr_style", "srcrow_current" if i == 1 else "srcrow")
             row.setStyleSheet(self._get_row_style(i == 1))  # 中央行がカレント
             row.setFixedHeight(24)
             row.mousePressEvent = lambda e, idx=i: self._on_row_clicked(idx)
@@ -853,23 +839,11 @@ class SourceListWidget(QWidget):
         btn_layout.setContentsMargins(0, 0, 0, 0)
         btn_layout.setSpacing(4)
 
-        btn_style = """
-            QPushButton {
-                background: #1e50a2;
-                color: white;
-                border: none;
-                border-radius: 6px;
-                padding: 0 12px;
-                font-weight: bold;
-                font-size: 12px;
-            }
-            QPushButton:hover {
-                background: #3a6cb5;
-            }
-        """
+        btn_style = ButtonStyles.primary_compact()
 
         self._open_btn = QPushButton("Open")
-        self._open_btn.setFixedHeight(28)
+        self._open_btn.setProperty("chaptr_style", "primary")
+        self._open_btn.setFixedHeight(Scale.H_MD)
         self._open_btn.setFixedWidth(80)
         self._open_btn.setStyleSheet(btn_style)
         self._open_btn.setToolTip("音声/動画ファイルを選択")
@@ -884,31 +858,7 @@ class SourceListWidget(QWidget):
 
     def _get_row_style(self, is_current: bool) -> str:
         """行のスタイルを取得"""
-        if is_current:
-            return """
-                QLabel {
-                    background: #c3d825;
-                    color: #000000;
-                    padding: 4px 8px;
-                    border-radius: 4px;
-                    font-weight: bold;
-                }
-                QLabel:hover {
-                    background: #facc15;
-                }
-            """
-        else:
-            return """
-                QLabel {
-                    background: transparent;
-                    color: #808080;
-                    padding: 4px 8px;
-                }
-                QLabel:hover {
-                    background: #2a2a2a;
-                    border-radius: 4px;
-                }
-            """
+        return Surfaces.source_row(is_current)
 
     def _on_row_clicked(self, row_index: int):
         """行クリック時の処理"""
@@ -1277,13 +1227,8 @@ class MainWorkspace(QWidget):
     def _create_source_section(self) -> QWidget:
         """1. ソース選択セクション"""
         frame = QFrame()
-        frame.setStyleSheet("""
-            QFrame {
-                background: #1a1a1a;
-                border: 1px solid #3a3a3a;
-                border-radius: 8px;
-            }
-        """)
+        frame.setProperty("chaptr_style", "panel")
+        frame.setStyleSheet(Surfaces.panel())
 
         main_layout = QVBoxLayout(frame)
         main_layout.setContentsMargins(12, 8, 12, 8)
@@ -1300,13 +1245,8 @@ class MainWorkspace(QWidget):
     def _create_playback_section(self) -> QWidget:
         """再生コントロールセクション（movie-viewerスタイル、波形中央揃え）"""
         frame = QFrame()
-        frame.setStyleSheet("""
-            QFrame {
-                background: #1a1a1a;
-                border: 1px solid #3a3a3a;
-                border-radius: 8px;
-            }
-        """)
+        frame.setProperty("chaptr_style", "panel")
+        frame.setStyleSheet(Surfaces.panel())
 
         layout = QVBoxLayout(frame)
         layout.setContentsMargins(12, 8, 12, 8)
@@ -1346,37 +1286,14 @@ class MainWorkspace(QWidget):
         ctrl_row.addStretch()  # 左側スペーサー
 
         # 時間移動ボタンのスタイル（軽めのアウトラインスタイル）
-        back_btn_style = """
-            QPushButton {
-                background: #2a2a2a;
-                color: #a0a0a0;
-                border: 1px solid #4a4a4a;
-                border-radius: 12px;
-                font-size: 18px;
-                font-weight: bold;
-                padding: 4px 2px;
-            }
-            QPushButton:hover {
-                background: #3a3a3a;
-                color: #f0f0f0;
-                border-color: #1e50a2;
-            }
-            QPushButton:pressed {
-                background: #1e50a2;
-                color: #ffffff;
-            }
-            QPushButton:disabled {
-                background: #1a1a1a;
-                color: #555555;
-                border-color: #333333;
-            }
-        """
+        back_btn_style = ButtonStyles.transport()
 
         # 時間移動ボタンのスタイル（進む系: 統一）
         forward_btn_style = back_btn_style
 
         # -10s
         self._btn_m10s = QPushButton("-10s")
+        self._btn_m10s.setProperty("chaptr_style", "transport")
         self._btn_m10s.setStyleSheet(back_btn_style)
         self._btn_m10s.setFixedSize(55, 45)
         self._btn_m10s.setToolTip("10秒戻る")
@@ -1386,6 +1303,7 @@ class MainWorkspace(QWidget):
 
         # -1s
         self._btn_m1s = QPushButton("-1s")
+        self._btn_m1s.setProperty("chaptr_style", "transport")
         self._btn_m1s.setStyleSheet(back_btn_style)
         self._btn_m1s.setFixedSize(55, 45)
         self._btn_m1s.setToolTip("1秒戻る")
@@ -1395,6 +1313,7 @@ class MainWorkspace(QWidget):
 
         # -1f (約33ms @ 30fps)
         self._btn_m1f = QPushButton("-1f")
+        self._btn_m1f.setProperty("chaptr_style", "transport")
         self._btn_m1f.setStyleSheet(back_btn_style)
         self._btn_m1f.setFixedSize(55, 45)
         self._btn_m1f.setToolTip("1フレーム戻る")
@@ -1406,6 +1325,7 @@ class MainWorkspace(QWidget):
         # 候補送りは「飛ぶ → 送り戻しで詰める」の起点なので、微調整に使う
         # -1f / +1f と隣り合わせに置く（Detect / 確定 は左パネルに残す）
         self._prev_candidate_btn = QPushButton("◀候補")
+        self._prev_candidate_btn.setProperty("chaptr_style", "transport")
         self._prev_candidate_btn.setStyleSheet(back_btn_style)
         self._prev_candidate_btn.setFixedSize(62, 45)
         self._prev_candidate_btn.setToolTip("前の候補へスキップ")
@@ -1419,31 +1339,8 @@ class MainWorkspace(QWidget):
         symbol_font_css = "font-family: 'Segoe UI Symbol';" if is_windows else ""
 
         # チャプタースキップボタン（軽めのアウトラインスタイル）
-        chapter_btn_style = f"""
-            QPushButton {{
-                background: #2a2a2a;
-                color: #a0a0a0;
-                border: 1px solid #4a4a4a;
-                border-radius: 14px;
-                font-size: 20px;
-                font-weight: bold;
-                {symbol_font_css}
-            }}
-            QPushButton:hover {{
-                background: #3a3a3a;
-                color: #f0f0f0;
-                border-color: #1e50a2;
-            }}
-            QPushButton:pressed {{
-                background: #1e50a2;
-                color: #ffffff;
-            }}
-            QPushButton:disabled {{
-                background: #1a1a1a;
-                color: #555555;
-                border-color: #333333;
-            }}
-        """
+        self._symbol_font_css = symbol_font_css
+        chapter_btn_style = ButtonStyles.chapter(symbol_font_css)
 
         # 前後チャプターは同じスタイル
         prev_chapter_style = chapter_btn_style
@@ -1451,6 +1348,7 @@ class MainWorkspace(QWidget):
 
         # 前のチャプター
         self._prev_chapter_btn = QPushButton("|◀")
+        self._prev_chapter_btn.setProperty("chaptr_style", "chapter")
         self._prev_chapter_btn.setStyleSheet(prev_chapter_style)
         self._prev_chapter_btn.setFixedSize(50, 45)
         self._prev_chapter_btn.setToolTip("前のチャプター")
@@ -1459,24 +1357,25 @@ class MainWorkspace(QWidget):
         ctrl_row.addWidget(self._prev_chapter_btn)
 
         # Play/Pause - アイコンボタン（アイコン自体がボタン）
-        self._play_icon = QIcon(str(get_icon_path('play.png')))
-        self._pause_icon = QIcon(str(get_icon_path('pause.png')))
+        # 同梱 PNG をやめ、テーマ色で描く（styles.transport_icon の docstring 参照）
+        self._play_icon = transport_icon("play", 75)
+        self._pause_icon = transport_icon("pause", 75)
         self._play_btn = QPushButton()
         self._play_btn.setIcon(self._play_icon)
         self._play_btn.setFlat(True)
+        # アイコン自体がボタンなので、背景も余白も持たせない。
+        # padding を 0 に戻すのは、全体スタイル（app_stylesheet）の QPushButton が
+        # 余白を与えており、それが 75px のアイコンを圧迫して潰れるため。
         self._play_btn.setStyleSheet("""
             QPushButton {
                 background: transparent;
                 border: none;
+                padding: 0;
+                margin: 0;
+                min-height: 0;
             }
-            QPushButton:hover {
+            QPushButton:hover, QPushButton:pressed {
                 background: transparent;
-            }
-            QPushButton:pressed {
-                background: transparent;
-            }
-            QPushButton:disabled {
-                opacity: 0.3;
             }
         """)
         self._play_btn.setFixedSize(75, 75)
@@ -1489,6 +1388,7 @@ class MainWorkspace(QWidget):
 
         # 次のチャプター
         self._next_chapter_btn = QPushButton("▶|")
+        self._next_chapter_btn.setProperty("chaptr_style", "chapter")
         self._next_chapter_btn.setStyleSheet(next_chapter_style)
         self._next_chapter_btn.setFixedSize(50, 45)
         self._next_chapter_btn.setToolTip("次のチャプター")
@@ -1498,6 +1398,7 @@ class MainWorkspace(QWidget):
 
         # 候補▶ — 次の候補へスキップ（左右対称に -1f/+1f の内側へ置く）
         self._next_candidate_btn = QPushButton("候補▶")
+        self._next_candidate_btn.setProperty("chaptr_style", "transport")
         self._next_candidate_btn.setStyleSheet(forward_btn_style)
         self._next_candidate_btn.setFixedSize(62, 45)
         self._next_candidate_btn.setToolTip("次の候補へスキップ")
@@ -1507,6 +1408,7 @@ class MainWorkspace(QWidget):
 
         # +1f
         self._btn_p1f = QPushButton("+1f")
+        self._btn_p1f.setProperty("chaptr_style", "transport")
         self._btn_p1f.setStyleSheet(forward_btn_style)
         self._btn_p1f.setFixedSize(55, 45)
         self._btn_p1f.setToolTip("1フレーム進む")
@@ -1516,6 +1418,7 @@ class MainWorkspace(QWidget):
 
         # +1s
         self._btn_p1s = QPushButton("+1s")
+        self._btn_p1s.setProperty("chaptr_style", "transport")
         self._btn_p1s.setStyleSheet(forward_btn_style)
         self._btn_p1s.setFixedSize(55, 45)
         self._btn_p1s.setToolTip("1秒進む")
@@ -1525,6 +1428,7 @@ class MainWorkspace(QWidget):
 
         # +10s
         self._btn_p10s = QPushButton("+10s")
+        self._btn_p10s.setProperty("chaptr_style", "transport")
         self._btn_p10s.setStyleSheet(forward_btn_style)
         self._btn_p10s.setFixedSize(55, 45)
         self._btn_p10s.setToolTip("10秒進む")
@@ -1542,31 +1446,8 @@ class MainWorkspace(QWidget):
         self._display_mode_btn = QPushButton("Mel Spectrogram")
         self._display_mode_btn.setCheckable(True)
         self._display_mode_btn.setFixedWidth(160)
-        self._display_mode_btn.setStyleSheet("""
-            QPushButton {
-                background: #1e40af;
-                color: #ffffff;
-                border: 1px solid #1e50a2;
-                border-radius: 4px;
-                padding: 4px 12px;
-            }
-            QPushButton:hover {
-                background: #1d4ed8;
-            }
-            QPushButton:checked {
-                background: #166534;
-                color: #ffffff;
-                border-color: #c3d825;
-            }
-            QPushButton:checked:hover {
-                background: #15803d;
-            }
-            QPushButton:disabled {
-                background: #1a1a1a;
-                color: #666666;
-                border-color: #3a3a3a;
-            }
-        """)
+        self._display_mode_btn.setProperty("chaptr_style", "mode_toggle")
+        self._display_mode_btn.setStyleSheet(ButtonStyles.mode_toggle())
         self._display_mode_btn.setToolTip("クリックで表示モード切替")
         self._display_mode_btn.clicked.connect(self._on_display_mode_toggled)
         self._display_mode_btn.setEnabled(False)
@@ -1576,27 +1457,14 @@ class MainWorkspace(QWidget):
 
         # 出力デバイス選択（ボリュームはOSに任せる）
         output_label = QLabel("Out:")
-        output_label.setStyleSheet("color: #a0a0a0;")
+        output_label.setProperty("chaptr_style", "label_dim")
+        output_label.setStyleSheet(self._style_for("label_dim"))
         bottom_row.addWidget(output_label)
 
-        combo_style = """
-            QComboBox {
-                background: #1a1a1a;
-                color: #f0f0f0;
-                border: 1px solid #3a3a3a;
-                border-radius: 4px;
-                padding: 4px 8px;
-                min-width: 120px;
-            }
-            QComboBox::drop-down { border: none; }
-            QComboBox QAbstractItemView {
-                background: #1a1a1a;
-                color: #f0f0f0;
-                selection-background-color: #1e50a2;
-            }
-        """
+        combo_style = Surfaces.combo()
 
         self._audio_device_combo = AudioDeviceComboBox()
+        self._audio_device_combo.setProperty("chaptr_style", "combo")
         self._audio_device_combo.setStyleSheet(combo_style)
         self._audio_device_combo.setToolTip("音声出力デバイス")
         self._audio_device_combo.set_refresh_callback(self._populate_audio_devices)
@@ -1609,11 +1477,13 @@ class MainWorkspace(QWidget):
         # 区間判別の感度。トランスポート行ではなくこちらへ置く。操作ではなく
         # 設定なので、表示モード・出力デバイスと同じ行に並ぶのが素直。
         sens_label = QLabel("候補:")
-        sens_label.setStyleSheet("color: #a0a0a0;")
+        sens_label.setProperty("chaptr_style", "label_dim")
+        sens_label.setStyleSheet(self._style_for("label_dim"))
         sens_label.setToolTip("区間判別の感度（休憩などの候補をどれだけ拾うか）")
         bottom_row.addWidget(sens_label)
 
         self._sensitivity_combo = QComboBox()
+        self._sensitivity_combo.setProperty("chaptr_style", "combo")
         self._sensitivity_combo.setStyleSheet(combo_style)
         self._sensitivity_combo.setToolTip(
             "拾い目にするほど候補が増える。見逃すと長尺を手で走査することになるが、"
@@ -1631,8 +1501,11 @@ class MainWorkspace(QWidget):
 
         # 時間表示
         self._time_label = QLabel("0:00:00.000 / 0:00:00.000")
-        self._time_label.setStyleSheet("color: #c3d825;")
-        self._time_label.setFont(self._get_monospace_font(18))
+        # 黄緑のLCD風をやめ、通常の文字色へ。現在位置と総尺の区別は
+        # _update_time_label 側でアクセント色を当てて付ける（2026-10-07）
+        self._time_label.setStyleSheet(
+            f"color: {Colors.get_text()}; background: transparent;")
+        self._time_label.setFont(self._get_monospace_font(Scale.FONT_LG))
         self._time_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         bottom_row.addWidget(self._time_label)
 
@@ -1674,13 +1547,8 @@ class MainWorkspace(QWidget):
         # === 動画プレビュー ===
         # 外枠フレーム
         video_frame = VideoAspectFrame()
-        video_frame.setStyleSheet("""
-            QFrame {
-                background: #1a1a1a;
-                border: 1px solid #3a3a3a;
-                border-radius: 8px;
-            }
-        """)
+        video_frame.setProperty("chaptr_style", "panel")
+        video_frame.setStyleSheet(Surfaces.panel())
 
         video_outer_layout = QVBoxLayout(video_frame)
         video_outer_layout.setContentsMargins(4, 4, 4, 4)
@@ -1701,7 +1569,9 @@ class MainWorkspace(QWidget):
         self._video_view = VideoGraphicsView(self._video_scene, self._video_container)
         self._video_view.set_fit_callback(self._fit_video_item)
         self._video_view.setObjectName("video_widget")
-        self._video_view.setStyleSheet("background: #0f0f0f; border: none; border-radius: 4px;")
+        self._video_view.setStyleSheet(
+            f"background: {Colors.get_background()}; border: none; "
+            f"border-radius: {Scale.RADIUS}px;")
         self._video_view.setMinimumSize(160, 90)
         self._video_view.setFrameStyle(0)  # NoFrame
         self._video_view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -1716,6 +1586,7 @@ class MainWorkspace(QWidget):
             QPainter.RenderHint.SmoothPixmapTransform | QPainter.RenderHint.Antialiasing
         )
         # ビューポート背景（回転/レターボックスの余白）を黒に
+        # 映像の地は配色に追従させない。レターボックスは暗い方が映像を正しく見られる。
         self._video_view.setBackgroundBrush(QColor("#0f0f0f"))
         # ネイティブ解像度が判明したら fit し直す
         self._video_item.nativeSizeChanged.connect(lambda _s: self._fit_video_item())
@@ -1725,7 +1596,8 @@ class MainWorkspace(QWidget):
         # 音声のみのときの下地。動画ウィジェットを隠した裏が見えないよう塞ぎ、
         # チャプター名オーバーレイの背景にもなる
         self._audio_backdrop = QLabel(self._video_container)
-        self._audio_backdrop.setStyleSheet("background: #0f0f0f;")
+        self._audio_backdrop.setProperty("chaptr_style", "backdrop")
+        self._audio_backdrop.setStyleSheet(self._style_for("backdrop"))
         self._audio_backdrop.hide()
 
         # チャプター名オーバーレイ（音声モードのみ）
@@ -1760,15 +1632,8 @@ class MainWorkspace(QWidget):
         self._subtitle_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._subtitle_label.setWordWrap(True)
         self._subtitle_label.setFixedHeight(60)
-        self._subtitle_label.setStyleSheet("""
-            QLabel {
-                background: #0a0a0a;
-                color: #ffffff;
-                font-size: 16px;
-                padding: 4px 12px;
-                border-top: 1px solid #2a2a2a;
-            }
-        """)
+        self._subtitle_label.setProperty("chaptr_style", "overlay")
+        self._subtitle_label.setStyleSheet(Surfaces.overlay())
         self._subtitle_label.hide()  # 字幕未読み込み時は非表示
         video_outer_layout.addWidget(self._subtitle_label)
 
@@ -1802,13 +1667,8 @@ class MainWorkspace(QWidget):
         下段で精密に位置を決める、という二段階の操作にする。
         """
         frame = QFrame()
-        frame.setStyleSheet("""
-            QFrame {
-                background: #0f0f0f;
-                border: 1px solid #3a3a3a;
-                border-radius: 8px;
-            }
-        """)
+        frame.setProperty("chaptr_style", "stage")
+        frame.setStyleSheet(Surfaces.stage())
         frame.setMinimumHeight(180)
 
         layout = QVBoxLayout(frame)
@@ -1860,16 +1720,8 @@ class MainWorkspace(QWidget):
     def _create_chapter_table(self) -> QWidget:
         """チャプターテーブル"""
         self._chapter_group = QGroupBox()
-        self._chapter_group.setStyleSheet("""
-            QGroupBox {
-                color: #f0f0f0;
-                font-weight: bold;
-                border: 1px solid #3a3a3a;
-                border-radius: 8px;
-                margin-top: 4px;
-                padding-top: 4px;
-            }
-        """)
+        self._chapter_group.setProperty("chaptr_style", "group")
+        self._chapter_group.setStyleSheet(self._style_for("group"))
 
         layout = QVBoxLayout(self._chapter_group)
 
@@ -1880,29 +1732,18 @@ class MainWorkspace(QWidget):
 
         # カスタムタイトルラベル（リッチテキスト対応）
         self._chapter_title_label = QLabel("Chapters")
-        self._chapter_title_label.setStyleSheet("font-weight: bold; color: #f0f0f0;")
+        self._chapter_title_label.setProperty("chaptr_style", "label_strong")
+        self._chapter_title_label.setStyleSheet(self._style_for("label_strong"))
         header_layout.addWidget(self._chapter_title_label)
 
         header_layout.addStretch()
 
         # Loadボタン（チャプターファイル読み込み）
         load_btn = QPushButton("Load")
-        load_btn.setFixedHeight(28)
+        load_btn.setFixedHeight(Scale.H_MD)
         load_btn.setFixedWidth(80)
-        load_btn.setStyleSheet("""
-            QPushButton {
-                background: #1e50a2;
-                color: white;
-                border: none;
-                border-radius: 6px;
-                padding: 0 12px;
-                font-weight: bold;
-                font-size: 12px;
-            }
-            QPushButton:hover {
-                background: #3a6cb5;
-            }
-        """)
+        load_btn.setProperty("chaptr_style", "primary")
+        load_btn.setStyleSheet(ButtonStyles.primary_compact())
         load_btn.setToolTip("チャプターファイルを読み込み")
         load_btn.clicked.connect(self._load_chapters)
         header_layout.addWidget(load_btn)
@@ -1928,41 +1769,17 @@ class MainWorkspace(QWidget):
         self._table.verticalHeader().setSectionsMovable(False)
         self._table.installEventFilter(self)  # Enterキー処理用
         self._table.viewport().installEventFilter(self)  # ダブルクリック処理用
-        self._table.setStyleSheet("""
-            QTableWidget {
-                background: #0f0f0f;
-                color: #f0f0f0;
-                border: none;
-                gridline-color: #2d2d2d;
-            }
-            QTableWidget::item {
-                padding: 4px;
-            }
-            QTableWidget::item:selected {
-                background: rgba(30, 80, 162, 0.5);
-                color: #ffffff;
-            }
-            QHeaderView {
-                background: #000000;
-            }
-            QHeaderView::section {
-                background: #000000;
-                color: #a0a0a0;
-                border: none;
-                padding: 8px;
-            }
-            QTableCornerButton::section {
-                background: #000000;
-                color: #a0a0a0;
-                border: none;
-            }
-        """)
+        self._table.setProperty("chaptr_style", "table")
+        self._table.setStyleSheet(Surfaces.table())
+
         # コーナーウィジェットに「No.」ラベルを設定
         corner_btn = self._table.findChild(QAbstractButton)
         if corner_btn:
             corner_label = QLabel("No.")
             corner_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            corner_label.setStyleSheet("background: #000000; color: #a0a0a0; padding: 4px;")
+            corner_label.setStyleSheet(
+            f"background: {Colors.get_background()}; color: {Colors.get_text_dim()}; "
+            f"padding: {Scale.SPACE_SM}px;")
             corner_btn.setLayout(QVBoxLayout())
             corner_btn.layout().setContentsMargins(0, 0, 0, 0)
             corner_btn.layout().addWidget(corner_label)
@@ -1983,27 +1800,14 @@ class MainWorkspace(QWidget):
         btn_layout = QHBoxLayout()
 
         # チャプター操作ボタン共通スタイル（ニュートラルグレー）
-        chapter_btn_style = """
-            QPushButton {
-                background: #3a3a3a;
-                color: #c0c0c0;
-                border: 1px solid #4a4a4a;
-                border-radius: 6px;
-                padding: 2px 8px;
-            }
-            QPushButton:hover {
-                background: #454545;
-            }
-            QPushButton:pressed {
-                background: #505050;
-            }
-        """
+        chapter_btn_style = ButtonStyles.tonal()
 
         add_btn = QPushButton("Add\nChapter")
         add_btn.setFixedHeight(40)
         add_btn.setMinimumWidth(0)
         add_btn.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
-        add_btn.setStyleSheet(chapter_btn_style.replace("padding: 0 8px;", "padding: 2px 4px;"))
+        add_btn.setProperty("chaptr_style", "tonal")
+        add_btn.setStyleSheet(chapter_btn_style)
         add_btn.setToolTip("現在位置にチャプター追加")
         add_btn.clicked.connect(self._add_chapter)
         btn_layout.addWidget(add_btn, 1)
@@ -2012,7 +1816,8 @@ class MainWorkspace(QWidget):
         copy_time_btn.setFixedHeight(40)
         copy_time_btn.setMinimumWidth(0)
         copy_time_btn.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
-        copy_time_btn.setStyleSheet(chapter_btn_style.replace("padding: 0 8px;", "padding: 2px 4px;"))
+        copy_time_btn.setProperty("chaptr_style", "tonal")
+        copy_time_btn.setStyleSheet(chapter_btn_style)
         copy_time_btn.setToolTip("再生位置の時刻をコピー（Cmd/Ctrl-C）")
         copy_time_btn.clicked.connect(self.copy_playback_time)
         btn_layout.addWidget(copy_time_btn, 1)
@@ -2021,6 +1826,7 @@ class MainWorkspace(QWidget):
         remove_btn.setFixedHeight(40)
         remove_btn.setMinimumWidth(0)
         remove_btn.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
+        remove_btn.setProperty("chaptr_style", "tonal")
         remove_btn.setStyleSheet(chapter_btn_style)
         remove_btn.setToolTip("選択チャプターを削除")
         remove_btn.clicked.connect(self._remove_chapter)
@@ -2030,6 +1836,7 @@ class MainWorkspace(QWidget):
         copy_btn.setFixedHeight(40)
         copy_btn.setMinimumWidth(0)
         copy_btn.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
+        copy_btn.setProperty("chaptr_style", "tonal")
         copy_btn.setStyleSheet(chapter_btn_style)
         copy_btn.setToolTip("YouTube用チャプターをクリップボードにコピー")
         copy_btn.clicked.connect(self._copy_youtube_chapters)
@@ -2039,6 +1846,7 @@ class MainWorkspace(QWidget):
         save_btn.setFixedHeight(40)
         save_btn.setMinimumWidth(0)
         save_btn.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
+        save_btn.setProperty("chaptr_style", "tonal")
         save_btn.setStyleSheet(chapter_btn_style)
         save_btn.setToolTip("チャプターをファイルに保存（--含む）")
         save_btn.clicked.connect(self._save_chapters)
@@ -2057,7 +1865,8 @@ class MainWorkspace(QWidget):
         # QBoxLayout は隠したウィジェットを spacing ごと詰めるが、空の入れ子
         # レイアウトは spacing を残すので、包むと文言が無くても行が居座る。
         self._segment_status_label = QLabel("")
-        self._segment_status_label.setStyleSheet("color: #909090; font-size: 11px;")
+        self._segment_status_label.setProperty("chaptr_style", "label_dim")
+        self._segment_status_label.setStyleSheet(self._style_for("label_dim"))
         self._segment_status_label.setVisible(False)
         layout.addWidget(self._segment_status_label)
 
@@ -2910,8 +2719,9 @@ class MainWorkspace(QWidget):
         # ハイライト用の色（ThemeManagerから取得）
         theme = get_theme_manager()
         highlight_bg = QBrush(theme.get_color(ColorRole.PLAYBACK))
-        # ハイライト時のテキストは暗い背景かどうかで決める
-        highlight_fg = QBrush(QColor("#000000") if theme.is_dark else QColor("#000000"))
+        # ハイライト地（PLAYBACK）に対して読める方を選ぶ。以前は is_dark で
+        # 分岐しながら両方とも #000000 を返しており、条件が効いていなかった。
+        highlight_fg = QBrush(QColor(Colors.on_color(Colors.get_playback())))
         default_bg = QBrush(theme.get_color(ColorRole.BACKGROUND))
         default_fg = QBrush(theme.get_color(ColorRole.FOREGROUND))
 
@@ -2966,7 +2776,9 @@ class MainWorkspace(QWidget):
         # ハイライト用の色（ThemeManagerから取得）
         theme = get_theme_manager()
         highlight_bg = QBrush(theme.get_color(ColorRole.PLAYBACK))
-        highlight_fg = QBrush(QColor("#000000") if theme.is_dark else QColor("#000000"))
+        # ハイライト地（PLAYBACK）に対して読める方を選ぶ。以前は is_dark で
+        # 分岐しながら両方とも #000000 を返しており、条件が効いていなかった。
+        highlight_fg = QBrush(QColor(Colors.on_color(Colors.get_playback())))
         default_bg = QBrush(theme.get_color(ColorRole.BACKGROUND))
         default_fg = QBrush(theme.get_color(ColorRole.FOREGROUND))
 
@@ -4013,7 +3825,7 @@ class MainWorkspace(QWidget):
                                 'title': ch.title,
                                 'source_index': source_index,
                                 'local_time_ms': ch.local_time_ms,
-                                'color': QColor("#f0f0f0")
+                                'color': QColor(Colors.get_text())
                             })
                             if ch.local_time_ms == 0:
                                 has_zero_chapter = True
@@ -4030,7 +3842,7 @@ class MainWorkspace(QWidget):
                     'title': src.path.stem,  # ファイル名（拡張子なし）
                     'source_index': source_index,
                     'local_time_ms': 0,
-                    'color': QColor("#f0f0f0")
+                    'color': QColor(Colors.get_text())
             })
 
         # 既存チャプターに新しいチャプターを挿入
@@ -4053,7 +3865,7 @@ class MainWorkspace(QWidget):
                 各要素は {'title', 'source_index', 'local_time_ms', 'color'} の辞書
         """
         source_offsets = self._get_source_offsets()
-        default_color = QColor("#f0f0f0")
+        default_color = QColor(Colors.get_text())
 
         self._table.blockSignals(True)
         self._table.setRowCount(0)
@@ -4115,82 +3927,97 @@ class MainWorkspace(QWidget):
         pass
 
     def _file_dialog_dark_style(self) -> str:
-        """ファイルダイアログ用ダークテーマスタイル"""
-        return """
-            QFileDialog {
-                background-color: #1a1a1a;
-                color: #f0f0f0;
-            }
-            QFileDialog QLabel {
-                color: #f0f0f0;
-            }
-            QFileDialog QLineEdit {
-                background-color: #0f0f0f;
-                color: #f0f0f0;
-                border: 1px solid #3a3a3a;
+        """ファイルダイアログのスタイル
+
+        以前は配色を直書きしていた（メソッド名の "dark" はその名残）。
+        明色テーマでダイアログだけ暗くなるため ColorRole 経由にする。
+        現状この CSS はどこからも適用されていない（2026-10-07 時点）。
+        """
+        panel = Colors.get_background_alt()
+        stage = Colors.get_background()
+        ctrl = Colors.get_selection()
+        hover = Colors.get_background_hover()
+        line = Colors.get_border()
+        fg = Colors.get_text()
+        fg_bright = Colors.get_text_bright()
+        fg_dim = Colors.get_text_dim()
+        primary = Colors.get_primary()
+        primary_hover = Colors.get_primary_hover()
+        return f"""
+            QFileDialog {{
+                background-color: {panel};
+                color: {fg};
+            }}
+            QFileDialog QLabel {{
+                color: {fg};
+            }}
+            QFileDialog QLineEdit {{
+                background-color: {stage};
+                color: {fg};
+                border: 1px solid {line};
                 border-radius: 4px;
                 padding: 6px;
-            }
-            QFileDialog QPushButton {
-                background-color: #2d2d2d;
-                color: #f0f0f0;
-                border: 1px solid #3a3a3a;
+            }}
+            QFileDialog QPushButton {{
+                background-color: {ctrl};
+                color: {fg};
+                border: 1px solid {line};
                 border-radius: 6px;
                 padding: 6px 16px;
-            }
-            QFileDialog QPushButton:hover {
-                background-color: #363636;
-            }
-            QFileDialog QTreeView, QFileDialog QListView {
-                background-color: #0f0f0f;
-                color: #f0f0f0;
-                border: 1px solid #3a3a3a;
-                selection-background-color: #1e50a2;
-            }
-            QFileDialog QTreeView::item:hover, QFileDialog QListView::item:hover {
-                background-color: #2d2d2d;
-            }
-            QFileDialog QComboBox {
-                background-color: #2d2d2d;
-                color: #f0f0f0;
-                border: 1px solid #3a3a3a;
+            }}
+            QFileDialog QPushButton:hover {{
+                background-color: {hover};
+            }}
+            QFileDialog QTreeView, QFileDialog QListView {{
+                background-color: {stage};
+                color: {fg};
+                border: 1px solid {line};
+                selection-background-color: {primary};
+            }}
+            QFileDialog QTreeView::item:hover, QFileDialog QListView::item:hover {{
+                background-color: {ctrl};
+            }}
+            QFileDialog QComboBox {{
+                background-color: {ctrl};
+                color: {fg};
+                border: 1px solid {line};
                 border-radius: 4px;
                 padding: 6px;
-            }
-            QFileDialog QComboBox QAbstractItemView {
-                background-color: #2d2d2d;
-                color: #f0f0f0;
-                selection-background-color: #1e50a2;
-            }
-            QFileDialog QHeaderView::section {
-                background-color: #1a1a1a;
-                color: #a0a0a0;
-                border: 1px solid #3a3a3a;
+            }}
+            QFileDialog QComboBox QAbstractItemView {{
+                background-color: {ctrl};
+                color: {fg};
+                selection-background-color: {primary};
+            }}
+            QFileDialog QHeaderView::section {{
+                background-color: {panel};
+                color: {fg_dim};
+                border: 1px solid {line};
                 padding: 6px;
-            }
-            QFileDialog QToolButton {
-                background-color: #2d2d2d;
-                border: 1px solid #3a3a3a;
+            }}
+            QFileDialog QToolButton {{
+                background-color: {ctrl};
+                border: 1px solid {line};
                 border-radius: 4px;
-            }
-            QFileDialog QToolButton:hover {
-                background-color: #363636;
-            }
-            QFileDialog QScrollBar:vertical {
-                background-color: #1a1a1a;
+            }}
+            QFileDialog QToolButton:hover {{
+                background-color: {hover};
+            }}
+            QFileDialog QScrollBar:vertical {{
+                background-color: {panel};
                 width: 12px;
-            }
-            QFileDialog QScrollBar::handle:vertical {
-                background-color: #3a3a3a;
+            }}
+            QFileDialog QScrollBar::handle:vertical {{
+                background-color: {line};
                 border-radius: 4px;
                 min-height: 20px;
-            }
-            QFileDialog QSplitter::handle {
-                background-color: #3a3a3a;
-            }
-            QFileDialog #sidebar {
-                background-color: #1a1a1a;
-            }
+            }}
+            QFileDialog QSplitter::handle {{
+                background-color: {line};
+            }}
+            QFileDialog #sidebar {{
+                background-color: {panel};
+            }}
         """
 
     # === チャプター操作 ===
@@ -4204,7 +4031,7 @@ class MainWorkspace(QWidget):
         if not self._state.sources:
             return
 
-        default_color = QColor("#f0f0f0")
+        default_color = QColor(Colors.get_text())
         chapters_data = []
 
         for source_idx, src in enumerate(self._state.sources):
@@ -4276,7 +4103,7 @@ class MainWorkspace(QWidget):
         title_item = QTableWidgetItem(self._initial_chapter_title(absolute_pos))
 
         # 追加したチャプターは常に赤色で表示（元のチャプターと区別するため）
-        added_color = QColor("#ef4444")  # 赤色
+        added_color = QColor(Colors.get_danger())
         time_item.setForeground(QBrush(added_color))
         title_item.setForeground(QBrush(added_color))
         # ハイライト解除時の復元用に元の色を保存
@@ -5715,7 +5542,7 @@ class MainWorkspace(QWidget):
 
             # ソースオフセットを計算（絶対時間 → ローカル時間変換用）
             source_offsets = self._get_source_offsets()
-            default_color = QColor("#f0f0f0")
+            default_color = QColor(Colors.get_text())
 
             # チャプターデータを構築（絶対時間からローカル時間に変換）
             chapters_data = []
@@ -5910,7 +5737,7 @@ class MainWorkspace(QWidget):
             self._log_panel.debug("No embedded chapters found", source="Chapter")
             return
 
-        default_color = QColor("#f0f0f0")
+        default_color = QColor(Colors.get_text())
         chapters_data = []
 
         # 先頭チャプター（0:00:00.000）がなければ追加
@@ -5937,7 +5764,8 @@ class MainWorkspace(QWidget):
 
         # チャプターグループのタイトルを更新（埋め込みを緑色で表示）
         if hasattr(self, '_chapter_title_label'):
-            self._chapter_title_label.setText('Chapters <span style="color: #c3d825;">(埋め込み)</span>')
+            self._chapter_title_label.setText(
+                f'Chapters <span style="color: {Colors.get_success()};">(埋め込み)</span>')
             self._chapter_title_label.setTextFormat(Qt.TextFormat.RichText)
 
         # テーブルを再構築
@@ -5963,7 +5791,7 @@ class MainWorkspace(QWidget):
 
         chapters_data = []
         has_any_embedded = False
-        default_color = QColor("#f0f0f0")
+        default_color = QColor(Colors.get_text())
 
         for source_idx, source in enumerate(self._state.sources):
             # このファイルの埋め込みチャプターを取得（ローカル時間）
@@ -5999,7 +5827,8 @@ class MainWorkspace(QWidget):
         # チャプターグループのタイトルを更新
         if hasattr(self, '_chapter_title_label'):
             if has_any_embedded:
-                self._chapter_title_label.setText('Chapters <span style="color: #c3d825;">(埋め込み)</span>')
+                self._chapter_title_label.setText(
+                f'Chapters <span style="color: {Colors.get_success()};">(埋め込み)</span>')
                 self._chapter_title_label.setTextFormat(Qt.TextFormat.RichText)
             else:
                 self._chapter_title_label.setText("Chapters")
@@ -6062,6 +5891,89 @@ class MainWorkspace(QWidget):
         clipboard.setText(youtube_text)
 
         self._log_panel.info(f"Copied {len(chapters)} chapters to clipboard (YouTube format)", source="UI")
+
+    # テーマを切り替えたときに貼り直すスタイルの一覧。
+    # スタイルは生成時に Colors から文字列へ焼き込まれるので、配色を変えただけでは
+    # 古い色が残る。タグを付けておき、reapply_theme で同じ生成関数をもう一度通す。
+    def _themed(self, widget, tag: str):
+        """テーマ連動のスタイルを当て、貼り直し対象として印を付ける"""
+        widget.setProperty("chaptr_style", tag)
+        widget.setStyleSheet(self._style_for(tag))
+        return widget
+
+    def _style_for(self, tag: str) -> str:
+        if tag == "transport":
+            return ButtonStyles.transport()
+        if tag == "chapter":
+            return ButtonStyles.chapter(getattr(self, "_symbol_font_css", ""))
+        if tag == "tonal":
+            return ButtonStyles.tonal()
+        if tag == "primary":
+            return ButtonStyles.primary_compact()
+        if tag == "panel":
+            return Surfaces.panel()
+        if tag == "stage":
+            return Surfaces.stage()
+        if tag == "table":
+            return Surfaces.table()
+        if tag == "combo":
+            return Surfaces.combo()
+        if tag == "overlay":
+            return Surfaces.overlay()
+        if tag == "srcrow":
+            return Surfaces.source_row(False)
+        if tag == "srcrow_current":
+            return Surfaces.source_row(True)
+        if tag == "mode_toggle":
+            return ButtonStyles.mode_toggle()
+        if tag == "label_dim":
+            return (f"color: {Colors.get_text_dim()}; "
+                    f"font-size: {Scale.FONT_SM}px; background: transparent;")
+        if tag == "backdrop":
+            return f"background: {Colors.get_background()};"
+        if tag == "label_strong":
+            return f"font-weight: bold; color: {Colors.get_text()};"
+        if tag == "group":
+            return f"""
+                QGroupBox {{
+                    color: {Colors.get_text()};
+                    font-weight: bold;
+                    border: {Scale.BORDER}px solid {Colors.get_border()};
+                    border-radius: {Scale.RADIUS}px;
+                    margin-top: {Scale.SPACE_XS}px;
+                    padding-top: {Scale.SPACE_XS}px;
+                }}
+            """
+        return ""
+
+    def reapply_theme(self):
+        """配色の切り替えを画面へ反映する
+
+        環境設定の Color Scheme は以前から在ったが、UI が色を直書きしていたため
+        切り替えてもほとんど変わらなかった。トークン化に合わせて、ここで
+        貼り直す（2026-10-07）。
+        """
+        for w in self.findChildren(QWidget):
+            tag = w.property("chaptr_style")
+            if tag:
+                w.setStyleSheet(self._style_for(tag))
+
+        # 時刻表示は単発指定なので個別に
+        if getattr(self, "_time_label", None) is not None:
+            self._time_label.setStyleSheet(
+                f"color: {Colors.get_text()}; background: transparent;")
+
+        # ログ欄は過去の行に色を焼き込んでいるので、専用の貼り直しを呼ぶ
+        if getattr(self, "_log_panel", None) is not None and hasattr(
+                self._log_panel, "reapply_theme"):
+            self._log_panel.reapply_theme()
+
+        # アイコンは色を焼き込んで描いているため作り直す
+        if getattr(self, "_play_btn", None) is not None:
+            playing = self._play_btn.icon().cacheKey() == self._pause_icon.cacheKey()
+            self._play_icon = transport_icon("play", 75)
+            self._pause_icon = transport_icon("pause", 75)
+            self._play_btn.setIcon(self._pause_icon if playing else self._play_icon)
 
     def copy_playback_time(self):
         """再生位置の時刻を H:MM:SS.mmm でクリップボードへ
@@ -6263,7 +6175,7 @@ class MainWorkspace(QWidget):
         chapters = project.get("chapters", [])
         if chapters:
             chapters_data = []
-            default_color = QColor("#f0f0f0")
+            default_color = QColor(Colors.get_text())
             for ch in chapters:
                 chapters_data.append({
                     'title': ch.get('title', 'Untitled'),
@@ -6393,7 +6305,7 @@ class MainWorkspace(QWidget):
         self._table.setRowCount(0)
 
         # 新しいチャプターを追加
-        default_color = QColor("#f0f0f0")
+        default_color = QColor(Colors.get_text())
         for ch in chapters:
             row = self._table.rowCount()
             self._table.insertRow(row)
@@ -6722,7 +6634,7 @@ class MainWorkspace(QWidget):
             if not chapters:
                 return
 
-            default_color = QColor("#f0f0f0")
+            default_color = QColor(Colors.get_text())
 
             # 既存のチャプターデータを取得
             existing_data = []
@@ -6888,7 +6800,7 @@ class MainWorkspace(QWidget):
                                 'title': ch.title,
                                 'source_index': source_index,
                                 'local_time_ms': ch.local_time_ms,
-                                'color': QColor("#f0f0f0")
+                                'color': QColor(Colors.get_text())
                             })
                             if ch.local_time_ms == 0:
                                 has_zero_chapter = True
@@ -6931,7 +6843,7 @@ class MainWorkspace(QWidget):
 
         # ソースオフセットを計算（絶対時間 → ローカル時間変換用）
         source_offsets = self._get_source_offsets()
-        default_color = QColor("#f0f0f0")
+        default_color = QColor(Colors.get_text())
 
         # チャプターデータを構築（絶対時間からローカル時間に変換）
         chapters_data = []
@@ -7007,7 +6919,7 @@ class MainWorkspace(QWidget):
         title_item = QTableWidgetItem(title)
 
         # 追加したチャプターは緑色で表示（ドロップ追加と区別）
-        added_color = QColor("#c3d825")  # 緑色
+        added_color = QColor(Colors.get_success())
         time_item.setForeground(QBrush(added_color))
         title_item.setForeground(QBrush(added_color))
         time_item.setData(Qt.ItemDataRole.UserRole, added_color)
@@ -7482,7 +7394,7 @@ class MainWorkspace(QWidget):
         self._table.setRowCount(0)
 
         source_offsets = self._get_source_offsets()
-        default_color = QColor("#f0f0f0")
+        default_color = QColor(Colors.get_text())
 
         for ch in chapters:
             local_time_ms = ch.get("local_time_ms", 0)

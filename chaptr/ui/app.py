@@ -20,6 +20,7 @@ from PySide6.QtCore import Qt, QTimer, QThread
 from PySide6.QtGui import QAction, QFont, QFontDatabase
 
 from .main_workspace import MainWorkspace
+from .styles import app_stylesheet, Colors, Scale
 from .log_panel import LogLevel
 from .preferences_dialog import PreferencesDialog
 from .updater import (
@@ -191,44 +192,12 @@ class Chaptr(QMainWindow):
         app = QApplication.instance()
         if app:
             app.setFont(get_ui_font(16))
-            # ツールチップの色をPaletteで設定
-            from PySide6.QtGui import QPalette, QColor
-            palette = app.palette()
-            palette.setColor(QPalette.ColorRole.ToolTipBase, QColor("#f0f0f0"))
-            palette.setColor(QPalette.ColorRole.ToolTipText, QColor("#000000"))
-            app.setPalette(palette)
+        self._apply_tooltip_palette()
 
-        # ダークテーマ
-        self.setStyleSheet("""
-            QMainWindow {
-                background: #242424;
-            }
-            QMenuBar {
-                background: #1a1a1a;
-                color: #f0f0f0;
-                border-bottom: 1px solid #3a3a3a;
-                font-size: 16px;
-            }
-            QMenuBar::item:selected {
-                background: #1e50a2;
-            }
-            QMenu {
-                background: #1a1a1a;
-                color: #f0f0f0;
-                border: 1px solid #3a3a3a;
-                font-size: 16px;
-            }
-            QMenu::item:selected {
-                background: #1e50a2;
-            }
-            QStatusBar {
-                background: #1a1a1a;
-                color: #a0a0a0;
-                border-top: 1px solid #3a3a3a;
-                padding: 8px 12px;
-                min-height: 28px;
-            }
-        """)
+        # 配色はすべて ColorRole（base16・3配色）から。以前はここに #242424 などを
+        # 直書きしていたため、テーマ機構があるのに切り替えてもほとんど変わらなかった。
+        # 寸法と面の切り方は styles.Scale / app_stylesheet に一本化（2026-10-07）。
+        self.setStyleSheet(app_stylesheet())
 
     def _setup_menu(self):
         """メニューバー設定"""
@@ -348,20 +317,18 @@ class Chaptr(QMainWindow):
 
         # Working Directory表示（左側）
         self._workdir_label = QLabel(f"Working Directory: {self._work_dir}")
-        self._workdir_label.setStyleSheet("color: #a0c0e0; font-size: 18px;")
+        self._refresh_status_styles()
         self._workdir_label.setToolTip("作業ディレクトリ（クリックで変更）")
         self._workdir_label.setCursor(Qt.CursorShape.PointingHandCursor)
         self._workdir_label.mousePressEvent = lambda e: self._browse_work_dir()
         self._statusbar.addWidget(self._workdir_label)
 
         # セパレーター
-        separator = QLabel(" | ")
-        separator.setStyleSheet("color: #606060; font-size: 18px;")
+        self._status_separator = separator = QLabel(" | ")
         self._statusbar.addWidget(separator)
 
         # Output Directory表示（Working Directoryの右）
         self._output_dir_label = QLabel("Output: (same as source)")
-        self._output_dir_label.setStyleSheet("color: #a0c0e0; font-size: 18px;")
         self._output_dir_label.setToolTip("出力先ディレクトリ（クリックで変更）")
         self._output_dir_label.setCursor(Qt.CursorShape.PointingHandCursor)
         self._output_dir_label.mousePressEvent = lambda e: self._workspace._browse_output()
@@ -520,8 +487,58 @@ class Chaptr(QMainWindow):
             if widget is not None:
                 yield widget
 
+    def _apply_tooltip_palette(self):
+        """ツールチップの地と字をテーマから与える
+
+        ツールチップはスタイルシートの `QToolTip` 規則とアプリのパレットという
+        2系統で色が決まり、macOS ではどちらが効くかが場所によって変わる。
+        以前はパレットだけ `#f0f0f0`/`#000000` に固定していたため、暗色テーマでは
+        濃い地に黒字が載って読めなかった。両系統が同じ色を指すようにする。
+        （2026-10-07）
+        """
+        from PySide6.QtWidgets import QToolTip
+        from PySide6.QtGui import QPalette, QColor
+
+        tip_bg = QColor(Colors.get_background_alt())
+        tip_fg = QColor(Colors.get_text_bright())
+
+        app = QApplication.instance()
+        if app:
+            palette = app.palette()
+            palette.setColor(QPalette.ColorRole.ToolTipBase, tip_bg)
+            palette.setColor(QPalette.ColorRole.ToolTipText, tip_fg)
+            app.setPalette(palette)
+
+        tip_palette = QToolTip.palette()
+        tip_palette.setColor(QPalette.ColorRole.ToolTipBase, tip_bg)
+        tip_palette.setColor(QPalette.ColorRole.ToolTipText, tip_fg)
+        QToolTip.setPalette(tip_palette)
+
+    def _refresh_status_styles(self):
+        """ステータスバーのラベルの色を当て直す（配色切替で呼ばれる）"""
+        dim = f"color: {Colors.get_text_dim()}; font-size: {Scale.FONT_SM}px;"
+        accent = f"color: {Colors.get_primary()}; font-size: {Scale.FONT_SM}px;"
+        for name, css in (("_workdir_label", accent),
+                          ("_status_separator", dim),
+                          ("_output_dir_label", accent)):
+            w = getattr(self, name, None)
+            if w is not None:
+                w.setStyleSheet(css)
+
     def _on_theme_changed(self):
-        """テーマ変更時の処理"""
+        """テーマ変更時の処理
+
+        スタイルシートは生成時に色を文字列へ焼き込むため、配色を変えただけでは
+        古い色が残る。全体スタイルとワークスペース側を貼り直す（2026-10-07）。
+        以前は UI が色を直書きしていたので貼り直す対象が無く、環境設定の
+        Color Scheme を変えてもほとんど見た目が変わらなかった。
+        """
+        self.setStyleSheet(app_stylesheet())
+        self._apply_tooltip_palette()
+        if hasattr(self._workspace, "reapply_theme"):
+            self._workspace.reapply_theme()
+        self._refresh_status_styles()
+
         # 波形ウィジェットを再描画（下段の区間表示も含む）
         for widget in self._waveform_widgets():
             widget.update()
@@ -548,31 +565,17 @@ class Chaptr(QMainWindow):
 
     def _set_progress_style_processing(self):
         """プログレスバーを処理中スタイル（赤）に設定"""
-        self._progress_bar.setStyleSheet("""
-            QProgressBar {
-                background: #2a2a2a;
-                border: 1px solid #3a3a3a;
-                border-radius: 4px;
-            }
-            QProgressBar::chunk {
-                background: #ef4444;
-                border-radius: 3px;
-            }
-        """)
+        # 既定は app_stylesheet の QProgressBar。ここは chunk の色だけ上書きする
+        self._progress_bar.setStyleSheet(
+            f"QProgressBar::chunk {{ background: {Colors.get_danger()}; "
+            f"border-radius: {Scale.RADIUS}px; }}")
 
     def _set_progress_style_complete(self):
         """プログレスバーを完了スタイル（緑）に設定"""
-        self._progress_bar.setStyleSheet("""
-            QProgressBar {
-                background: #2a2a2a;
-                border: 1px solid #3a3a3a;
-                border-radius: 4px;
-            }
-            QProgressBar::chunk {
-                background: #c3d825;  /* 若草色 */
-                border-radius: 3px;
-            }
-        """)
+        # 既定は app_stylesheet の QProgressBar。ここは chunk の色だけ上書きする
+        self._progress_bar.setStyleSheet(
+            f"QProgressBar::chunk {{ background: {Colors.get_primary()}; "
+            f"border-radius: {Scale.RADIUS}px; }}")
 
     def _on_work_dir_changed(self, new_dir):
         """作業ディレクトリ変更時"""
@@ -808,14 +811,6 @@ def main():
     )
 
     app = QApplication(sys.argv)
-
-    # ツールチップの色を設定（macOSネイティブスタイル対策）
-    from PySide6.QtWidgets import QToolTip
-    from PySide6.QtGui import QPalette, QColor
-    tooltip_palette = QToolTip.palette()
-    tooltip_palette.setColor(QPalette.ColorRole.ToolTipBase, QColor("#f0f0f0"))
-    tooltip_palette.setColor(QPalette.ColorRole.ToolTipText, QColor("#000000"))
-    QToolTip.setPalette(tooltip_palette)
 
     # プラットフォーム情報をログ
     system = platform.system()
