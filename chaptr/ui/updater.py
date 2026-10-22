@@ -86,17 +86,50 @@ class UpdateChecker(QObject):
             return False
 
     def _get_download_url(self, assets: list) -> Optional[str]:
-        """プラットフォームに応じたダウンロードURLを取得"""
+        """プラットフォームに応じたダウンロードURLを取得
+
+        リリースには `Chaptr-<版>-macOS-Intel.dmg` と
+        `Chaptr-<版>-macOS-AppleSilicon.dmg` が並ぶ。以前は `.dmg` の
+        **最初の1つ**を返していたため、Intel 機に arm64 版を渡すことがあり得た
+        （そちらは起動しない）。アーキテクチャで選ぶ。
+
+        arm64 機が Intel 版しか見つけられなかったときは Rosetta で動くので
+        それを返す。逆は動かないので返さない。
+
+        Windows は `.zip` を探していたが、CI が上げるのは `.exe` で、
+        一致することが無かった（更新機能が事実上死んでいた）。両方を見る。
+        """
         system = platform.system()
 
-        for asset in assets:
-            name = asset.get("name", "").lower()
-            url = asset.get("browser_download_url", "")
+        def url_of(asset):
+            return asset.get("browser_download_url", "")
 
-            if system == "Darwin" and name.endswith(".dmg"):
-                return url
-            elif system == "Windows" and name.endswith(".zip"):
-                return url
+        if system == "Darwin":
+            is_arm = platform.machine().lower() in ("arm64", "aarch64")
+            want = "applesilicon" if is_arm else "intel"
+            other = "intel" if is_arm else "applesilicon"
+
+            dmgs = [a for a in assets
+                    if a.get("name", "").lower().endswith(".dmg")]
+            for asset in dmgs:
+                if want in asset.get("name", "").lower():
+                    return url_of(asset)
+            if is_arm:
+                # Rosetta で動く。Intel 機へ arm64 を渡す逆方向はしない
+                for asset in dmgs:
+                    if other in asset.get("name", "").lower():
+                        return url_of(asset)
+                # 版名にアーキテクチャが無い古いリリース
+                for asset in dmgs:
+                    if other not in asset.get("name", "").lower():
+                        return url_of(asset)
+            return None
+
+        if system == "Windows":
+            for asset in assets:
+                name = asset.get("name", "").lower()
+                if name.endswith(".exe") or name.endswith(".zip"):
+                    return url_of(asset)
 
         return None
 

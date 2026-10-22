@@ -64,7 +64,7 @@ jobs:
             if hdiutil create -volname "Chaptr" \
                  -srcfolder dmg_contents \
                  -ov -format UDZO \
-                 "Video-Chapter-Editor-${VERSION}-macOS-Intel.dmg"; then
+                 "Chaptr-${VERSION}-macOS-Intel.dmg"; then
               exit 0
             fi
             echo "hdiutil failed (attempt $attempt), retrying..."
@@ -76,7 +76,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: macos-intel-app
-          path: "Video-Chapter-Editor-*-macOS-Intel.dmg"
+          path: "Chaptr-*-macOS-Intel.dmg"
 
   build-macos-arm:
     runs-on: macos-latest  # Apple Silicon (arm64)
@@ -127,7 +127,7 @@ jobs:
             if hdiutil create -volname "Chaptr" \
                  -srcfolder dmg_contents \
                  -ov -format UDZO \
-                 "Video-Chapter-Editor-${VERSION}-macOS-AppleSilicon.dmg"; then
+                 "Chaptr-${VERSION}-macOS-AppleSilicon.dmg"; then
               exit 0
             fi
             echo "hdiutil failed (attempt $attempt), retrying..."
@@ -139,7 +139,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: macos-arm-app
-          path: "Video-Chapter-Editor-*-macOS-AppleSilicon.dmg"
+          path: "Chaptr-*-macOS-AppleSilicon.dmg"
 
   build-windows:
     runs-on: windows-latest
@@ -219,13 +219,13 @@ jobs:
           $version = $version -replace '/', '-'
           # --onefile なので Chaptr.exe 単体で自己完結（ffmpeg も内包）。
           # zip 梱包せず、バージョン名を付けた exe をそのまま配布する。
-          Copy-Item "dist/Chaptr.exe" "Video-Chapter-Editor-${version}-Windows.exe"
+          Copy-Item "dist/Chaptr.exe" "Chaptr-${version}-Windows.exe"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: windows-app
-          path: "Video-Chapter-Editor-*.exe"
+          path: "Chaptr-*.exe"
 
   release:
     needs: [build-macos-intel, build-macos-arm, build-windows]
