@@ -23,8 +23,8 @@ from PySide6.QtWidgets import (
     QStyledItemDelegate, QStyleOptionViewItem, QMenu,
     QGraphicsView, QGraphicsScene
 )
-from PySide6.QtCore import Qt, Signal, QUrl, QThread, QObject, QTimer, QEvent, QMimeData, QPoint, QSize, QSizeF
-from PySide6.QtGui import QFont, QFontDatabase, QPainter, QColor, QPen, QBrush, QPixmap, QIcon, QPolygon, QKeyEvent, QTransform
+from PySide6.QtCore import Qt, Signal, QUrl, QThread, QObject, QTimer, QEvent, QMimeData, QPoint, QSize, QSizeF, QEventLoop
+from PySide6.QtGui import QFont, QFontDatabase, QFontMetrics, QPainter, QColor, QPen, QBrush, QPixmap, QIcon, QPolygon, QKeyEvent, QTransform
 from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput, QMediaDevices
 from PySide6.QtMultimediaWidgets import QVideoWidget, QGraphicsVideoItem
 
@@ -41,6 +41,7 @@ from .theme import ColorRole, get_theme_manager
 from .models import (
     ChapterInfo,
     ColorspaceInfo,
+    SegmentCandidate,
     SourceFile,
     ProjectState,
     detect_video_colorspace,
@@ -48,10 +49,17 @@ from .models import (
     detect_video_bitrate,
     detect_available_encoders,
 )
-from .workers import DurationDetectWorker
+from .workers import DurationDetectWorker, SegmentDetectWorker
 from .widgets import WaveformWidget, RegionBridge
-from .audio_cache import AudioCache, AudioCacheWorker
-from .styles import ButtonStyles
+from .audio_cache import AudioCache, AudioCacheWorker, RegionSpectrogramWorker
+from ..pipeline.segment_detector import (
+    Cue,
+    KIND_TITLES,
+    DEFAULT_SENSITIVITY,
+    SENSITIVITY_LEVELS,
+    SENSITIVITY_TITLES,
+)
+from .styles import ButtonStyles, Colors, Scale, Surfaces, transport_icon
 from .ffmpeg_utils import get_ffmpeg_path, get_ffprobe_path, extract_chapters_with_ffmpeg, get_subprocess_kwargs, write_concat_file
 from .managers import (
     PlaybackManager,
@@ -66,8 +74,7 @@ from .managers import (
 
 
 # ファイル拡張子定義
-AUDIO_EXTENSIONS = {'.mp3', '.m4a', '.wav', '.aac', '.flac'}
-VIDEO_EXTENSIONS = {'.mp4', '.mov', '.avi', '.mkv', '.m4v'}
+from .media_types import AUDIO_EXTENSIONS, VIDEO_EXTENSIONS, MEDIA_EXTENSIONS
 
 # 区間表示（下段）の設定
 # ホイールで選べる区間幅。長尺リハーサルでは 1 分前後が曲の出入りを見るのに合う
@@ -75,10 +82,19 @@ REGION_SPAN_LADDER_MS = (5_000, 10_000, 20_000, 30_000, 60_000, 120_000, 300_000
 REGION_DEFAULT_SPAN_MS = REGION_SPAN_LADDER_MS[-1]  # 既定は最大(600s)
 # 手が止まってから精細化するまでの待ち
 REGION_SHARPEN_DELAY_MS = 120
+
+# シーク前後をミュートする時間。デコーダが新しい位置の音を出し始めるまでの
+# 段差を隠すためのもので、長いと操作が鈍く聞こえ、短いと段差が漏れる。
+SEEK_MUTE_MS = 120
+
+# 終了時、一時停止してから畳むまでに置く時間。状態フラグは即座に変わるが
+# 音声エンジンが落ち着くのはその後なので、実時間で待つ必要がある。
+# 終了時にしか通らないので、体感を損なわない範囲で長めに取ってある。
+# 環境変数 CHAPTR_AUDIO_SETTLE_SEC で上書きできる（現地で詰めるため）。
+AUDIO_SETTLE_SEC = float(os.environ.get("CHAPTR_AUDIO_SETTLE_SEC", "0.35"))
 # 移動中は列数・行数を落として追従を優先する（止まれば精細版に置き換わる）
 REGION_COARSE_DIVISOR = 4
 # 粗描画の最短間隔（ミリ秒）。これ以上詰めても人には見えない
-REGION_MIN_FRAME_MS = 12
 # 動画表示の設定
 # 用途は「指揮者の動きと音のズレの確認」なので、判別できる大きさがあれば十分。
 # 高さに上限を設け、余った縦は波形（特に下段の区間表示）へ回す。
@@ -264,7 +280,7 @@ class FileBoundaryDelegate(QStyledItemDelegate):
     def __init__(self, table: QTableWidget, parent=None):
         super().__init__(parent)
         self._table = table
-        self._border_color = QColor("#00bcd4")  # シアン
+        self._border_color = QColor(Colors.get_chapter())
         self._border_width = 1
 
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index):
@@ -412,11 +428,10 @@ class DropOverlay(QWidget):
 
     def _update_style(self, active: bool):
         if active:
-            self.setStyleSheet("""
-                background: rgba(59, 130, 246, 0.2);
-                border: 2px solid #1e50a2;
-                border-radius: 4px;
-            """)
+            self.setStyleSheet(
+                f"background: {Colors.rgba(Colors.get_primary(), 0.2)};"
+                f"border: 2px solid {Colors.get_primary()};"
+                f"border-radius: {Scale.RADIUS}px;")
         else:
             self.setStyleSheet("background: transparent;")
 
@@ -652,7 +667,8 @@ class DragDropTableWidget(QTableWidget):
         # 水平線を描画
         painter = QPainter(self.viewport())
         # 外部ドロップは青、内部ドラッグは赤
-        indicator_color = QColor("#1e50a2") if self._is_external_drag else QColor("#ef4444")
+        indicator_color = QColor(
+            Colors.get_primary() if self._is_external_drag else Colors.get_danger())
         pen = QPen(indicator_color)
         pen.setWidth(5)
         painter.setPen(pen)
@@ -769,22 +785,7 @@ class DropVideoFrame(QFrame):
 
     def _update_drag_style(self, active: bool):
         """ドラッグ中のスタイル更新"""
-        if active:
-            self.setStyleSheet("""
-                QFrame {
-                    background: #1a1a1a;
-                    border: 2px solid #1e50a2;
-                    border-radius: 8px;
-                }
-            """)
-        else:
-            self.setStyleSheet("""
-                QFrame {
-                    background: #1a1a1a;
-                    border: 1px solid #3a3a3a;
-                    border-radius: 8px;
-                }
-            """)
+        self.setStyleSheet(Surfaces.panel_drop() if active else Surfaces.panel())
 
 
 class SourceListWidget(QWidget):
@@ -823,6 +824,7 @@ class SourceListWidget(QWidget):
         self._rows: List[QLabel] = []
         for i in range(3):
             row = QLabel()
+            row.setProperty("chaptr_style", "srcrow_current" if i == 1 else "srcrow")
             row.setStyleSheet(self._get_row_style(i == 1))  # 中央行がカレント
             row.setFixedHeight(24)
             row.mousePressEvent = lambda e, idx=i: self._on_row_clicked(idx)
@@ -837,23 +839,11 @@ class SourceListWidget(QWidget):
         btn_layout.setContentsMargins(0, 0, 0, 0)
         btn_layout.setSpacing(4)
 
-        btn_style = """
-            QPushButton {
-                background: #1e50a2;
-                color: white;
-                border: none;
-                border-radius: 6px;
-                padding: 0 12px;
-                font-weight: bold;
-                font-size: 12px;
-            }
-            QPushButton:hover {
-                background: #3a6cb5;
-            }
-        """
+        btn_style = ButtonStyles.primary_compact()
 
         self._open_btn = QPushButton("Open")
-        self._open_btn.setFixedHeight(28)
+        self._open_btn.setProperty("chaptr_style", "primary")
+        self._open_btn.setFixedHeight(Scale.H_MD)
         self._open_btn.setFixedWidth(80)
         self._open_btn.setStyleSheet(btn_style)
         self._open_btn.setToolTip("音声/動画ファイルを選択")
@@ -868,31 +858,7 @@ class SourceListWidget(QWidget):
 
     def _get_row_style(self, is_current: bool) -> str:
         """行のスタイルを取得"""
-        if is_current:
-            return """
-                QLabel {
-                    background: #c3d825;
-                    color: #000000;
-                    padding: 4px 8px;
-                    border-radius: 4px;
-                    font-weight: bold;
-                }
-                QLabel:hover {
-                    background: #facc15;
-                }
-            """
-        else:
-            return """
-                QLabel {
-                    background: transparent;
-                    color: #808080;
-                    padding: 4px 8px;
-                }
-                QLabel:hover {
-                    background: #2a2a2a;
-                    border-radius: 4px;
-                }
-            """
+        return Surfaces.source_row(is_current)
 
     def _on_row_clicked(self, row_index: int):
         """行クリック時の処理"""
@@ -982,7 +948,7 @@ class MainWorkspace(QWidget):
     │ 2. [チャプターテーブル]     │                               │
     │    [Add] [Remove] [Copy YT] ├───────────────────────────────┤
     ├─────────────────────────────┤     [波形表示]                │
-    │ 3. [Cover] [Output] [Export]├───────────────────────────────┤
+    │ 3. [Output]                 ├───────────────────────────────┤
     ├─────────────────────────────┤ [Load][Play][Stop] [Vol]      │
     │ 4. [ログパネル]             │ [シークバー] 00:00/00:00      │
     └─────────────────────────────┴───────────────────────────────┘
@@ -1004,17 +970,26 @@ class MainWorkspace(QWidget):
 
     @staticmethod
     def _get_monospace_font(size: int = 11) -> QFont:
-        """クロスプラットフォーム対応の等幅フォントを取得"""
+        """クロスプラットフォーム対応の等幅フォントを取得（size はピクセル）
+
+        サイズは**ピクセル**で指定する。ポイント指定だと Qt の論理 DPI
+        （macOS 72 / Windows 96）の差がそのまま出て、同じ 16 が macOS では約 16px、
+        Windows では約 21px になる。アプリのスタイルシートは全面的に px 指定なので、
+        ポイントのままだとウィジェットのフォントだけが Windows で 3 割大きくなり、
+        固定幅のボタンからラベルがはみ出す（`Mel Spectrogram` が欠ける等）。
+        """
         system = platform.system()
         font_names = MainWorkspace.MONO_FONTS.get(system, ["monospace"])
 
         for font_name in font_names:
             if QFontDatabase.hasFamily(font_name) and QFontDatabase.isFixedPitch(font_name):
-                return QFont(font_name, size)
+                font = QFont(font_name)
+                font.setPixelSize(size)
+                return font
 
         # フォールバック: システムの等幅フォント
         font = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
-        font.setPointSize(size)
+        font.setPixelSize(size)
         return font
 
     def __init__(self, work_dir: Optional[Path] = None, parent=None):
@@ -1046,14 +1021,22 @@ class MainWorkspace(QWidget):
         self._audio_cache: Optional[AudioCache] = None
         self._cache_thread: Optional[QThread] = None
         self._cache_worker: Optional[AudioCacheWorker] = None
+        # 区間スペクトログラム（FFT）をメインスレッドから逃がす専用スレッド
+        self._spec_thread: Optional[QThread] = None
+        self._spec_worker: Optional[RegionSpectrogramWorker] = None
+
+        # 自動判別した区間候補（チャプターではない。確定するまで表には入れない）
+        self._segment_candidates: List[SegmentCandidate] = []
+        self._detect_thread: Optional[QThread] = None
+        self._detect_worker: Optional[SegmentDetectWorker] = None
 
         # 区間表示（下段）
         self._region_widget: Optional[WaveformWidget] = None
         self._region_bridge: Optional[RegionBridge] = None
         self._region_span_ms: int = self._load_region_span()
         self._region_start_ms: int = 0
-        # ホバーで区間を動かしたあとは、そのまま留めて下段をクリックできるようにする。
-        # 再生位置追従へ戻すのはシーク時と、再生が区間外へ出たとき
+        # ホイールで区間幅を変えたあとは、そのまま留めて見たい場所を保つ。
+        # 再生位置追従へ戻すのは上段クリックと、再生が留めた区間へ追いついたとき
         self._region_pinned: bool = False
         # 手が止まったら精細版へ置き換えるためのタイマー。
         # 移動中の描画はこれに任せず、その場で粗く描く（下記 _apply_region_center）
@@ -1061,10 +1044,14 @@ class MainWorkspace(QWidget):
         self._region_timer.setSingleShot(True)
         self._region_timer.setInterval(REGION_SHARPEN_DELAY_MS)
         self._region_timer.timeout.connect(self._refresh_region_view)
-        self._region_last_draw: float = 0.0
+
+        # シーク直後にミュートを解く単発タイマー。連続クリックでは張り直すだけ
+        self._seek_unmute_timer = QTimer(self)
+        self._seek_unmute_timer.setSingleShot(True)
+        self._seek_unmute_timer.setInterval(SEEK_MUTE_MS)
+        self._seek_unmute_timer.timeout.connect(self._end_seek_mute)
 
         # カバー画像
-        self._cover_image = None  # QImage
 
         # 出力ファイル名のベース（ソースから自動決定。編集UIは廃止）
         self._output_base: str = ""
@@ -1240,13 +1227,8 @@ class MainWorkspace(QWidget):
     def _create_source_section(self) -> QWidget:
         """1. ソース選択セクション"""
         frame = QFrame()
-        frame.setStyleSheet("""
-            QFrame {
-                background: #1a1a1a;
-                border: 1px solid #3a3a3a;
-                border-radius: 8px;
-            }
-        """)
+        frame.setProperty("chaptr_style", "panel")
+        frame.setStyleSheet(Surfaces.panel())
 
         main_layout = QVBoxLayout(frame)
         main_layout.setContentsMargins(12, 8, 12, 8)
@@ -1263,13 +1245,8 @@ class MainWorkspace(QWidget):
     def _create_playback_section(self) -> QWidget:
         """再生コントロールセクション（movie-viewerスタイル、波形中央揃え）"""
         frame = QFrame()
-        frame.setStyleSheet("""
-            QFrame {
-                background: #1a1a1a;
-                border: 1px solid #3a3a3a;
-                border-radius: 8px;
-            }
-        """)
+        frame.setProperty("chaptr_style", "panel")
+        frame.setStyleSheet(Surfaces.panel())
 
         layout = QVBoxLayout(frame)
         layout.setContentsMargins(12, 8, 12, 8)
@@ -1287,42 +1264,36 @@ class MainWorkspace(QWidget):
         self._media_player.mediaStatusChanged.connect(self._on_media_status_changed)
         self._media_player.playbackStateChanged.connect(self._on_playback_state_changed)
 
+        # バックエンドが1つも読めていないと QMediaPlayer は生成自体に失敗し、
+        # 以後 setSource しても尺 0 のまま無反応になる。エラーも飛ばないので、
+        # ここで明示しないと「なぜか再生できない」だけが残る（Windows で実際に
+        # 発生）。起動時に一度だけ知らせる。
+        # どのバックエンドで鳴っているかを残す。ここが分からないために、
+        # 再生不能（Windows）とクリック音（macOS）の切り分けで何度も往復した。
+        import os as _os
+        backend = _os.environ.get("QT_MEDIA_BACKEND") or "(Qt の既定)"
+        self._log_panel.info(f"Media backend: {backend}", source="Video")
+
+        if not self._media_player.isAvailable():
+            self._log_panel.error(
+                "QMediaPlayer is unavailable: no QtMultimedia backend could be loaded. "
+                "Playback and the video preview will not work.",
+                source="Video",
+            )
+
         # === 中央揃えのコントロール行（movie-viewerスタイル）===
         ctrl_row = QHBoxLayout()
         ctrl_row.addStretch()  # 左側スペーサー
 
         # 時間移動ボタンのスタイル（軽めのアウトラインスタイル）
-        back_btn_style = """
-            QPushButton {
-                background: #2a2a2a;
-                color: #a0a0a0;
-                border: 1px solid #4a4a4a;
-                border-radius: 12px;
-                font-size: 18px;
-                font-weight: bold;
-                padding: 4px 2px;
-            }
-            QPushButton:hover {
-                background: #3a3a3a;
-                color: #f0f0f0;
-                border-color: #1e50a2;
-            }
-            QPushButton:pressed {
-                background: #1e50a2;
-                color: #ffffff;
-            }
-            QPushButton:disabled {
-                background: #1a1a1a;
-                color: #555555;
-                border-color: #333333;
-            }
-        """
+        back_btn_style = ButtonStyles.transport()
 
         # 時間移動ボタンのスタイル（進む系: 統一）
         forward_btn_style = back_btn_style
 
         # -10s
         self._btn_m10s = QPushButton("-10s")
+        self._btn_m10s.setProperty("chaptr_style", "transport")
         self._btn_m10s.setStyleSheet(back_btn_style)
         self._btn_m10s.setFixedSize(55, 45)
         self._btn_m10s.setToolTip("10秒戻る")
@@ -1332,6 +1303,7 @@ class MainWorkspace(QWidget):
 
         # -1s
         self._btn_m1s = QPushButton("-1s")
+        self._btn_m1s.setProperty("chaptr_style", "transport")
         self._btn_m1s.setStyleSheet(back_btn_style)
         self._btn_m1s.setFixedSize(55, 45)
         self._btn_m1s.setToolTip("1秒戻る")
@@ -1339,17 +1311,9 @@ class MainWorkspace(QWidget):
         self._btn_m1s.setEnabled(False)
         ctrl_row.addWidget(self._btn_m1s)
 
-        # -.3s
-        self._btn_m03s = QPushButton("-.3s")
-        self._btn_m03s.setStyleSheet(back_btn_style)
-        self._btn_m03s.setFixedSize(55, 45)
-        self._btn_m03s.setToolTip("0.3秒戻る")
-        self._btn_m03s.clicked.connect(lambda: self._seek_relative(-300))
-        self._btn_m03s.setEnabled(False)
-        ctrl_row.addWidget(self._btn_m03s)
-
         # -1f (約33ms @ 30fps)
         self._btn_m1f = QPushButton("-1f")
+        self._btn_m1f.setProperty("chaptr_style", "transport")
         self._btn_m1f.setStyleSheet(back_btn_style)
         self._btn_m1f.setFixedSize(55, 45)
         self._btn_m1f.setToolTip("1フレーム戻る")
@@ -1357,37 +1321,26 @@ class MainWorkspace(QWidget):
         self._btn_m1f.setEnabled(False)
         ctrl_row.addWidget(self._btn_m1f)
 
+        # ◀候補 — 前の候補へスキップ
+        # 候補送りは「飛ぶ → 送り戻しで詰める」の起点なので、微調整に使う
+        # -1f / +1f と隣り合わせに置く（Detect / 確定 は左パネルに残す）
+        self._prev_candidate_btn = QPushButton("◀候補")
+        self._prev_candidate_btn.setProperty("chaptr_style", "transport")
+        self._prev_candidate_btn.setStyleSheet(back_btn_style)
+        self._prev_candidate_btn.setFixedSize(62, 45)
+        self._prev_candidate_btn.setToolTip("前の候補へスキップ")
+        self._prev_candidate_btn.clicked.connect(self._goto_prev_candidate)
+        self._prev_candidate_btn.setEnabled(False)
+        ctrl_row.addWidget(self._prev_candidate_btn)
+
         # チャプタースキップボタンのスタイル
         # Windows: Segoe UI Symbolを使用して絵文字ではなくシンボルとして描画
         is_windows = platform.system() == "Windows"
         symbol_font_css = "font-family: 'Segoe UI Symbol';" if is_windows else ""
 
         # チャプタースキップボタン（軽めのアウトラインスタイル）
-        chapter_btn_style = f"""
-            QPushButton {{
-                background: #2a2a2a;
-                color: #a0a0a0;
-                border: 1px solid #4a4a4a;
-                border-radius: 14px;
-                font-size: 20px;
-                font-weight: bold;
-                {symbol_font_css}
-            }}
-            QPushButton:hover {{
-                background: #3a3a3a;
-                color: #f0f0f0;
-                border-color: #1e50a2;
-            }}
-            QPushButton:pressed {{
-                background: #1e50a2;
-                color: #ffffff;
-            }}
-            QPushButton:disabled {{
-                background: #1a1a1a;
-                color: #555555;
-                border-color: #333333;
-            }}
-        """
+        self._symbol_font_css = symbol_font_css
+        chapter_btn_style = ButtonStyles.chapter(symbol_font_css)
 
         # 前後チャプターは同じスタイル
         prev_chapter_style = chapter_btn_style
@@ -1395,6 +1348,7 @@ class MainWorkspace(QWidget):
 
         # 前のチャプター
         self._prev_chapter_btn = QPushButton("|◀")
+        self._prev_chapter_btn.setProperty("chaptr_style", "chapter")
         self._prev_chapter_btn.setStyleSheet(prev_chapter_style)
         self._prev_chapter_btn.setFixedSize(50, 45)
         self._prev_chapter_btn.setToolTip("前のチャプター")
@@ -1403,24 +1357,25 @@ class MainWorkspace(QWidget):
         ctrl_row.addWidget(self._prev_chapter_btn)
 
         # Play/Pause - アイコンボタン（アイコン自体がボタン）
-        self._play_icon = QIcon(str(get_icon_path('play.png')))
-        self._pause_icon = QIcon(str(get_icon_path('pause.png')))
+        # 同梱 PNG をやめ、テーマ色で描く（styles.transport_icon の docstring 参照）
+        self._play_icon = transport_icon("play", 75)
+        self._pause_icon = transport_icon("pause", 75)
         self._play_btn = QPushButton()
         self._play_btn.setIcon(self._play_icon)
         self._play_btn.setFlat(True)
+        # アイコン自体がボタンなので、背景も余白も持たせない。
+        # padding を 0 に戻すのは、全体スタイル（app_stylesheet）の QPushButton が
+        # 余白を与えており、それが 75px のアイコンを圧迫して潰れるため。
         self._play_btn.setStyleSheet("""
             QPushButton {
                 background: transparent;
                 border: none;
+                padding: 0;
+                margin: 0;
+                min-height: 0;
             }
-            QPushButton:hover {
+            QPushButton:hover, QPushButton:pressed {
                 background: transparent;
-            }
-            QPushButton:pressed {
-                background: transparent;
-            }
-            QPushButton:disabled {
-                opacity: 0.3;
             }
         """)
         self._play_btn.setFixedSize(75, 75)
@@ -1433,6 +1388,7 @@ class MainWorkspace(QWidget):
 
         # 次のチャプター
         self._next_chapter_btn = QPushButton("▶|")
+        self._next_chapter_btn.setProperty("chaptr_style", "chapter")
         self._next_chapter_btn.setStyleSheet(next_chapter_style)
         self._next_chapter_btn.setFixedSize(50, 45)
         self._next_chapter_btn.setToolTip("次のチャプター")
@@ -1440,17 +1396,19 @@ class MainWorkspace(QWidget):
         self._next_chapter_btn.setEnabled(False)
         ctrl_row.addWidget(self._next_chapter_btn)
 
-        # 回転（現在チャプターを90°ずつ。Shiftで逆回転）
-        self._rotate_btn = QPushButton("⟳")
-        self._rotate_btn.setStyleSheet(chapter_btn_style)
-        self._rotate_btn.setFixedSize(50, 45)
-        self._rotate_btn.setToolTip("現在チャプターを90°回転 (Shiftで逆回転)")
-        self._rotate_btn.clicked.connect(self._on_rotate_clicked)
-        self._rotate_btn.setEnabled(False)
-        ctrl_row.addWidget(self._rotate_btn)
+        # 候補▶ — 次の候補へスキップ（左右対称に -1f/+1f の内側へ置く）
+        self._next_candidate_btn = QPushButton("候補▶")
+        self._next_candidate_btn.setProperty("chaptr_style", "transport")
+        self._next_candidate_btn.setStyleSheet(forward_btn_style)
+        self._next_candidate_btn.setFixedSize(62, 45)
+        self._next_candidate_btn.setToolTip("次の候補へスキップ")
+        self._next_candidate_btn.clicked.connect(self._goto_next_candidate)
+        self._next_candidate_btn.setEnabled(False)
+        ctrl_row.addWidget(self._next_candidate_btn)
 
         # +1f
         self._btn_p1f = QPushButton("+1f")
+        self._btn_p1f.setProperty("chaptr_style", "transport")
         self._btn_p1f.setStyleSheet(forward_btn_style)
         self._btn_p1f.setFixedSize(55, 45)
         self._btn_p1f.setToolTip("1フレーム進む")
@@ -1458,17 +1416,9 @@ class MainWorkspace(QWidget):
         self._btn_p1f.setEnabled(False)
         ctrl_row.addWidget(self._btn_p1f)
 
-        # +.3s
-        self._btn_p03s = QPushButton("+.3s")
-        self._btn_p03s.setStyleSheet(forward_btn_style)
-        self._btn_p03s.setFixedSize(55, 45)
-        self._btn_p03s.setToolTip("0.3秒進む")
-        self._btn_p03s.clicked.connect(lambda: self._seek_relative(300))
-        self._btn_p03s.setEnabled(False)
-        ctrl_row.addWidget(self._btn_p03s)
-
         # +1s
         self._btn_p1s = QPushButton("+1s")
+        self._btn_p1s.setProperty("chaptr_style", "transport")
         self._btn_p1s.setStyleSheet(forward_btn_style)
         self._btn_p1s.setFixedSize(55, 45)
         self._btn_p1s.setToolTip("1秒進む")
@@ -1478,6 +1428,7 @@ class MainWorkspace(QWidget):
 
         # +10s
         self._btn_p10s = QPushButton("+10s")
+        self._btn_p10s.setProperty("chaptr_style", "transport")
         self._btn_p10s.setStyleSheet(forward_btn_style)
         self._btn_p10s.setFixedSize(55, 45)
         self._btn_p10s.setToolTip("10秒進む")
@@ -1495,31 +1446,8 @@ class MainWorkspace(QWidget):
         self._display_mode_btn = QPushButton("Mel Spectrogram")
         self._display_mode_btn.setCheckable(True)
         self._display_mode_btn.setFixedWidth(160)
-        self._display_mode_btn.setStyleSheet("""
-            QPushButton {
-                background: #1e40af;
-                color: #ffffff;
-                border: 1px solid #1e50a2;
-                border-radius: 4px;
-                padding: 4px 12px;
-            }
-            QPushButton:hover {
-                background: #1d4ed8;
-            }
-            QPushButton:checked {
-                background: #166534;
-                color: #ffffff;
-                border-color: #c3d825;
-            }
-            QPushButton:checked:hover {
-                background: #15803d;
-            }
-            QPushButton:disabled {
-                background: #1a1a1a;
-                color: #666666;
-                border-color: #3a3a3a;
-            }
-        """)
+        self._display_mode_btn.setProperty("chaptr_style", "mode_toggle")
+        self._display_mode_btn.setStyleSheet(ButtonStyles.mode_toggle())
         self._display_mode_btn.setToolTip("クリックで表示モード切替")
         self._display_mode_btn.clicked.connect(self._on_display_mode_toggled)
         self._display_mode_btn.setEnabled(False)
@@ -1529,39 +1457,60 @@ class MainWorkspace(QWidget):
 
         # 出力デバイス選択（ボリュームはOSに任せる）
         output_label = QLabel("Out:")
-        output_label.setStyleSheet("color: #a0a0a0;")
+        output_label.setProperty("chaptr_style", "label_dim")
+        output_label.setStyleSheet(self._style_for("label_dim"))
         bottom_row.addWidget(output_label)
 
+        combo_style = Surfaces.combo()
+
         self._audio_device_combo = AudioDeviceComboBox()
-        self._audio_device_combo.setStyleSheet("""
-            QComboBox {
-                background: #1a1a1a;
-                color: #f0f0f0;
-                border: 1px solid #3a3a3a;
-                border-radius: 4px;
-                padding: 4px 8px;
-                min-width: 120px;
-            }
-            QComboBox::drop-down { border: none; }
-            QComboBox QAbstractItemView {
-                background: #1a1a1a;
-                color: #f0f0f0;
-                selection-background-color: #1e50a2;
-            }
-        """)
+        self._audio_device_combo.setProperty("chaptr_style", "combo")
+        self._audio_device_combo.setStyleSheet(combo_style)
         self._audio_device_combo.setToolTip("音声出力デバイス")
         self._audio_device_combo.set_refresh_callback(self._populate_audio_devices)
         self._populate_audio_devices()
         self._audio_device_combo.currentIndexChanged.connect(self._on_audio_device_changed)
-        bottom_row.addWidget(self._audio_device_combo)
+        # 余白を空のまま残さず、切り詰めの起きるデバイス名に回す
+        bottom_row.addWidget(self._audio_device_combo, 1)
 
-        bottom_row.addStretch()
+        bottom_row.addSpacing(12)
+
+        # 区間判別の感度。トランスポート行ではなくこちらへ置く。操作ではなく
+        # 設定なので、表示モード・出力デバイスと同じ行に並ぶのが素直。
+        sens_label = QLabel("候補:")
+        sens_label.setProperty("chaptr_style", "label_dim")
+        sens_label.setStyleSheet(self._style_for("label_dim"))
+        sens_label.setToolTip("区間判別の感度（休憩などの候補をどれだけ拾うか）")
+        bottom_row.addWidget(sens_label)
+
+        self._sensitivity_combo = QComboBox()
+        self._sensitivity_combo.setProperty("chaptr_style", "combo")
+        self._sensitivity_combo.setStyleSheet(combo_style)
+        self._sensitivity_combo.setToolTip(
+            "拾い目にするほど候補が増える。見逃すと長尺を手で走査することになるが、"
+            "余分な候補はスキップ1回で消える"
+        )
+        for level in SENSITIVITY_LEVELS:
+            self._sensitivity_combo.addItem(SENSITIVITY_TITLES[level], level)
+        self._sensitivity_combo.setCurrentIndex(
+            max(0, SENSITIVITY_LEVELS.index(self._load_sensitivity()))
+        )
+        self._sensitivity_combo.currentIndexChanged.connect(self._on_sensitivity_changed)
+        bottom_row.addWidget(self._sensitivity_combo)
 
         # 時間表示
         self._time_label = QLabel("0:00:00.000 / 0:00:00.000")
-        self._time_label.setStyleSheet("color: #c3d825;")
-        self._time_label.setFont(self._get_monospace_font(18))
+        # 黄緑のLCD風をやめ、通常の文字色へ。現在位置と総尺の区別は
+        # _update_time_label 側でアクセント色を当てて付ける（2026-10-07）
+        self._time_label.setStyleSheet(
+            f"color: {Colors.get_text()}; background: transparent;")
+        self._time_label.setFont(self._get_monospace_font(Scale.FONT_LG))
         self._time_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        # 時刻は桁が欠けると用を成さない。等幅の実測幅を最小幅として確保し、
+        # 行が詰まったときは隣のコンボ（切り詰めても困らない）に譲らせる。
+        self._time_label.setMinimumWidth(
+            QFontMetrics(self._time_label.font())
+            .horizontalAdvance("0:00:00.000 / 0:00:00.000") + Scale.SPACE_MD)
         bottom_row.addWidget(self._time_label)
 
         layout.addLayout(bottom_row)
@@ -1579,7 +1528,7 @@ class MainWorkspace(QWidget):
         current = self._media_player.position()
         duration = self._media_player.duration()
         new_pos = max(0, min(duration, current + delta_ms))
-        self._media_player.setPosition(new_pos)
+        self._seek_player(new_pos)
 
         # 再生状態を復元（一時停止中だった場合は一時停止を維持）
         if not was_playing:
@@ -1602,13 +1551,8 @@ class MainWorkspace(QWidget):
         # === 動画プレビュー ===
         # 外枠フレーム
         video_frame = VideoAspectFrame()
-        video_frame.setStyleSheet("""
-            QFrame {
-                background: #1a1a1a;
-                border: 1px solid #3a3a3a;
-                border-radius: 8px;
-            }
-        """)
+        video_frame.setProperty("chaptr_style", "panel")
+        video_frame.setStyleSheet(Surfaces.panel())
 
         video_outer_layout = QVBoxLayout(video_frame)
         video_outer_layout.setContentsMargins(4, 4, 4, 4)
@@ -1622,14 +1566,16 @@ class MainWorkspace(QWidget):
 
         # 動画表示（最下層）: QGraphicsView + QGraphicsVideoItem
         # QVideoWidget はネイティブ surface のため回転/重ね合わせができない。
-        # チャプター単位のライブ回転プレビューのために QGraphicsVideoItem を使う。
+        # オーバーレイ（チャプター名・ドロップ）を重ねるために QGraphicsVideoItem を使う。
         self._video_scene = QGraphicsScene(self._video_container)
         self._video_item = QGraphicsVideoItem()
         self._video_scene.addItem(self._video_item)
         self._video_view = VideoGraphicsView(self._video_scene, self._video_container)
         self._video_view.set_fit_callback(self._fit_video_item)
         self._video_view.setObjectName("video_widget")
-        self._video_view.setStyleSheet("background: #0f0f0f; border: none; border-radius: 4px;")
+        self._video_view.setStyleSheet(
+            f"background: {Colors.get_background()}; border: none; "
+            f"border-radius: {Scale.RADIUS}px;")
         self._video_view.setMinimumSize(160, 90)
         self._video_view.setFrameStyle(0)  # NoFrame
         self._video_view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -1644,19 +1590,19 @@ class MainWorkspace(QWidget):
             QPainter.RenderHint.SmoothPixmapTransform | QPainter.RenderHint.Antialiasing
         )
         # ビューポート背景（回転/レターボックスの余白）を黒に
+        # 映像の地は配色に追従させない。レターボックスは暗い方が映像を正しく見られる。
         self._video_view.setBackgroundBrush(QColor("#0f0f0f"))
-        # 現在チャプターの回転角（プレビュー用、度・時計回り）
-        self._preview_rotation = 0
         # ネイティブ解像度が判明したら fit し直す
         self._video_item.nativeSizeChanged.connect(lambda _s: self._fit_video_item())
         # 既存コード（show/hide/lower/setGeometry）との互換のため view を指す
         self._video_widget = self._video_view
 
-        # Cover Image表示用（音声のみの場合）
-        self._cover_image_label = QLabel(self._video_container)
-        self._cover_image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._cover_image_label.setStyleSheet("background: #0f0f0f;")
-        self._cover_image_label.hide()  # 初期状態は非表示
+        # 音声のみのときの下地。動画ウィジェットを隠した裏が見えないよう塞ぎ、
+        # チャプター名オーバーレイの背景にもなる
+        self._audio_backdrop = QLabel(self._video_container)
+        self._audio_backdrop.setProperty("chaptr_style", "backdrop")
+        self._audio_backdrop.setStyleSheet(self._style_for("backdrop"))
+        self._audio_backdrop.hide()
 
         # チャプター名オーバーレイ（音声モードのみ）
         # 動画モードではQVideoWidgetがCore Animation/AVFoundationを使用するため
@@ -1690,15 +1636,8 @@ class MainWorkspace(QWidget):
         self._subtitle_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._subtitle_label.setWordWrap(True)
         self._subtitle_label.setFixedHeight(60)
-        self._subtitle_label.setStyleSheet("""
-            QLabel {
-                background: #0a0a0a;
-                color: #ffffff;
-                font-size: 16px;
-                padding: 4px 12px;
-                border-top: 1px solid #2a2a2a;
-            }
-        """)
+        self._subtitle_label.setProperty("chaptr_style", "overlay")
+        self._subtitle_label.setStyleSheet(Surfaces.overlay())
         self._subtitle_label.hide()  # 字幕未読み込み時は非表示
         video_outer_layout.addWidget(self._subtitle_label)
 
@@ -1732,13 +1671,8 @@ class MainWorkspace(QWidget):
         下段で精密に位置を決める、という二段階の操作にする。
         """
         frame = QFrame()
-        frame.setStyleSheet("""
-            QFrame {
-                background: #0f0f0f;
-                border: 1px solid #3a3a3a;
-                border-radius: 8px;
-            }
-        """)
+        frame.setProperty("chaptr_style", "stage")
+        frame.setStyleSheet(Surfaces.stage())
         frame.setMinimumHeight(180)
 
         layout = QVBoxLayout(frame)
@@ -1751,12 +1685,14 @@ class MainWorkspace(QWidget):
         # 上段は viridis（寒色）で固定。下段はテーマ既定(inferno)に追従（上下の色を入替）
         self._waveform_widget.set_colormap(OVERVIEW_COLORMAP)
         self._waveform_widget.setToolTip(
-            "クリックで再生位置を移動 / なぞると下段が追従\n"
+            "クリックで再生位置を移動（下段はそこへ追従）\n"
+            "なぞると時刻を表示（下段は動かない）\n"
             "赤いハッチング: 除外区間（--チャプター）"
         )
         self._waveform_widget.set_hover_enabled(True)
         self._waveform_widget.position_clicked.connect(self._on_overview_clicked)
-        self._waveform_widget.hover_moved.connect(self._on_overview_hover)
+        # ホバーでは下段を動かさない。区間の中心は再生カーソルだけが動かす
+        # （2026-10-07 に仕様変更。以前は hover_moved で追従させていた）
         layout.addWidget(self._waveform_widget, stretch=4)
 
         # 上段の区間枠から下段の全幅へ広がる台形。
@@ -1788,16 +1724,8 @@ class MainWorkspace(QWidget):
     def _create_chapter_table(self) -> QWidget:
         """チャプターテーブル"""
         self._chapter_group = QGroupBox()
-        self._chapter_group.setStyleSheet("""
-            QGroupBox {
-                color: #f0f0f0;
-                font-weight: bold;
-                border: 1px solid #3a3a3a;
-                border-radius: 8px;
-                margin-top: 4px;
-                padding-top: 4px;
-            }
-        """)
+        self._chapter_group.setProperty("chaptr_style", "group")
+        self._chapter_group.setStyleSheet(self._style_for("group"))
 
         layout = QVBoxLayout(self._chapter_group)
 
@@ -1808,29 +1736,18 @@ class MainWorkspace(QWidget):
 
         # カスタムタイトルラベル（リッチテキスト対応）
         self._chapter_title_label = QLabel("Chapters")
-        self._chapter_title_label.setStyleSheet("font-weight: bold; color: #f0f0f0;")
+        self._chapter_title_label.setProperty("chaptr_style", "label_strong")
+        self._chapter_title_label.setStyleSheet(self._style_for("label_strong"))
         header_layout.addWidget(self._chapter_title_label)
 
         header_layout.addStretch()
 
         # Loadボタン（チャプターファイル読み込み）
         load_btn = QPushButton("Load")
-        load_btn.setFixedHeight(28)
+        load_btn.setFixedHeight(Scale.H_MD)
         load_btn.setFixedWidth(80)
-        load_btn.setStyleSheet("""
-            QPushButton {
-                background: #1e50a2;
-                color: white;
-                border: none;
-                border-radius: 6px;
-                padding: 0 12px;
-                font-weight: bold;
-                font-size: 12px;
-            }
-            QPushButton:hover {
-                background: #3a6cb5;
-            }
-        """)
+        load_btn.setProperty("chaptr_style", "primary")
+        load_btn.setStyleSheet(ButtonStyles.primary_compact())
         load_btn.setToolTip("チャプターファイルを読み込み")
         load_btn.clicked.connect(self._load_chapters)
         header_layout.addWidget(load_btn)
@@ -1856,41 +1773,17 @@ class MainWorkspace(QWidget):
         self._table.verticalHeader().setSectionsMovable(False)
         self._table.installEventFilter(self)  # Enterキー処理用
         self._table.viewport().installEventFilter(self)  # ダブルクリック処理用
-        self._table.setStyleSheet("""
-            QTableWidget {
-                background: #0f0f0f;
-                color: #f0f0f0;
-                border: none;
-                gridline-color: #2d2d2d;
-            }
-            QTableWidget::item {
-                padding: 4px;
-            }
-            QTableWidget::item:selected {
-                background: rgba(30, 80, 162, 0.5);
-                color: #ffffff;
-            }
-            QHeaderView {
-                background: #000000;
-            }
-            QHeaderView::section {
-                background: #000000;
-                color: #a0a0a0;
-                border: none;
-                padding: 8px;
-            }
-            QTableCornerButton::section {
-                background: #000000;
-                color: #a0a0a0;
-                border: none;
-            }
-        """)
+        self._table.setProperty("chaptr_style", "table")
+        self._table.setStyleSheet(Surfaces.table())
+
         # コーナーウィジェットに「No.」ラベルを設定
         corner_btn = self._table.findChild(QAbstractButton)
         if corner_btn:
             corner_label = QLabel("No.")
             corner_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            corner_label.setStyleSheet("background: #000000; color: #a0a0a0; padding: 4px;")
+            corner_label.setStyleSheet(
+            f"background: {Colors.get_background()}; color: {Colors.get_text_dim()}; "
+            f"padding: {Scale.SPACE_SM}px;")
             corner_btn.setLayout(QVBoxLayout())
             corner_btn.layout().setContentsMargins(0, 0, 0, 0)
             corner_btn.layout().addWidget(corner_label)
@@ -1911,53 +1804,53 @@ class MainWorkspace(QWidget):
         btn_layout = QHBoxLayout()
 
         # チャプター操作ボタン共通スタイル（ニュートラルグレー）
-        chapter_btn_style = """
-            QPushButton {
-                background: #3a3a3a;
-                color: #c0c0c0;
-                border: 1px solid #4a4a4a;
-                border-radius: 6px;
-                padding: 2px 8px;
-            }
-            QPushButton:hover {
-                background: #454545;
-            }
-            QPushButton:pressed {
-                background: #505050;
-            }
-        """
+        chapter_btn_style = ButtonStyles.tonal()
 
         add_btn = QPushButton("Add\nChapter")
-        add_btn.setFixedHeight(40)
+        add_btn.setFixedHeight(Scale.H_XL)
         add_btn.setMinimumWidth(0)
         add_btn.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
-        add_btn.setStyleSheet(chapter_btn_style.replace("padding: 0 8px;", "padding: 2px 4px;"))
+        add_btn.setProperty("chaptr_style", "tonal")
+        add_btn.setStyleSheet(chapter_btn_style)
         add_btn.setToolTip("現在位置にチャプター追加")
         add_btn.clicked.connect(self._add_chapter)
         btn_layout.addWidget(add_btn, 1)
 
+        copy_time_btn = QPushButton("Copy\nTime")
+        copy_time_btn.setFixedHeight(Scale.H_XL)
+        copy_time_btn.setMinimumWidth(0)
+        copy_time_btn.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
+        copy_time_btn.setProperty("chaptr_style", "tonal")
+        copy_time_btn.setStyleSheet(chapter_btn_style)
+        copy_time_btn.setToolTip("再生位置の時刻をコピー（Cmd/Ctrl-C）")
+        copy_time_btn.clicked.connect(self.copy_playback_time)
+        btn_layout.addWidget(copy_time_btn, 1)
+
         remove_btn = QPushButton("Remove")
-        remove_btn.setFixedHeight(40)
+        remove_btn.setFixedHeight(Scale.H_XL)
         remove_btn.setMinimumWidth(0)
         remove_btn.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
+        remove_btn.setProperty("chaptr_style", "tonal")
         remove_btn.setStyleSheet(chapter_btn_style)
         remove_btn.setToolTip("選択チャプターを削除")
         remove_btn.clicked.connect(self._remove_chapter)
         btn_layout.addWidget(remove_btn, 1)
 
         copy_btn = QPushButton("Copy to\nYoutube")
-        copy_btn.setFixedHeight(40)
+        copy_btn.setFixedHeight(Scale.H_XL)
         copy_btn.setMinimumWidth(0)
         copy_btn.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
+        copy_btn.setProperty("chaptr_style", "tonal")
         copy_btn.setStyleSheet(chapter_btn_style)
         copy_btn.setToolTip("YouTube用チャプターをクリップボードにコピー")
         copy_btn.clicked.connect(self._copy_youtube_chapters)
         btn_layout.addWidget(copy_btn, 1)
 
         save_btn = QPushButton("Save")
-        save_btn.setFixedHeight(40)
+        save_btn.setFixedHeight(Scale.H_XL)
         save_btn.setMinimumWidth(0)
         save_btn.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
+        save_btn.setProperty("chaptr_style", "tonal")
         save_btn.setStyleSheet(chapter_btn_style)
         save_btn.setToolTip("チャプターをファイルに保存（--含む）")
         save_btn.clicked.connect(self._save_chapters)
@@ -1965,17 +1858,28 @@ class MainWorkspace(QWidget):
 
         layout.addLayout(btn_layout)
 
+        # 区間の自動判別（演奏 / コメント / 休憩）の状態表示
+        # 検出結果をそのままチャプター表へ流し込むと、境界の微修正がすべて
+        # 後追いの作業になる。ここでは候補として波形に出すだけにして、
+        # 「候補へ飛ぶ → 送り戻しで詰める → 確定」の順で人が拾えるようにする。
+        # ◀候補 / 候補▶ はトランスポート行（_create_playback_section）へ移した。
+        # 候補送りのあとに -1f/+1f で詰める操作が続くので、指の移動を減らす。
+        #
+        # ラベルは QHBoxLayout で包まず直接置き、空のときは hide する。
+        # QBoxLayout は隠したウィジェットを spacing ごと詰めるが、空の入れ子
+        # レイアウトは spacing を残すので、包むと文言が無くても行が居座る。
+        self._segment_status_label = QLabel("")
+        self._segment_status_label.setProperty("chaptr_style", "label_dim")
+        self._segment_status_label.setStyleSheet(self._style_for("label_dim"))
+        self._segment_status_label.setVisible(False)
+        layout.addWidget(self._segment_status_label)
+
         return self._chapter_group
 
-    def _on_cover_image_changed(self, cover_image):
-        """カバー画像変更時のハンドラ"""
-        self._cover_image = cover_image
-        self._log_panel.info(f"Cover image updated, is_audio_only={self._is_audio_only}", source="UI")
-        # 音声のみの場合はCover Imageを表示
-        if self._is_audio_only:
-            self._update_cover_image_display()
-        else:
-            self._log_panel.debug("Skipping cover image display (not audio only)", source="UI")
+    def _set_segment_status(self, text: str):
+        """検出ステータスを出す（空文字なら行ごと畳む）"""
+        self._segment_status_label.setText(text)
+        self._segment_status_label.setVisible(bool(text))
 
     def _resize_video_overlays(self):
         """ビデオコンテナ内の全ウィジェットをリサイズ"""
@@ -1989,12 +1893,8 @@ class MainWorkspace(QWidget):
         # （ビューの setGeometry は VideoGraphicsView.resizeEvent を発火し、
         #  確定後の viewport サイズで _fit_video_item が呼ばれる）
         self._video_widget.setGeometry(rect)
-        self._cover_image_label.setGeometry(rect)
+        self._audio_backdrop.setGeometry(rect)
         self._drop_overlay.setGeometry(rect)
-
-        # Cover Image が表示中なら再スケール（先に処理してz-orderを確保）
-        if self._cover_image is not None and self._cover_image_label.isVisible():
-            self._update_cover_image_display()
 
         # チャプターオーバーレイを更新（音声モードのみ）
         if self._is_audio_only and self._chapter_overlay_label.isVisible():
@@ -2012,12 +1912,11 @@ class MainWorkspace(QWidget):
             self._chapter_overlay_label.raise_()
 
     def _fit_video_item(self):
-        """動画アイテムをビューに最大フィット（現在の回転角を反映・クロップなし）
+        """動画アイテムをビューに最大フィット（クロップなし）
 
-        fitInView は「回転でアイテムが sceneRect 外にはみ出す」状態や viewport
-        サイズ確定タイミングに敏感で過小フィットすることがあるため、回転後の
-        コンテンツ寸法と viewport 実寸から決定論的にスケールを算出して
-        ビュー変換に直接適用する。
+        fitInView は viewport サイズ確定タイミングに敏感で過小フィットする
+        ことがあるため、コンテンツ寸法と viewport 実寸から決定論的に
+        スケールを算出してビュー変換に直接適用する。
         """
         if not hasattr(self, '_video_item') or not hasattr(self, '_video_view'):
             return
@@ -2042,9 +1941,7 @@ class MainWorkspace(QWidget):
         if vw <= 0 or vh <= 0:
             return
 
-        deg = self._preview_rotation % 360
-        # 回転後の外接コンテンツ寸法（90/270でアスペクト入替）
-        content_w, content_h = (vh, vw) if deg in (90, 270) else (vw, vh)
+        content_w, content_h = vw, vh
 
         viewport = self._video_view.viewport().size()
         pw, ph = viewport.width(), viewport.height()
@@ -2054,20 +1951,10 @@ class MainWorkspace(QWidget):
         # 見切れない最大スケール（短い側に合わせる）
         scale = min(pw / content_w, ph / content_h)
 
-        # 回転をアイテムに適用（中心を原点に）
-        center = self._video_item.boundingRect().center()
-        self._video_item.setTransformOriginPoint(center)
-        self._video_item.setRotation(deg)
-
-        # シーン矩形を回転後の外接矩形に合わせ、ビュー変換を直接設定
+        # シーン矩形をアイテムの外接矩形に合わせ、ビュー変換を直接設定
         self._video_scene.setSceneRect(self._video_item.sceneBoundingRect())
         self._video_view.setTransform(QTransform.fromScale(scale, scale))
         self._video_view.centerOn(self._video_item)
-
-    def _apply_preview_rotation(self, degrees: int):
-        """プレビューの回転角（度・時計回り）を設定して即時反映"""
-        self._preview_rotation = int(degrees) % 360
-        self._fit_video_item()
 
     def _get_source_display_size(self):
         """現在の動画の「実表示寸法」(コンテナ自動回転後)を返す。
@@ -2096,125 +1983,31 @@ class MainWorkspace(QWidget):
             self._source_display_size = None
         return self._source_display_size
 
-    def _on_rotate_clicked(self):
-        """回転ボタン押下（Shiftで逆回転）"""
-        mods = QApplication.keyboardModifiers()
-        ccw = bool(mods & Qt.KeyboardModifier.ShiftModifier)
-        self._rotate_current_chapter(ccw=ccw)
+    def _update_video_pane_for_mode(self):
+        """プレビュー枠を音声/動画モードに合わせる
 
-    def _rotate_current_chapter(self, ccw: bool = False):
-        """現在のチャプターを90°回転（ccw=Trueで逆回転）
+        音声のみのときは動画ウィジェットを隠して黒い下地を出し、その上へ
+        チャプター名を重ねる。動画では QVideoWidget が Core Animation /
+        AVFoundation を使うためオーバーレイを重ねられないので、音声のときだけ。
 
-        対象は再生中チャプター。無ければ選択中の行にフォールバック。
+        かつてここはカバー画像を出す処理だったが、それは「音声＋カバー画像から
+        動画を作る」機能のプレビューであり、エンコード層の削除（f3f9585）で
+        相手が居なくなっていた。設定する経路も無く常に None だったので外した。
         """
-        row = self._current_chapter_row
-        if row is None or row < 0:
-            row = self._table.currentRow()
-        if row < 0 or row >= self._table.rowCount():
-            self._log_panel.info("回転対象のチャプターがありません", source="Rotate")
-            return
-
-        # 変更前に「再生中チャプターか」を確定（setData の itemChanged 連鎖で
-        # _current_chapter_row が変化する前に捕捉する）
-        is_current = (row == self._current_chapter_row)
-
-        cur = self._get_row_rotation(row)
-        delta = -90 if ccw else 90
-        new_rot = (cur + delta) % 360
-
-        # ROLE_ROTATION / ツールチップの setData は表示に無関係なので、
-        # itemChanged 連鎖（再ハイライト・再構築）を避けるためシグナルを抑止
-        self._table.blockSignals(True)
-        self._set_row_rotation(row, new_rot)
-        self._update_rotation_indicator(row, new_rot)
-        self._table.blockSignals(False)
-
-        # 再生中チャプターならプレビューへ即時反映
-        if is_current:
-            self._apply_preview_rotation(new_rot)
-
-        # 編集フラグ（未保存変更として扱う）
-        self._chapters_edited = True
-        self._log_panel.info(f"チャプター {row + 1}: 回転 {new_rot}°", source="Rotate")
-
-    def _update_rotation_indicator(self, row: int, rotation: int):
-        """テーブル行に回転状態を示す（タイトル列のツールチップ）"""
-        title_item = self._table.item(row, 1)
-        if title_item is None:
-            return
-        if rotation % 360 != 0:
-            title_item.setToolTip(f"回転 {rotation % 360}°")
-        else:
-            title_item.setToolTip("")
-
-    def _update_cover_image_display(self):
-        """Cover Image表示を更新"""
-        if not hasattr(self, '_cover_image_label'):
-            self._log_panel.debug("No _cover_image_label", source="UI")
-            return
-
-        # まずジオメトリを設定（レイアウトがないため手動で設定が必要）
-        container_rect = self._video_container.rect()
-        self._cover_image_label.setGeometry(container_rect)
-        self._log_panel.debug(f"Cover image label geometry: {container_rect.x()},{container_rect.y()} {container_rect.width()}x{container_rect.height()}", source="UI")
-
-        if self._cover_image is not None:
-            # QImageをQLabelのサイズに合わせてスケール
-            pixmap = QPixmap.fromImage(self._cover_image)
-            label_size = self._cover_image_label.size()
-            self._log_panel.debug(f"Cover image label size: {label_size.width()}x{label_size.height()}", source="UI")
-            if not pixmap.isNull():
-                scaled = pixmap.scaled(
-                    label_size,
-                    Qt.AspectRatioMode.KeepAspectRatio,
-                    Qt.TransformationMode.SmoothTransformation
-                )
-                self._cover_image_label.setPixmap(scaled)
-                self._cover_image_label.show()
-                self._cover_image_label.raise_()  # 前面に持ってくる
-                self._video_widget.lower()  # 動画ウィジェットを最下層に
-                # チャプターオーバーレイは常に最前面
-                if hasattr(self, '_chapter_overlay_label'):
-                    self._chapter_overlay_label.raise_()
-                self._log_panel.info(f"Cover image displayed: {scaled.width()}x{scaled.height()}", source="UI")
-            else:
-                self._cover_image_label.clear()
-                self._cover_image_label.hide()
-                self._log_panel.debug("Cover image pixmap is null", source="UI")
-        else:
-            self._cover_image_label.clear()
-            self._cover_image_label.hide()
-            self._log_panel.debug("No cover image set", source="UI")
-
-    def _show_cover_image_for_audio(self):
-        """音声ファイルの場合にCover Image（または黒背景）を表示"""
         if not self._is_audio_only:
-            self._cover_image_label.hide()
-            self._video_widget.show()  # 動画モードでは動画ウィジェットを表示
-            # 動画モード: オーバーレイは使用しない
+            self._audio_backdrop.hide()
+            self._video_widget.show()
             if hasattr(self, '_chapter_overlay_label'):
                 self._chapter_overlay_label.hide()
             return
 
-        # 音声のみの場合は動画ウィジェットを非表示
         self._video_widget.hide()
-
-        # ジオメトリを設定
-        container_rect = self._video_container.rect()
-        self._cover_image_label.setGeometry(container_rect)
-        self._log_panel.debug(f"Cover image geometry set: {container_rect.width()}x{container_rect.height()}", source="UI")
-
-        if self._cover_image is not None:
-            self._update_cover_image_display()
-        else:
-            # Cover Imageがない場合は黒背景のまま表示
-            self._cover_image_label.clear()
-            self._cover_image_label.setStyleSheet("background: #0f0f0f;")
-            self._cover_image_label.show()
-            self._cover_image_label.raise_()
-            # チャプターオーバーレイは常に最前面
-            if hasattr(self, '_chapter_overlay_label'):
-                self._chapter_overlay_label.raise_()
+        self._audio_backdrop.setGeometry(self._video_container.rect())
+        self._audio_backdrop.show()
+        self._audio_backdrop.raise_()
+        # チャプターオーバーレイは常に最前面
+        if hasattr(self, '_chapter_overlay_label'):
+            self._chapter_overlay_label.raise_()
 
     def _browse_output(self):
         """出力先ディレクトリ選択"""
@@ -2270,17 +2063,14 @@ class MainWorkspace(QWidget):
         # ソースリストを更新
         self._source_list.set_sources(self._state.sources)
 
-        # ファイル拡張子で判定
-        VIDEO_EXTENSIONS = {'.mp4', '.mov', '.avi', '.mkv', '.m4v'}
-        AUDIO_EXTENSIONS = {'.mp3', '.m4a', '.wav', '.aac', '.flac'}
-
+        # ファイル拡張子で判定（モジュール先頭の定数を使う）
         first_source = self._state.sources[0]
         file_path = first_source.path
         ext = file_path.suffix.lower()
 
         if ext in VIDEO_EXTENSIONS:
             # 動画モード: 品質選択を有効化
-            self._update_quality_combo_for_mode(is_audio=False)
+            self._set_audio_only_mode(is_audio=False)
 
             if len(self._state.sources) == 1:
                 # 単一動画: そのまま読み込み
@@ -2310,7 +2100,7 @@ class MainWorkspace(QWidget):
 
         elif ext in AUDIO_EXTENSIONS:
             # 音声モード: 品質選択を静止画用に固定
-            self._update_quality_combo_for_mode(is_audio=True)
+            self._set_audio_only_mode(is_audio=True)
 
             if len(self._state.sources) == 1:
                 # 単一音声: そのまま読み込み（チャプター編集用）
@@ -2346,8 +2136,12 @@ class MainWorkspace(QWidget):
         if srt_path.exists():
             self.load_subtitles(srt_path)
 
-    def _update_quality_combo_for_mode(self, is_audio: bool):
-        """音声/動画モードを記録（設定ダイアログ移行後は内部フラグのみ）"""
+    def _set_audio_only_mode(self, is_audio: bool):
+        """音声のみのモードかを記録する
+
+        プレビュー枠の出し方（下地＋チャプター名オーバーレイ）だけに効く。
+        名前は品質コンボを切り替えていた頃の名残だったので実態に合わせた。
+        """
         self._is_audio_only = is_audio
 
     def _on_source_clicked(self, index: int):
@@ -2554,9 +2348,8 @@ class MainWorkspace(QWidget):
             self._play_btn.setIcon(self._pause_icon)
         else:
             self._play_btn.setIcon(self._play_icon)
-            # 再生中は区間の再計算（mel_spectrogram）を止めて A/V 同期を守っている
-            # （_sync_region_to_playback 参照）。止まった時点で現在位置へ区間を合わせ
-            # 直し、精査時に下段が最新の区間を映すようにする。
+            # 停止/一時停止時に現在位置へ区間を合わせ直し、下段を精細版で描き直す
+            # （区間計算はワーカースレッドなので、この再計算もメインを塞がない）。
             if self._audio_cache is not None and self._region_widget is not None:
                 self._apply_region_center(self._current_timeline_position())
 
@@ -2582,7 +2375,7 @@ class MainWorkspace(QWidget):
                 current_source == self._target_source_url and
                 self._pending_seek_position is not None):
                 self._log_panel.debug(f"Applying pending seek: {self._pending_seek_position}", source="Media")
-                self._media_player.setPosition(self._pending_seek_position)
+                self._seek_player(self._pending_seek_position)
                 self._pending_seek_position = None
                 self._target_source_url = None
                 # 保存された再生状態を復元
@@ -2597,8 +2390,8 @@ class MainWorkspace(QWidget):
             else:
                 self._log_panel.debug("LoadedMedia - keeping paused state", source="Media")
                 self._play_btn.setIcon(self._play_icon)
-            # 音声ファイルの場合はCover Imageを表示
-            self._show_cover_image_for_audio()
+            # 音声ファイルの場合は下地＋チャプター名を出す
+            self._update_video_pane_for_mode()
         elif status == QMediaPlayer.MediaStatus.EndOfMedia:
             # 仮想タイムライン: 次のファイルへ自動切り替え
             self._switch_to_next_source()
@@ -2666,7 +2459,7 @@ class MainWorkspace(QWidget):
         if len(self._state.sources) <= 1:
             # 単一ファイル: 直接シーク
             if self._media_player:
-                self._media_player.setPosition(virtual_pos)
+                self._seek_player(virtual_pos)
                 if restore_paused:
                     self._media_player.pause()
                     self._play_btn.setIcon(self._play_icon)
@@ -2690,14 +2483,89 @@ class MainWorkspace(QWidget):
         else:
             # 同じファイル内: 直接シーク
             if self._media_player:
-                self._media_player.setPosition(local_pos)
+                self._seek_player(local_pos)
                 if restore_paused:
                     self._media_player.pause()
                     self._play_btn.setIcon(self._play_icon)
 
+    def _audio_out(self):
+        """現在の QAudioOutput（デバイス切替で差し替わるので都度取り直す）"""
+        if self._media_player is None:
+            return None
+        return self._media_player.audioOutput()
+
+    def _seek_player(self, position_ms: int):
+        """再生位置を変える（前後を一瞬ミュートする）
+
+        setPosition はデコード済みのバッファを捨てて別の位置へ飛ぶので、
+        出力波形が不連続になりうる。新しい位置の音が出揃うまでのわずかな間だけ
+        黙らせて、その段差を聞かせない。
+
+        なお macOS/Windows で実際に出ていたシーク時のクリック音は、これではなく
+        **バックエンドの選択**で解消した（chaptr/__init__.py を参照。ffmpeg
+        バックエンドはシークのたびに音声シンクを作り直すので、その継ぎ目は
+        こちら側のミュートの外側で起きる）。ここは ffmpeg バックエンドを
+        明示指定した場合や Linux 向けの保険として残している。
+
+        連続クリックでもタイマーを張り直すだけなので、最後のシークから
+        SEEK_MUTE_MS 後に一度だけ解除される。
+        """
+        if self._media_player is None:
+            return
+        out = self._audio_out()
+        if out is not None and not out.isMuted():
+            out.setMuted(True)
+        self._media_player.setPosition(position_ms)
+        self._seek_unmute_timer.start()
+
+    def _end_seek_mute(self):
+        """シーク用のミュートを解除する"""
+        out = self._audio_out()
+        if out is not None:
+            out.setMuted(False)
+
+    def _silence_audio(self):
+        """音声を完全に切り離す（終了時に最初に呼ぶ）
+
+        止めるだけでは足りない。以前はここでミュートと stop だけを行い、
+        出力の切り離し（setAudioOutput(None)）は最大 10 秒のスレッド join の
+        後に回っていた。その間デバイスを掴んだままなので、最後の解放が
+        ガリガリと鳴っていた。掴んでいるものをここで全部返す。
+
+        二重に呼ばれても安全（終了経路が closeEvent と aboutToQuit の2つある）。
+        """
+        self._seek_unmute_timer.stop()
+        player = self._media_player
+        if player is None:
+            return
+
+        if player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
+            # **鳴っている最中に畳むと鳴る。** 手で「一時停止 → 少し置く →
+            # 終了」なら鳴らないことが実機で確認できたので、その手順を行う。
+            #
+            # 状態フラグが PausedState へ変わるのは即座（実測 0ms）だが、
+            # 音声エンジンが実際に落ち着くのはその後。だから「状態が変わるまで」
+            # ではなく**実時間で**待つ必要がある。状態を条件に待っていた版は
+            # ループが 0ms で抜けてしまい、効かなかった。
+            #
+            # time.sleep() も使えない。メインスレッドを止めると一時停止自体が
+            # バックエンドへ伝わらない。イベントループを回しながら待つ。
+            player.pause()
+            deadline = time.monotonic() + AUDIO_SETTLE_SEC
+            while time.monotonic() < deadline:
+                QApplication.processEvents(
+                    QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents, 10
+                )
+
+        player.stop()
+        # 掴んでいるものを手放す順に。ソース → 映像 → 音声
+        player.setSource(QUrl())
+        player.setVideoOutput(None)
+        player.setAudioOutput(None)
+
     def _seek_video(self, position: int):
         """シーク"""
-        self._media_player.setPosition(position)
+        self._seek_player(position)
 
     def _populate_audio_devices(self):
         """音声出力デバイス一覧を取得してコンボボックスに設定"""
@@ -2769,7 +2637,7 @@ class MainWorkspace(QWidget):
 
             # 再生状態を復元
             if was_playing:
-                self._media_player.setPosition(current_pos)
+                self._seek_player(current_pos)
                 self._media_player.play()
 
             self._log_panel.info(
@@ -2855,8 +2723,9 @@ class MainWorkspace(QWidget):
         # ハイライト用の色（ThemeManagerから取得）
         theme = get_theme_manager()
         highlight_bg = QBrush(theme.get_color(ColorRole.PLAYBACK))
-        # ハイライト時のテキストは暗い背景かどうかで決める
-        highlight_fg = QBrush(QColor("#000000") if theme.is_dark else QColor("#000000"))
+        # ハイライト地（PLAYBACK）に対して読める方を選ぶ。以前は is_dark で
+        # 分岐しながら両方とも #000000 を返しており、条件が効いていなかった。
+        highlight_fg = QBrush(QColor(Colors.on_color(Colors.get_playback())))
         default_bg = QBrush(theme.get_color(ColorRole.BACKGROUND))
         default_fg = QBrush(theme.get_color(ColorRole.FOREGROUND))
 
@@ -2896,11 +2765,6 @@ class MainWorkspace(QWidget):
         # チャプター名オーバーレイを更新
         self._update_chapter_overlay(current_chapter_title)
 
-        # プレビュー回転を現在チャプターに合わせて更新（WYSIWYG）
-        self._apply_preview_rotation(
-            self._get_row_rotation(current_row) if current_row >= 0 else 0
-        )
-
     def _set_current_chapter_row(self, row: int):
         """指定した行を現在のチャプターとして設定しハイライト
 
@@ -2916,7 +2780,9 @@ class MainWorkspace(QWidget):
         # ハイライト用の色（ThemeManagerから取得）
         theme = get_theme_manager()
         highlight_bg = QBrush(theme.get_color(ColorRole.PLAYBACK))
-        highlight_fg = QBrush(QColor("#000000") if theme.is_dark else QColor("#000000"))
+        # ハイライト地（PLAYBACK）に対して読める方を選ぶ。以前は is_dark で
+        # 分岐しながら両方とも #000000 を返しており、条件が効いていなかった。
+        highlight_fg = QBrush(QColor(Colors.on_color(Colors.get_playback())))
         default_bg = QBrush(theme.get_color(ColorRole.BACKGROUND))
         default_fg = QBrush(theme.get_color(ColorRole.FOREGROUND))
 
@@ -2945,8 +2811,6 @@ class MainWorkspace(QWidget):
         if title_item:
             self._update_chapter_overlay(title_item.text())
 
-        # プレビュー回転を現在チャプターに合わせて更新
-        self._apply_preview_rotation(self._get_row_rotation(row) if row >= 0 else 0)
 
     def _refresh_chapter_colors(self):
         """テーマ変更時にチャプターテーブルの色を再描画"""
@@ -3117,9 +2981,14 @@ class MainWorkspace(QWidget):
             self._subtitle_label.hide()
         self._refresh_video_frame_height()
 
-    def _on_media_error(self, error):
-        """メディアエラー"""
-        self._log_panel.error(f"Media error: {error}", source="Video")
+    def _on_media_error(self, error, error_string: str = ""):
+        """メディアエラー
+
+        errorOccurred(error, errorString) の第2引数まで受ける。enum だけだと
+        「FormatError」までしか分からず、遠隔での切り分けで何往復も要る。
+        """
+        detail = f": {error_string}" if error_string else ""
+        self._log_panel.error(f"Media error: {error}{detail}", source="Video")
 
     def _format_time(self, ms: int) -> str:
         """ミリ秒を h:mm:ss.sss 形式に変換"""
@@ -3142,7 +3011,7 @@ class MainWorkspace(QWidget):
 
         if not chapters:
             # チャプターがない場合は先頭へ
-            self._media_player.setPosition(0)
+            self._seek_player(0)
             if not was_playing:
                 self._media_player.pause()
             return
@@ -3160,11 +3029,11 @@ class MainWorkspace(QWidget):
                 break
 
         if prev_chapter:
-            self._media_player.setPosition(prev_chapter.time_ms)
+            self._seek_player(prev_chapter.time_ms)
             self._log_panel.debug(f"Skip to: {prev_chapter.title}", source="Playback")
         else:
             # 最初のチャプターより前なら先頭へ
-            self._media_player.setPosition(0)
+            self._seek_player(0)
 
         # 再生状態を復元
         if not was_playing:
@@ -3190,7 +3059,7 @@ class MainWorkspace(QWidget):
         # 現在位置より後のチャプターを探す
         for ch in sorted_chapters:
             if ch.time_ms > current_pos + 500:  # 500ms マージン
-                self._media_player.setPosition(ch.time_ms)
+                self._seek_player(ch.time_ms)
                 # 再生状態を復元
                 if not was_playing:
                     self._media_player.pause()
@@ -3273,11 +3142,16 @@ class MainWorkspace(QWidget):
         return self._media_player.duration() if self._media_player else 0
 
     def _on_cache_progress(self, progress: int):
-        """音声キャッシュ構築の進捗（上下とも待ち状態にする）"""
+        """音声キャッシュ構築の進捗（上下とも待ち状態にする）
+
+        ここで processEvents() を呼ばない。スロットの中から入れ子で
+        イベントループを回すことになり、描画・タイマー・他スレッドからの
+        キュー済みシグナルが割り込む順序が読めなくなる。進捗はキュー経由で
+        届くので、再描画はイベントループに任せれば足りる。
+        """
         for widget in (self._waveform_widget, self._region_widget):
             if widget:
                 widget.set_loading(progress)
-        QApplication.processEvents()
 
     def _on_cache_finished(self, cache):
         """音声キャッシュ構築完了 - 上段の包絡と下段の区間を描く"""
@@ -3289,11 +3163,15 @@ class MainWorkspace(QWidget):
             return
 
         self._audio_cache = cache
+        self._start_spectrogram_worker(cache)
         self._log_panel.info(
             f"Audio cache: {cache.sample_rate} Hz, "
             f"{cache.duration_ms / 1000:.0f}s, {cache.nbytes / 2**20:.0f} MB resident",
             source="Waveform"
         )
+
+        # 新しいキャッシュ＝別素材。前の候補は時刻の基準が違うので持ち越さない
+        self._clear_segment_candidates()
 
         self._apply_overview_envelope()
 
@@ -3313,6 +3191,11 @@ class MainWorkspace(QWidget):
 
         # 全体スペクトログラムはキャッシュから即座に作れるので、ボタンを有効化する
         self._display_mode_btn.setEnabled(True)
+
+        # 区間の自動判別をそのまま走らせる。
+        # 検出は常に必要で、押さない理由が無いボタンだった。ワーカー実行なので
+        # UI は止まらず、失敗しても候補が出ないだけで他の操作を妨げない。
+        self._detect_segments()
 
     def _apply_overview_envelope(self):
         """上段へ min-max 包絡を渡す
@@ -3349,6 +3232,9 @@ class MainWorkspace(QWidget):
         は即座に返る。重 I/O 下の保険で 5 秒待つ。ここで止め切れないまま走行中の
         QThread を破棄すると 'QThread: Destroyed while thread is still running' → abort に
         なるため、待機を短く切って参照を落とすことはしない。"""
+        # スペクトログラム計算スレッドは cache に依存するので先に畳む
+        self._stop_spectrogram_worker()
+
         if self._cache_worker:
             self._cache_worker.cancel()
 
@@ -3368,6 +3254,7 @@ class MainWorkspace(QWidget):
         if self._waveform_widget:
             self._waveform_widget.set_error(message)
         self._audio_cache = None
+        self._clear_segment_candidates()
         self._log_panel.warning(f"Audio cache error: {message}", source="Waveform")
 
     # === 区間表示（下段）===
@@ -3388,6 +3275,45 @@ class MainWorkspace(QWidget):
         from PySide6.QtCore import QSettings
         settings = QSettings("mashi727", "Chaptr")
         settings.setValue("waveform/region_span_ms", self._region_span_ms)
+
+    # === 区間判別の感度 ===
+
+    def _load_sensitivity(self) -> str:
+        """前回使った感度を復元する"""
+        from PySide6.QtCore import QSettings
+        settings = QSettings("mashi727", "Chaptr")
+        value = settings.value("segment/sensitivity", DEFAULT_SENSITIVITY)
+        # 設定が壊れていても破綻させない（未知の値は既定へ落とす）
+        return value if value in SENSITIVITY_LEVELS else DEFAULT_SENSITIVITY
+
+    def _current_sensitivity(self) -> str:
+        """コンボの現在値。UI 構築前でも既定を返す"""
+        combo = getattr(self, "_sensitivity_combo", None)
+        if combo is None:
+            return self._load_sensitivity()
+        level = combo.currentData()
+        return level if level in SENSITIVITY_LEVELS else DEFAULT_SENSITIVITY
+
+    def _on_sensitivity_changed(self, _index: int):
+        """感度が変わったら保存し、その場で判別をやり直す
+
+        再検出は 2.24h の素材で約 4 秒。専用ボタンを置くほどの重さではないので、
+        選んだ瞬間に結果が入れ替わるようにする。
+        """
+        from PySide6.QtCore import QSettings
+        level = self._current_sensitivity()
+        QSettings("mashi727", "Chaptr").setValue("segment/sensitivity", level)
+        self._log_panel.debug(
+            f"Segment sensitivity: {SENSITIVITY_TITLES[level]}", source="Segment"
+        )
+        if self._audio_cache is None:
+            return  # まだ構築前。完了時の自動検出が新しい感度で走る
+
+        # 実行中なら畳んでからやり直す。_detect_segments は実行中だと黙って
+        # 返るので、ここで止めないと感度の変更が無視される。
+        if self._detect_thread is not None:
+            self._cleanup_detect_thread()
+        self._detect_segments()
 
     def _display_duration(self) -> int:
         """オーバーレイ座標の基準となる全体尺（ミリ秒）"""
@@ -3418,26 +3344,20 @@ class MainWorkspace(QWidget):
         start = max(0, min(start, duration - span))
         return start, start + span
 
-    def _apply_region_center(self, center_ms: float, live: bool = False):
+    def _apply_region_center(self, center_ms: float):
         """区間の中心を移動する
 
-        live=True（ホバー追従）では、その場で粗く描いてから精細化を予約する。
-        デバウンスだけに任せると、移動イベントのたびにタイマーが再スタートして
-        手が緩んだ瞬間にしか更新されず、飛び飛びの更新＝ちらつきになる。
+        呼び手は再生カーソル側（positionChanged・シーク・読み込み）と、
+        ホイールでの区間幅変更だけ。以前はホバー追従用に live=True の
+        「その場で粗く描いてから精細化」経路があったが、ホバーで区間を
+        動かすのをやめた（2026-10-07）ため呼び手が無くなり外した。
         """
         start, end = self._region_bounds(center_ms)
         if end <= start:
             return
 
-        moved = start != self._region_start_ms
         self._region_start_ms = start
         self._update_region_indicators(start, end)
-
-        if live and moved:
-            now = time.monotonic()
-            if (now - self._region_last_draw) * 1000 >= REGION_MIN_FRAME_MS:
-                self._region_last_draw = now
-                self._render_region(start, end, coarse=True)
 
         # 手が止まったら精細版へ置き換える
         self._region_timer.start()
@@ -3462,19 +3382,74 @@ class MainWorkspace(QWidget):
                 f"{span / 1000:.0f}s  \u00d7{duration / span:.0f}"
             )
 
-    def _render_region(self, start_ms: int, end_ms: int, coarse: bool = False):
-        """下段を指定区間で描く
+    def _start_spectrogram_worker(self, cache):
+        """区間スペクトログラムの計算を専用スレッドへ載せる
 
-        coarse=True では列数・行数を落とす。ウィジェット側が最近傍で
-        引き伸ばすので粗くはなるが、追従が途切れるよりは読める。
+        再生位置・ホバー・ズーム・モード切替の度に mel_spectrogram(FFT) を
+        メインスレッドで計算すると、軽い処理でも QMediaPlayer の映像提示
+        （macOS ではイベントループ上）を飢餓させ A/V がズレる。計算をここへ
+        逃がし、メインは _on_spectrogram_ready で描くだけにする。
+        """
+        self._stop_spectrogram_worker()
+        self._spec_thread = QThread()
+        self._spec_worker = RegionSpectrogramWorker(cache)
+        self._spec_worker.moveToThread(self._spec_thread)
+        self._spec_thread.started.connect(self._spec_worker.run)
+        self._spec_worker.ready.connect(self._on_spectrogram_ready)
+        self._spec_thread.start()
+
+    def _stop_spectrogram_worker(self):
+        """スペクトログラム計算スレッドを停止する（ソース切替・破棄時）"""
+        if self._spec_worker is not None:
+            try:
+                self._spec_worker.ready.disconnect(self._on_spectrogram_ready)
+            except (RuntimeError, TypeError):
+                pass
+            self._spec_worker.stop()
+        if self._spec_thread is not None:
+            self._spec_thread.quit()
+            self._spec_thread.wait(3000)
+            self._spec_thread = None
+        self._spec_worker = None
+
+    def _on_spectrogram_ready(self, result):
+        """ワーカーが計算したスペクトログラムを描く（メインスレッド）"""
+        kind, start_ms, end_ms, data = result
+        if data is None:
+            return
+        duration = self._display_duration()
+        if duration <= 0:
+            return
+        if kind == "region":
+            if self._region_widget is None:
+                return
+            # 計算中に別区間へ移っていれば捨てる（最新の区間だけ描く）
+            if start_ms != self._region_start_ms:
+                return
+            self._region_widget.set_view_window(start_ms, end_ms)
+            self._region_widget.set_spectrogram(data, duration)
+        elif kind == "overview":
+            if self._waveform_widget is None:
+                return
+            self._waveform_widget.set_spectrogram(data, duration)
+            self._spectrogram_generated = True
+
+    def _render_region(self, start_ms: int, end_ms: int, coarse: bool = False):
+        """下段の指定区間の描画を要求する
+
+        以前はここで mel_spectrogram(FFT) をメインスレッドで計算していたが、
+        再生中の毎位置再計算がイベントループを塞ぎ、QMediaPlayer の映像提示を
+        痩せさせて A/V がズレていた。計算は RegionSpectrogramWorker へ逃がし、
+        結果は _on_spectrogram_ready が描く。
+
+        coarse=True では列数・行数を落として要求する（ウィジェット側が最近傍で
+        引き伸ばす）。ホバー追従の初回描画を軽くするためのものだったので、
+        ホバーで区間を動かすのをやめた今は渡す呼び手が無い。描画側の選択肢
+        としては有効なので残してある。
         """
         widget = self._region_widget
         cache = self._audio_cache
         if widget is None or cache is None:
-            return
-
-        duration = self._display_duration()
-        if duration <= 0:
             return
 
         width = max(1, widget.width())
@@ -3483,6 +3458,14 @@ class MainWorkspace(QWidget):
             width = max(64, width // REGION_COARSE_DIVISOR)
             height = max(32, height // 2)
 
+        if self._spec_worker is not None:
+            self._spec_worker.request("region", start_ms, end_ms, width, height)
+            return
+
+        # フォールバック（通常はワーカーがある）: 同期計算
+        duration = self._display_duration()
+        if duration <= 0:
+            return
         data = cache.mel_spectrogram(start_ms, end_ms, width, height)
         widget.set_view_window(start_ms, end_ms)
         widget.set_spectrogram(data, duration)
@@ -3499,26 +3482,12 @@ class MainWorkspace(QWidget):
         self._region_start_ms = start
 
         self._render_region(start, end, coarse=False)
-        self._region_last_draw = time.monotonic()
         self._update_region_indicators(start, end)
 
     def _on_overview_clicked(self, position: float):
         """上段のクリック: そこへシークし、区間の留めを解除して追従へ戻す"""
         self._region_pinned = False
         self._on_waveform_clicked(position)
-
-    def _on_overview_hover(self, position: float):
-        """上段のホバーで区間を再計算する"""
-        if self._audio_cache is None:
-            return
-        duration = self._display_duration()
-        if duration <= 0:
-            return
-
-        # ホバーで動かしたら留める。離した瞬間に区間が戻ると、
-        # 狙って止めた場所を下段でクリックできない
-        self._region_pinned = True
-        self._apply_region_center(position * duration, live=True)
 
     def _on_region_zoom(self, direction: int):
         """ホイールで区間の幅を変える（中心は保つ）"""
@@ -3542,27 +3511,22 @@ class MainWorkspace(QWidget):
     def _sync_region_to_playback(self, position_ms: int):
         """再生位置に応じて区間を追従させる
 
-        留め（pin）は再生位置より常に優先する。ここを取り違えると、
-        ホバーがカーソル側へ、positionChanged が再生位置側へ交互に区間を
-        動かし、両者が奪い合ってちらつく。
+        **区間の中心を動かすのは再生カーソルだけ**（2026-10-07 の仕様変更）。
+        以前は上段のホバーでも動かしていたが、ホバーと positionChanged が
+        交互に区間を動かして奪い合い、カーソルを動かすたびに下段が揺れた。
+        ホバーは時刻表示だけを担い、区間には触らない。
 
-        留めが解けるのは次の2つだけ:
+        留め（pin）はホイールで区間幅を変えたときだけ立ち、再生位置より優先する。
+        解けるのは次の2つ:
           - 上段クリック（明示的に「そこへ行く」）… _on_overview_clicked
           - 再生が留めた区間へ追いついたとき（先を見ていた用が済んだ）
         """
         if self._audio_cache is None or self._region_widget is None:
             return
 
-        # 再生中は区間の再センタリング（mel_spectrogram のメインスレッド再計算）を
-        # 行わない。これを毎再生位置で走らせると FFT がメインスレッドを数十〜数百ms
-        # 占有し、QMediaPlayer の映像デコード/提示が痩せて A/V がズレる（実測で確認）。
-        # カーソルは _update_position_views で動き続け、区間は停止時に
-        # _on_playback_state_changed が現在位置へ合わせ直す。
-        if (self._media_player is not None
-                and self._media_player.playbackState()
-                == QMediaPlayer.PlaybackState.PlayingState):
-            return
-
+        # 区間の再計算（mel_spectrogram）は RegionSpectrogramWorker へ逃がしてあり、
+        # 再生中に再センタリングしてもメインスレッドを塞がない（A/V は乱れない）。
+        # そのため以前あった「再生中は追従を止める」対症ゲートは廃止した。
         duration = self._display_duration()
         if duration <= 0:
             return
@@ -3586,8 +3550,15 @@ class MainWorkspace(QWidget):
         self._apply_region_center(position_ms)
 
     def _reset_region_view(self):
-        """区間表示を初期状態へ戻す"""
+        """区間表示を初期状態へ戻す
+
+        スペクトログラム計算スレッドは cache への参照を握ったままなので、
+        cache を捨てる前に畳む。ここを飛ばすと、破棄したはずの全長 PCM が
+        次の読み込みまでワーカー側に residence し続ける。
+        """
+        self._stop_spectrogram_worker()
         self._audio_cache = None
+        self._clear_segment_candidates()
         self._region_pinned = False
         self._region_start_ms = 0
         self._region_timer.stop()
@@ -3633,7 +3604,7 @@ class MainWorkspace(QWidget):
             duration = self._media_player.duration()
             if duration > 0:
                 new_position = int(position * duration)
-                self._media_player.setPosition(new_position)
+                self._seek_player(new_position)
                 self._log_panel.debug(f"Seek to {self._format_time(new_position)}", source="Waveform")
                 # 一時停止状態を維持（macOSでsetPositionが再生を開始する場合の対策）
                 if not was_playing:
@@ -3675,6 +3646,14 @@ class MainWorkspace(QWidget):
         if cache is None or widget is None:
             return
 
+        if self._spec_worker is not None:
+            self._spec_worker.request(
+                "overview", 0, cache.duration_ms,
+                max(1, widget.width()), max(1, widget.height())
+            )
+            return
+
+        # フォールバック（通常はワーカーがある）: 同期計算
         data = cache.mel_spectrogram(
             0, cache.duration_ms, max(1, widget.width()), max(1, widget.height())
         )
@@ -3773,15 +3752,13 @@ class MainWorkspace(QWidget):
                 self._load_chapters_for_all_sources()
 
 
-        # 追加したファイルの最初のチャプターをハイライト
-        # insert_indexに対応するチャプター行を探す
-        for row in range(self._table.rowCount()):
-            time_item = self._table.item(row, 0)
-            if time_item:
-                source_idx = time_item.data(Qt.ItemDataRole.UserRole + 1)
-                if source_idx == insert_index:
-                    self._set_current_chapter_row(row)
-                    break
+        # 先頭のチャプターをハイライトする。
+        # ここには insert_index を参照する強調処理が残っていたが、この経路は
+        # ソースの「差し替え」であって挿入ではないため、その変数は存在せず
+        # NameError で落ちていた（bf02ad3 でドラッグ&ドロップを差し替えへ
+        # 変えたときの取り残し）。差し替えでは先頭を選ぶのが素直。
+        if self._table.rowCount() > 0:
+            self._set_current_chapter_row(0)
 
         # 波形を再生成
         self._start_waveform_generation(self._state.sources[0].path)
@@ -3852,7 +3829,7 @@ class MainWorkspace(QWidget):
                                 'title': ch.title,
                                 'source_index': source_index,
                                 'local_time_ms': ch.local_time_ms,
-                                'color': QColor("#f0f0f0")
+                                'color': QColor(Colors.get_text())
                             })
                             if ch.local_time_ms == 0:
                                 has_zero_chapter = True
@@ -3869,7 +3846,7 @@ class MainWorkspace(QWidget):
                     'title': src.path.stem,  # ファイル名（拡張子なし）
                     'source_index': source_index,
                     'local_time_ms': 0,
-                    'color': QColor("#f0f0f0")
+                    'color': QColor(Colors.get_text())
             })
 
         # 既存チャプターに新しいチャプターを挿入
@@ -3892,7 +3869,7 @@ class MainWorkspace(QWidget):
                 各要素は {'title', 'source_index', 'local_time_ms', 'color'} の辞書
         """
         source_offsets = self._get_source_offsets()
-        default_color = QColor("#f0f0f0")
+        default_color = QColor(Colors.get_text())
 
         self._table.blockSignals(True)
         self._table.setRowCount(0)
@@ -3904,7 +3881,6 @@ class MainWorkspace(QWidget):
             source_idx = ch['source_index']
             local_time_ms = ch.get('local_time_ms', 0)
             title = ch['title']
-            rotation = ch.get('rotation', 0)
             color = ch.get('color') or default_color
 
             # ChapterInfoを作成（ローカル時間）
@@ -3928,10 +3904,6 @@ class MainWorkspace(QWidget):
             title_item.setData(Qt.ItemDataRole.UserRole + 1, source_idx)
             # ローカル時間も保存（UserRole + 2）
             time_item.setData(Qt.ItemDataRole.UserRole + 2, local_time_ms)
-            # 回転角も保存（ROLE_ROTATION）
-            time_item.setData(self.ROLE_ROTATION, int(rotation) % 360)
-            if int(rotation) % 360 != 0:
-                title_item.setToolTip(f"回転 {int(rotation) % 360}°")
 
             self._table.setItem(row, 0, time_item)
             self._table.setItem(row, 1, title_item)
@@ -3944,7 +3916,6 @@ class MainWorkspace(QWidget):
                 local_time_ms=ch.get('local_time_ms', 0),
                 title=ch['title'],
                 source_index=ch['source_index'],
-                rotation=ch.get('rotation', 0)
             )
             for ch in chapters_data
         ]
@@ -3960,82 +3931,97 @@ class MainWorkspace(QWidget):
         pass
 
     def _file_dialog_dark_style(self) -> str:
-        """ファイルダイアログ用ダークテーマスタイル"""
-        return """
-            QFileDialog {
-                background-color: #1a1a1a;
-                color: #f0f0f0;
-            }
-            QFileDialog QLabel {
-                color: #f0f0f0;
-            }
-            QFileDialog QLineEdit {
-                background-color: #0f0f0f;
-                color: #f0f0f0;
-                border: 1px solid #3a3a3a;
+        """ファイルダイアログのスタイル
+
+        以前は配色を直書きしていた（メソッド名の "dark" はその名残）。
+        明色テーマでダイアログだけ暗くなるため ColorRole 経由にする。
+        現状この CSS はどこからも適用されていない（2026-10-07 時点）。
+        """
+        panel = Colors.get_background_alt()
+        stage = Colors.get_background()
+        ctrl = Colors.get_selection()
+        hover = Colors.get_background_hover()
+        line = Colors.get_border()
+        fg = Colors.get_text()
+        fg_bright = Colors.get_text_bright()
+        fg_dim = Colors.get_text_dim()
+        primary = Colors.get_primary()
+        primary_hover = Colors.get_primary_hover()
+        return f"""
+            QFileDialog {{
+                background-color: {panel};
+                color: {fg};
+            }}
+            QFileDialog QLabel {{
+                color: {fg};
+            }}
+            QFileDialog QLineEdit {{
+                background-color: {stage};
+                color: {fg};
+                border: 1px solid {line};
                 border-radius: 4px;
                 padding: 6px;
-            }
-            QFileDialog QPushButton {
-                background-color: #2d2d2d;
-                color: #f0f0f0;
-                border: 1px solid #3a3a3a;
+            }}
+            QFileDialog QPushButton {{
+                background-color: {ctrl};
+                color: {fg};
+                border: 1px solid {line};
                 border-radius: 6px;
                 padding: 6px 16px;
-            }
-            QFileDialog QPushButton:hover {
-                background-color: #363636;
-            }
-            QFileDialog QTreeView, QFileDialog QListView {
-                background-color: #0f0f0f;
-                color: #f0f0f0;
-                border: 1px solid #3a3a3a;
-                selection-background-color: #1e50a2;
-            }
-            QFileDialog QTreeView::item:hover, QFileDialog QListView::item:hover {
-                background-color: #2d2d2d;
-            }
-            QFileDialog QComboBox {
-                background-color: #2d2d2d;
-                color: #f0f0f0;
-                border: 1px solid #3a3a3a;
+            }}
+            QFileDialog QPushButton:hover {{
+                background-color: {hover};
+            }}
+            QFileDialog QTreeView, QFileDialog QListView {{
+                background-color: {stage};
+                color: {fg};
+                border: 1px solid {line};
+                selection-background-color: {primary};
+            }}
+            QFileDialog QTreeView::item:hover, QFileDialog QListView::item:hover {{
+                background-color: {ctrl};
+            }}
+            QFileDialog QComboBox {{
+                background-color: {ctrl};
+                color: {fg};
+                border: 1px solid {line};
                 border-radius: 4px;
                 padding: 6px;
-            }
-            QFileDialog QComboBox QAbstractItemView {
-                background-color: #2d2d2d;
-                color: #f0f0f0;
-                selection-background-color: #1e50a2;
-            }
-            QFileDialog QHeaderView::section {
-                background-color: #1a1a1a;
-                color: #a0a0a0;
-                border: 1px solid #3a3a3a;
+            }}
+            QFileDialog QComboBox QAbstractItemView {{
+                background-color: {ctrl};
+                color: {fg};
+                selection-background-color: {primary};
+            }}
+            QFileDialog QHeaderView::section {{
+                background-color: {panel};
+                color: {fg_dim};
+                border: 1px solid {line};
                 padding: 6px;
-            }
-            QFileDialog QToolButton {
-                background-color: #2d2d2d;
-                border: 1px solid #3a3a3a;
+            }}
+            QFileDialog QToolButton {{
+                background-color: {ctrl};
+                border: 1px solid {line};
                 border-radius: 4px;
-            }
-            QFileDialog QToolButton:hover {
-                background-color: #363636;
-            }
-            QFileDialog QScrollBar:vertical {
-                background-color: #1a1a1a;
+            }}
+            QFileDialog QToolButton:hover {{
+                background-color: {hover};
+            }}
+            QFileDialog QScrollBar:vertical {{
+                background-color: {panel};
                 width: 12px;
-            }
-            QFileDialog QScrollBar::handle:vertical {
-                background-color: #3a3a3a;
+            }}
+            QFileDialog QScrollBar::handle:vertical {{
+                background-color: {line};
                 border-radius: 4px;
                 min-height: 20px;
-            }
-            QFileDialog QSplitter::handle {
-                background-color: #3a3a3a;
-            }
-            QFileDialog #sidebar {
-                background-color: #1a1a1a;
-            }
+            }}
+            QFileDialog QSplitter::handle {{
+                background-color: {line};
+            }}
+            QFileDialog #sidebar {{
+                background-color: {panel};
+            }}
         """
 
     # === チャプター操作 ===
@@ -4049,7 +4035,7 @@ class MainWorkspace(QWidget):
         if not self._state.sources:
             return
 
-        default_color = QColor("#f0f0f0")
+        default_color = QColor(Colors.get_text())
         chapters_data = []
 
         for source_idx, src in enumerate(self._state.sources):
@@ -4118,10 +4104,10 @@ class MainWorkspace(QWidget):
         self._table.insertRow(insert_row)
 
         time_item = QTableWidgetItem(time_str)
-        title_item = QTableWidgetItem("New Chapter")
+        title_item = QTableWidgetItem(self._initial_chapter_title(absolute_pos))
 
         # 追加したチャプターは常に赤色で表示（元のチャプターと区別するため）
-        added_color = QColor("#ef4444")  # 赤色
+        added_color = QColor(Colors.get_danger())
         time_item.setForeground(QBrush(added_color))
         title_item.setForeground(QBrush(added_color))
         # ハイライト解除時の復元用に元の色を保存
@@ -4145,6 +4131,209 @@ class MainWorkspace(QWidget):
         self._update_chapter_buttons()
         self._update_chapter_drag_enabled()
         self._update_output_preview()
+
+        # 追加直後にタイトルを編集状態にする。どのみち曲名を打つので、
+        # ダブルクリックの一手を省く。更新処理が終わってから呼ぶために遅延させる
+        QTimer.singleShot(0, lambda: self._begin_title_edit(insert_row))
+
+    def _begin_title_edit(self, row: int):
+        """指定行のタイトル列を編集状態にする
+
+        テーブルは既定で NoEditTriggers（Enter キーのときだけ一時許可）なので、
+        eventFilter 側の Enter 処理と同じ手順を通す。ここを独自に書くと
+        トリガーの戻し忘れでテーブル全体が常時編集可能になる。
+        """
+        if not (0 <= row < self._table.rowCount()):
+            return
+        title_index = self._table.model().index(row, 1)
+        if not title_index.isValid():
+            return
+        self._table.setCurrentIndex(title_index)
+        self._table.setEditTriggers(QAbstractItemView.EditTrigger.AllEditTriggers)
+        self._table.edit(title_index)
+        self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+
+    def _begin_time_edit(self, row: int):
+        """指定行の時刻列を編集状態にする（ダブルクリックから）
+
+        確定時に書式を検証して並べ替えるため、編集前の文字列を控えておく。
+        不正な入力はここへ戻す。
+        """
+        if not (0 <= row < self._table.rowCount()):
+            return
+        index = self._table.model().index(row, 0)
+        if not index.isValid():
+            return
+        item = self._table.item(row, 0)
+        self._time_edit_before = item.text() if item else ""
+        self._table.setCurrentIndex(index)
+        self._table.setEditTriggers(QAbstractItemView.EditTrigger.AllEditTriggers)
+        self._table.edit(index)
+        self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+
+    def _commit_time_edit(self, row: int) -> bool:
+        """編集された時刻を検証し、時刻順の位置へ行を移す
+
+        戻り値は「表を触ったか」。行を動かした場合、呼び出し側は row を
+        当てにしてはいけない。
+
+        行は QTableWidgetItem ごと取り出して差し替える。作り直すと、追加済み
+        チャプターの赤色や source_index（UserRole 群）が落ちる。
+        """
+        item = self._table.item(row, 0)
+        if item is None:
+            return False
+        text = item.text().strip()
+        before = getattr(self, "_time_edit_before", None)
+
+        try:
+            edited = ChapterInfo.from_time_str(text, "")
+        except ValueError:
+            # 書式が壊れているので戻す。ここで通すと表全体の時刻順が崩れる。
+            if before is not None:
+                self._table.blockSignals(True)
+                item.setText(before)
+                self._table.blockSignals(False)
+            self._log_panel.warning(
+                f"Invalid chapter time: {text!r} (H:MM:SS.mmm)", source="Chapter"
+            )
+            return False
+
+        absolute_ms = edited.local_time_ms
+
+        # 表示は絶対時刻。ローカル時刻（UserRole+2）も追従させる。
+        source_index = item.data(Qt.ItemDataRole.UserRole + 1)
+        offsets = self._get_source_offsets()
+        if isinstance(source_index, int) and 0 <= source_index < len(offsets):
+            item.setData(Qt.ItemDataRole.UserRole + 2, absolute_ms - offsets[source_index])
+        else:
+            item.setData(Qt.ItemDataRole.UserRole + 2, absolute_ms)
+
+        # 正規化した表記へ揃える（0:1:2 のような入力も受けたい）
+        self._table.blockSignals(True)
+        item.setText(self._format_time(absolute_ms))
+        self._table.blockSignals(False)
+
+        target = self._sorted_insert_row(absolute_ms, skip_row=row)
+        if target == row:
+            return False
+        self._move_chapter_row(row, target)
+        return True
+
+    def _sorted_insert_row(self, absolute_ms: int, skip_row: int = -1) -> int:
+        """絶対時刻がこの値の行が入るべき位置を返す"""
+        target = 0
+        for r in range(self._table.rowCount()):
+            if r == skip_row:
+                continue
+            other = self._table.item(r, 0)
+            if other is None:
+                target += 1
+                continue
+            try:
+                other_ms = ChapterInfo.from_time_str(other.text(), "").local_time_ms
+            except ValueError:
+                target += 1
+                continue
+            if other_ms <= absolute_ms:
+                target += 1
+            else:
+                break
+        return target
+
+    def _move_chapter_row(self, row: int, target: int):
+        """行を time 順の位置へ移す（アイテムごと持ち運ぶ）"""
+        self._table.blockSignals(True)
+        try:
+            items = [self._table.takeItem(row, c) for c in range(self._table.columnCount())]
+            self._table.removeRow(row)
+            self._table.insertRow(target)
+            for c, it in enumerate(items):
+                if it is not None:
+                    self._table.setItem(target, c, it)
+        finally:
+            self._table.blockSignals(False)
+        self._set_current_chapter_row(target)
+
+    # 現在位置がこの範囲内の候補までを「その区間の頭」とみなす。
+    # 休憩の入りは秒単位で詰めるものではないので広めに取る。
+    # 表題の下書きに使う、追加位置まわりの窓。区切りの宣言（「じゃあ次は…」）は
+    # 区間の頭に来るので後ろを広く取る。手前も少し見るのは、言い終わってから
+    # ボタンを押すことがあるため。
+    TITLE_HINT_BEFORE_MS = 5_000
+    TITLE_HINT_AFTER_MS = 30_000
+    TITLE_HINT_MIN_CHARS = 10
+    TITLE_HINT_MAX_CHARS = 60
+
+    def _initial_chapter_title(self, position_ms: int) -> str:
+        """追加するチャプターの初期タイトル
+
+        字幕が読み込まれていれば、その位置の直後の発話を下書きとして入れる。
+        入れるのは起こした素のテキストだけで、曲名や練習番号の解釈はしない。
+        そこは素材ごとの語彙に依存し、汎用の章立てツールが持つべきものではない。
+
+        字幕が無ければ従来どおり "New Chapter"。字幕の有無以外には依存しない
+        （外部コマンドも API 鍵も要らない）ので、無い環境でも挙動が変わらない。
+
+        休憩の候補が近くにあるときだけは、発話より優先して `--休憩` を入れる。
+        `--` は除外区間（書き出し時にカット）に直結し、そのまま編集せずに使える。
+        この位置の発話は「はい、10分休憩します」のような文になり、表題としては
+        `--休憩` に劣る。
+        """
+        break_title = self._break_candidate_title(position_ms)
+        if break_title:
+            return break_title
+        return self._speech_hint(position_ms) or "New Chapter"
+
+    # 現在位置がこの範囲内の候補までを「その区間の頭」とみなす。
+    # 休憩の入りは秒単位で詰めるものではないので広めに取る。
+    BREAK_TITLE_TOLERANCE_MS = 30_000
+
+    def _break_candidate_title(self, position_ms: int) -> str:
+        """近くに休憩の候補があればその既定名を返す（無ければ空文字）"""
+        if not self._segment_candidates:
+            return ""
+        nearest = min(
+            self._segment_candidates,
+            key=lambda c: abs(c.time_ms - position_ms),
+        )
+        if nearest.kind != "break":
+            return ""
+        if abs(nearest.time_ms - position_ms) > self.BREAK_TITLE_TOLERANCE_MS:
+            return ""
+        return nearest.title
+
+    def _speech_hint(self, position_ms: int) -> str:
+        """指定位置まわりの発話を1行にまとめて返す（無ければ空文字）
+
+        字幕の時刻はソースファイル内のローカル時刻なので、仮想タイムライン
+        （複数ソース連結）では位置とずれる。ずれた下書きを出すくらいなら
+        出さないほうがよいので、単一ソースのときだけ返す。
+        """
+        if len(self._state.sources) > 1 or not self._subtitle_manager.is_loaded:
+            return ""
+
+        lo = position_ms - self.TITLE_HINT_BEFORE_MS
+        hi = position_ms + self.TITLE_HINT_AFTER_MS
+        picked: List[str] = []
+        for sub in self._subtitle_manager.subtitles:
+            if sub.start_ms < lo:
+                continue
+            if sub.start_ms > hi:
+                break
+            text = " ".join(sub.text.split())
+            if not text:
+                continue
+            picked.append(text)
+            # 1つで足りるならそこで止める。短い相槌だけ拾って終わらないよう、
+            # 短すぎる場合だけ次の発話も足す。
+            if sum(len(t) for t in picked) >= self.TITLE_HINT_MIN_CHARS:
+                break
+
+        if not picked:
+            return ""
+        joined = " ".join(picked)
+        return joined[: self.TITLE_HINT_MAX_CHARS]
 
     def _remove_chapter(self):
         """選択チャプターのみ削除（ソースは残す）"""
@@ -4415,6 +4604,9 @@ class MainWorkspace(QWidget):
 
     def _on_chapter_edited(self, row: int, column: int):
         """チャプター編集後に波形を更新"""
+        if column == 0:
+            # 時刻を直したときだけ、検証してから時刻順へ入れ直す
+            self._commit_time_edit(row)
         self._chapters_edited = True
         self._update_waveform_chapters()
         self._update_chapter_buttons()
@@ -4731,7 +4923,6 @@ class MainWorkspace(QWidget):
                 'local_time_ms': local_time_ms,
                 'title': title,
                 'color': color,
-                'rotation': self._get_row_rotation(row),
             })
 
         # source_indexのマッピングを計算
@@ -4770,7 +4961,6 @@ class MainWorkspace(QWidget):
                 'source_index': new_idx,
                 'local_time_ms': ch['local_time_ms'],
                 'color': ch['color'],
-                'rotation': ch.get('rotation', 0),
             })
 
         # source_index順、その中でlocal_time順にソート
@@ -5134,6 +5324,164 @@ class MainWorkspace(QWidget):
             self._on_chapter_clicked(last_row, 0)
             self._table.selectRow(last_row)
 
+    # === 区間の自動判別（演奏 / コメント / 休憩）===
+
+    def _detection_cues(self) -> List[Cue]:
+        """判別の補助に使う字幕
+
+        字幕の時刻はソースファイル内のローカル時刻なので、仮想タイムライン
+        （複数ソース連結）では候補の時刻とずれる。ずらして使うくらいなら
+        音だけで判断させたほうが安全なので、単一ソースのときだけ渡す。
+        """
+        if len(self._state.sources) > 1 or not self._subtitle_manager.is_loaded:
+            return []
+        return [
+            Cue(sub.start_ms, sub.end_ms, sub.text)
+            for sub in self._subtitle_manager.subtitles
+        ]
+
+    def _detect_segments(self):
+        """音声から演奏・コメント・休憩の切れ目を検出して候補を出す"""
+        if self._audio_cache is None:
+            self._log_panel.warning("Audio cache is not ready yet", source="Segment")
+            return
+        if self._detect_thread is not None:
+            return  # 実行中
+
+        duration = self._display_duration() or self._audio_cache.duration_ms
+        cues = self._detection_cues()
+
+        self._set_segment_status("検出中…")
+        self._log_panel.info(
+            f"Detecting segments: {duration / 1000:.0f}s @ {self._audio_cache.sample_rate} Hz"
+            + (f", {len(cues)} subtitle cues" if cues else ""),
+            source="Segment",
+        )
+
+        self._detect_thread = QThread()
+        self._detect_worker = SegmentDetectWorker(
+            self._audio_cache.samples,
+            self._audio_cache.sample_rate,
+            duration,
+            cues=cues,
+            sensitivity=self._current_sensitivity(),
+        )
+        self._detect_worker.moveToThread(self._detect_thread)
+
+        self._detect_thread.started.connect(self._detect_worker.run)
+        self._detect_worker.progress.connect(self._on_detect_progress)
+        self._detect_worker.finished.connect(self._on_detect_finished)
+        self._detect_worker.error.connect(self._on_detect_error)
+        self._detect_worker.finished.connect(self._detect_thread.quit)
+        self._detect_worker.error.connect(self._detect_thread.quit)
+
+        self._detect_thread.start()
+
+    def _on_detect_progress(self, value: int):
+        self._set_segment_status(f"検出中… {value}%")
+
+    def _on_detect_finished(self, segments):
+        """検出完了 - 区間の先頭を候補として波形に出す"""
+        summary = self._detect_worker.summary if self._detect_worker else ""
+        self._cleanup_detect_thread()
+
+        self._segment_candidates = [
+            SegmentCandidate(
+                time_ms=seg.start_ms,
+                kind=seg.kind,
+                # 休憩は除外チャプター（--）にして、書き出し時にそのままカットさせる
+                title=("--" + seg.title) if seg.kind == "break" else seg.title,
+                confidence=seg.confidence,
+            )
+            for seg in segments
+        ]
+        self._apply_segment_candidates()
+        self._update_segment_buttons()
+        self._log_panel.info(f"Detected {summary}", source="Segment")
+        # 検出しただけで再生位置は動かさない。どこから拾うかは人が決める
+
+    def _on_detect_error(self, message: str):
+        self._cleanup_detect_thread()
+        self._update_segment_buttons()
+        self._log_panel.warning(message, source="Segment")
+
+    def _cleanup_detect_thread(self):
+        """判別スレッドを停止して参照を落とす
+
+        走行中の QThread を破棄すると abort するので、必ず quit()→wait() で畳む。
+        検出は純粋な計算なのでキャンセル要求は次の進捗報告で効く。
+        """
+        if self._detect_worker:
+            self._detect_worker.cancel()
+        if self._detect_thread:
+            self._detect_thread.quit()
+            if not self._detect_thread.wait(5000):
+                self._log_panel.warning("Segment detection thread did not stop", source="Segment")
+        self._detect_thread = None
+        self._detect_worker = None
+
+    def _apply_segment_candidates(self):
+        """候補を上下両方の波形ウィジェットへ反映する"""
+        for widget in (self._waveform_widget, self._region_widget):
+            if widget:
+                widget.set_segment_candidates(self._segment_candidates)
+
+    def _clear_segment_candidates(self):
+        """候補を捨てる（素材が変わると時刻の基準が変わるため）"""
+        self._segment_candidates = []
+        for widget in (self._waveform_widget, self._region_widget):
+            if widget:
+                widget.clear_segment_candidates()
+        # 候補が元から空でもここは通す。音声キャッシュ破棄に伴う Detect の
+        # 無効化がこの経路に乗っているため、早期 return すると取り残される。
+        self._update_segment_buttons()
+
+    def _goto_candidate(self, index: int):
+        """候補の位置へシークする（再生状態は維持）"""
+        if not (0 <= index < len(self._segment_candidates)):
+            return
+        self._seek_virtual(self._segment_candidates[index].time_ms)
+        self._update_segment_buttons(current=index)
+
+    def _goto_next_candidate(self):
+        """次の候補へスキップ"""
+        current = self._get_virtual_position()
+        for i, cand in enumerate(self._segment_candidates):
+            # 直前にシークした候補へ戻らないよう、チャプター送りと同じ 500ms を空ける
+            if cand.time_ms > current + 500:
+                self._goto_candidate(i)
+                return
+        self._goto_candidate(len(self._segment_candidates) - 1)
+
+    def _goto_prev_candidate(self):
+        """前の候補へスキップ"""
+        current = self._get_virtual_position()
+        for i in range(len(self._segment_candidates) - 1, -1, -1):
+            if self._segment_candidates[i].time_ms < current - 500:
+                self._goto_candidate(i)
+                return
+        self._goto_candidate(0)
+
+    def _update_segment_buttons(self, current: Optional[int] = None):
+        """検出まわりのボタンとステータス表示を更新する"""
+        if not hasattr(self, "_next_candidate_btn"):
+            return
+
+        has_candidates = bool(self._segment_candidates)
+        self._prev_candidate_btn.setEnabled(has_candidates)
+        self._next_candidate_btn.setEnabled(has_candidates)
+
+        if not has_candidates:
+            self._set_segment_status("")
+            return
+
+        text = f"候補 {len(self._segment_candidates)}"
+        if current is not None and 0 <= current < len(self._segment_candidates):
+            cand = self._segment_candidates[current]
+            kind = KIND_TITLES.get(cand.kind, cand.kind)
+            text += f" · {current + 1}番目 {kind}（確度 {cand.confidence:.2f}）"
+        self._set_segment_status(text)
+
     def _update_chapter_buttons(self):
         """チャプタースキップボタンの有効/無効を更新
 
@@ -5144,24 +5492,19 @@ class MainWorkspace(QWidget):
         enabled = has_chapters and has_media and self._chapters_edited
         self._prev_chapter_btn.setEnabled(enabled)
         self._next_chapter_btn.setEnabled(enabled)
-        # 回転は動画かつチャプターがあれば可（音声のみは不可）
-        if hasattr(self, '_rotate_btn'):
-            self._rotate_btn.setEnabled(
-                bool(has_chapters and has_media and not self._is_audio_only)
-            )
 
     def _update_seek_buttons(self, enabled: bool):
         """時間移動ボタンの有効/無効を更新"""
         # 戻る系
         self._btn_m10s.setEnabled(enabled)
         self._btn_m1s.setEnabled(enabled)
-        self._btn_m03s.setEnabled(enabled)
         self._btn_m1f.setEnabled(enabled)
         # 進む系
         self._btn_p1f.setEnabled(enabled)
-        self._btn_p03s.setEnabled(enabled)
         self._btn_p1s.setEnabled(enabled)
         self._btn_p10s.setEnabled(enabled)
+        # 候補送りは同じ行にあるが、候補の有無で決まるので
+        # ここでは触らない（_update_candidate_buttons が管理する）
 
     def _load_chapters(self):
         """チャプターファイルを読み込み
@@ -5203,7 +5546,7 @@ class MainWorkspace(QWidget):
 
             # ソースオフセットを計算（絶対時間 → ローカル時間変換用）
             source_offsets = self._get_source_offsets()
-            default_color = QColor("#f0f0f0")
+            default_color = QColor(Colors.get_text())
 
             # チャプターデータを構築（絶対時間からローカル時間に変換）
             chapters_data = []
@@ -5398,7 +5741,7 @@ class MainWorkspace(QWidget):
             self._log_panel.debug("No embedded chapters found", source="Chapter")
             return
 
-        default_color = QColor("#f0f0f0")
+        default_color = QColor(Colors.get_text())
         chapters_data = []
 
         # 先頭チャプター（0:00:00.000）がなければ追加
@@ -5425,7 +5768,8 @@ class MainWorkspace(QWidget):
 
         # チャプターグループのタイトルを更新（埋め込みを緑色で表示）
         if hasattr(self, '_chapter_title_label'):
-            self._chapter_title_label.setText('Chapters <span style="color: #c3d825;">(埋め込み)</span>')
+            self._chapter_title_label.setText(
+                f'Chapters <span style="color: {Colors.get_success()};">(埋め込み)</span>')
             self._chapter_title_label.setTextFormat(Qt.TextFormat.RichText)
 
         # テーブルを再構築
@@ -5451,7 +5795,7 @@ class MainWorkspace(QWidget):
 
         chapters_data = []
         has_any_embedded = False
-        default_color = QColor("#f0f0f0")
+        default_color = QColor(Colors.get_text())
 
         for source_idx, source in enumerate(self._state.sources):
             # このファイルの埋め込みチャプターを取得（ローカル時間）
@@ -5487,7 +5831,8 @@ class MainWorkspace(QWidget):
         # チャプターグループのタイトルを更新
         if hasattr(self, '_chapter_title_label'):
             if has_any_embedded:
-                self._chapter_title_label.setText('Chapters <span style="color: #c3d825;">(埋め込み)</span>')
+                self._chapter_title_label.setText(
+                f'Chapters <span style="color: {Colors.get_success()};">(埋め込み)</span>')
                 self._chapter_title_label.setTextFormat(Qt.TextFormat.RichText)
             else:
                 self._chapter_title_label.setText("Chapters")
@@ -5550,6 +5895,135 @@ class MainWorkspace(QWidget):
         clipboard.setText(youtube_text)
 
         self._log_panel.info(f"Copied {len(chapters)} chapters to clipboard (YouTube format)", source="UI")
+
+    # テーマを切り替えたときに貼り直すスタイルの一覧。
+    # スタイルは生成時に Colors から文字列へ焼き込まれるので、配色を変えただけでは
+    # 古い色が残る。タグを付けておき、reapply_theme で同じ生成関数をもう一度通す。
+    def _themed(self, widget, tag: str):
+        """テーマ連動のスタイルを当て、貼り直し対象として印を付ける"""
+        widget.setProperty("chaptr_style", tag)
+        widget.setStyleSheet(self._style_for(tag))
+        return widget
+
+    def _style_for(self, tag: str) -> str:
+        if tag == "transport":
+            return ButtonStyles.transport()
+        if tag == "chapter":
+            return ButtonStyles.chapter(getattr(self, "_symbol_font_css", ""))
+        if tag == "tonal":
+            return ButtonStyles.tonal()
+        if tag == "primary":
+            return ButtonStyles.primary_compact()
+        if tag == "panel":
+            return Surfaces.panel()
+        if tag == "stage":
+            return Surfaces.stage()
+        if tag == "table":
+            return Surfaces.table()
+        if tag == "combo":
+            return Surfaces.combo()
+        if tag == "overlay":
+            return Surfaces.overlay()
+        if tag == "srcrow":
+            return Surfaces.source_row(False)
+        if tag == "srcrow_current":
+            return Surfaces.source_row(True)
+        if tag == "mode_toggle":
+            return ButtonStyles.mode_toggle()
+        if tag == "label_dim":
+            return (f"color: {Colors.get_text_dim()}; "
+                    f"font-size: {Scale.FONT_SM}px; background: transparent;")
+        if tag == "backdrop":
+            return f"background: {Colors.get_background()};"
+        if tag == "label_strong":
+            return f"font-weight: bold; color: {Colors.get_text()};"
+        if tag == "group":
+            return f"""
+                QGroupBox {{
+                    color: {Colors.get_text()};
+                    font-weight: bold;
+                    border: {Scale.BORDER}px solid {Colors.get_border()};
+                    border-radius: {Scale.RADIUS}px;
+                    margin-top: {Scale.SPACE_XS}px;
+                    padding-top: {Scale.SPACE_XS}px;
+                }}
+            """
+        return ""
+
+    def reapply_theme(self):
+        """配色の切り替えを画面へ反映する
+
+        環境設定の Color Scheme は以前から在ったが、UI が色を直書きしていたため
+        切り替えてもほとんど変わらなかった。トークン化に合わせて、ここで
+        貼り直す（2026-10-07）。
+        """
+        for w in self.findChildren(QWidget):
+            tag = w.property("chaptr_style")
+            if tag:
+                w.setStyleSheet(self._style_for(tag))
+
+        # 時刻表示は単発指定なので個別に
+        if getattr(self, "_time_label", None) is not None:
+            self._time_label.setStyleSheet(
+                f"color: {Colors.get_text()}; background: transparent;")
+
+        # ログ欄は過去の行に色を焼き込んでいるので、専用の貼り直しを呼ぶ
+        if getattr(self, "_log_panel", None) is not None and hasattr(
+                self._log_panel, "reapply_theme"):
+            self._log_panel.reapply_theme()
+
+        # アイコンは色を焼き込んで描いているため作り直す
+        if getattr(self, "_play_btn", None) is not None:
+            playing = self._play_btn.icon().cacheKey() == self._pause_icon.cacheKey()
+            self._play_icon = transport_icon("play", 75)
+            self._pause_icon = transport_icon("pause", 75)
+            self._play_btn.setIcon(self._pause_icon if playing else self._play_icon)
+
+    def copy_playback_time(self):
+        """再生位置の時刻を H:MM:SS.mmm でクリップボードへ
+
+        出すのは**チャプター表に表示しているのと同じ絶対時間**（仮想タイムライン）。
+        Add Chapter が使う値と同一の求め方（`_get_virtual_position`）なので、
+        コピーした文字列はそのまま時刻セルへ貼れる。ローカル時間を出すと、
+        複数ソースを繋いでいるときに貼った先とずれる。
+        """
+        if not self._media_player:
+            self._log_panel.warning("No media loaded", source="UI")
+            return
+        text = self._format_time(self._get_virtual_position())
+        QApplication.clipboard().setText(text)
+        self._log_panel.info(f"Copied playback time: {text}", source="UI")
+
+    def _focused_widget_has_selection(self) -> bool:
+        """フォーカス中のウィジェットが「選択されたテキスト」を持つか
+
+        Cmd/Ctrl-C を再生位置のコピーに割り当てると、時刻やタイトルを編集中に
+        文字列のコピーができなくなる。ショートカットはウィジェットのキー処理より
+        先に走るため、ここで見分けて譲る必要がある。
+        """
+        fw = QApplication.focusWidget()
+        if fw is None or not callable(getattr(fw, "copy", None)):
+            return False
+        if hasattr(fw, "hasSelectedText"):            # QLineEdit 系
+            return bool(fw.hasSelectedText())
+        if hasattr(fw, "textCursor"):                 # QTextEdit / QPlainTextEdit 系
+            try:
+                return bool(fw.textCursor().hasSelection())
+            except Exception:
+                return False
+        return False
+
+    def handle_copy_shortcut(self):
+        """Cmd/Ctrl-C の入口
+
+        テキストを選択しているときは通常のコピーに譲り、それ以外は再生位置の
+        時刻をコピーする。選択が無ければテキスト欄でも時刻を出す（押して何も
+        起きないより、いつでも時刻が取れるほうが用途に合う）。
+        """
+        if self._focused_widget_has_selection():
+            QApplication.focusWidget().copy()
+            return
+        self.copy_playback_time()
 
     def _save_chapters(self):
         """チャプターをファイルに保存（--含む全チャプター）
@@ -5705,7 +6179,7 @@ class MainWorkspace(QWidget):
         chapters = project.get("chapters", [])
         if chapters:
             chapters_data = []
-            default_color = QColor("#f0f0f0")
+            default_color = QColor(Colors.get_text())
             for ch in chapters:
                 chapters_data.append({
                     'title': ch.get('title', 'Untitled'),
@@ -5835,7 +6309,7 @@ class MainWorkspace(QWidget):
         self._table.setRowCount(0)
 
         # 新しいチャプターを追加
-        default_color = QColor("#f0f0f0")
+        default_color = QColor(Colors.get_text())
         for ch in chapters:
             row = self._table.rowCount()
             self._table.insertRow(row)
@@ -5864,29 +6338,6 @@ class MainWorkspace(QWidget):
 
     # === エクスポート ===
 
-    # チャプター行の回転角を保持する ItemDataRole
-    # (UserRole=color, +1=source_index, +2=local_time_ms は使用済み)
-    ROLE_ROTATION = Qt.ItemDataRole.UserRole + 3
-
-    def _get_row_rotation(self, row: int) -> int:
-        """指定行のチャプター回転角（度）を取得（未設定は0）"""
-        time_item = self._table.item(row, 0)
-        if time_item is None:
-            return 0
-        value = time_item.data(self.ROLE_ROTATION)
-        try:
-            return int(value) % 360 if value is not None else 0
-        except (TypeError, ValueError):
-            return 0
-
-    def _set_row_rotation(self, row: int, degrees: int):
-        """指定行のチャプター回転角（度）を設定（0/90/180/270 に正規化）"""
-        time_item = self._table.item(row, 0)
-        if time_item is None:
-            return
-        normalized = round((int(degrees) % 360) / 90) * 90 % 360
-        time_item.setData(self.ROLE_ROTATION, normalized)
-
     def _get_table_chapters(self) -> List[ChapterInfo]:
         """テーブルからチャプター情報を取得"""
         chapters = []
@@ -5898,7 +6349,6 @@ class MainWorkspace(QWidget):
                 title = title_item.text()
                 try:
                     chapter = ChapterInfo.from_time_str(time_str, title)
-                    chapter.rotation = self._get_row_rotation(row)
                     chapters.append(chapter)
                 except ValueError:
                     continue
@@ -6188,7 +6638,7 @@ class MainWorkspace(QWidget):
             if not chapters:
                 return
 
-            default_color = QColor("#f0f0f0")
+            default_color = QColor(Colors.get_text())
 
             # 既存のチャプターデータを取得
             existing_data = []
@@ -6201,7 +6651,6 @@ class MainWorkspace(QWidget):
                         'source_index': time_item.data(Qt.ItemDataRole.UserRole + 1) or 0,
                         'local_time_ms': time_item.data(Qt.ItemDataRole.UserRole + 2) or 0,
                         'color': time_item.data(Qt.ItemDataRole.UserRole) or default_color,
-                        'rotation': self._get_row_rotation(row),
                     })
 
             # 新しいチャプターを追加
@@ -6355,7 +6804,7 @@ class MainWorkspace(QWidget):
                                 'title': ch.title,
                                 'source_index': source_index,
                                 'local_time_ms': ch.local_time_ms,
-                                'color': QColor("#f0f0f0")
+                                'color': QColor(Colors.get_text())
                             })
                             if ch.local_time_ms == 0:
                                 has_zero_chapter = True
@@ -6398,7 +6847,7 @@ class MainWorkspace(QWidget):
 
         # ソースオフセットを計算（絶対時間 → ローカル時間変換用）
         source_offsets = self._get_source_offsets()
-        default_color = QColor("#f0f0f0")
+        default_color = QColor(Colors.get_text())
 
         # チャプターデータを構築（絶対時間からローカル時間に変換）
         chapters_data = []
@@ -6474,7 +6923,7 @@ class MainWorkspace(QWidget):
         title_item = QTableWidgetItem(title)
 
         # 追加したチャプターは緑色で表示（ドロップ追加と区別）
-        added_color = QColor("#c3d825")  # 緑色
+        added_color = QColor(Colors.get_success())
         time_item.setForeground(QBrush(added_color))
         title_item.setForeground(QBrush(added_color))
         time_item.setData(Qt.ItemDataRole.UserRole, added_color)
@@ -6523,14 +6972,33 @@ class MainWorkspace(QWidget):
         self._open_source_dialog()
 
     def cleanup(self):
-        """リソースクリーンアップ"""
+        """リソースクリーンアップ
+
+        **音声を最初に完全に切り離す。** 以前はスレッドの join を先に行い、
+        最後に stop していた。join は最大 5 秒待つので、その間ずっと音が
+        鳴り続けたうえ、最後にバッファごと断ち切られていた。
+
+        終了経路は closeEvent と aboutToQuit の2つあるので、二重に呼ばれても
+        安全なようにしてある。
+        """
+        if getattr(self, "_cleaned_up", False):
+            return
+        self._cleaned_up = True
+
+        self._silence_audio()
+
         # 音声キャッシュ構築スレッドをクリーンアップ
         self._cleanup_cache_thread()
+        # 区間判別スレッドをクリーンアップ
+        self._cleanup_detect_thread()
+        # 尺の検出スレッド。読み込み中に閉じるとここが走行中のまま残り、
+        # QThread を破棄した時点で abort する
+        if self._duration_detect_worker:
+            self._duration_detect_worker.requestInterruption()
+            self._duration_detect_worker.wait(1000)
+            self._duration_detect_worker = None
         self._region_timer.stop()
         self._audio_cache = None
-
-        if self._media_player:
-            self._media_player.stop()
 
     def closeEvent(self, event):
         """ウィジェット終了時"""
@@ -6551,13 +7019,7 @@ class MainWorkspace(QWidget):
                     # 編集中でなければTitle列（列1）を編集開始
                     index = self._table.currentIndex()
                     if index.isValid():
-                        # Title列（列1）のインデックスを作成
-                        title_index = self._table.model().index(index.row(), 1)
-                        # 一時的にトリガーを有効にして編集開始
-                        self._table.setEditTriggers(QAbstractItemView.EditTrigger.AllEditTriggers)
-                        self._table.edit(title_index)
-                        # 編集開始後すぐにトリガーを無効に戻す（編集中の状態は維持される）
-                        self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+                        self._begin_title_edit(index.row())
                         return True
 
                 # 編集中の上下矢印: カーソル移動（セル移動ではなく）
@@ -6582,7 +7044,12 @@ class MainWorkspace(QWidget):
                 pos = event.position().toPoint()
                 index = self._table.indexAt(pos)
                 if index.isValid():
-                    # ダブルクリックでその位置から再生開始
+                    if index.column() == 0:
+                        # 時刻列だけは編集を開く。時刻を直す機会は少ないので
+                        # ダブルクリック限定にし、Enter は従来どおりタイトルへ通す。
+                        self._begin_time_edit(index.row())
+                        return True
+                    # それ以外はダブルクリックでその位置から再生開始
                     self._on_chapter_double_clicked(index.row(), index.column())
                 return True  # 編集をブロック
 
@@ -6785,7 +7252,6 @@ class MainWorkspace(QWidget):
                     "local_time_ms": local_time_ms,
                     "source_index": source_index,
                     "title": title_item.text(),
-                    "rotation": self._get_row_rotation(row)
                 })
 
         # 出力ディレクトリ（相対パスで保存）
@@ -6932,13 +7398,12 @@ class MainWorkspace(QWidget):
         self._table.setRowCount(0)
 
         source_offsets = self._get_source_offsets()
-        default_color = QColor("#f0f0f0")
+        default_color = QColor(Colors.get_text())
 
         for ch in chapters:
             local_time_ms = ch.get("local_time_ms", 0)
             source_index = ch.get("source_index", 0)
             title = ch.get("title", "")
-            rotation = ch.get("rotation", 0)
 
             # 絶対時間を計算
             absolute_time_ms = local_time_ms
@@ -6960,9 +7425,6 @@ class MainWorkspace(QWidget):
             time_item.setData(Qt.ItemDataRole.UserRole + 1, source_index)
             title_item.setData(Qt.ItemDataRole.UserRole + 1, source_index)
             time_item.setData(Qt.ItemDataRole.UserRole + 2, local_time_ms)
-            time_item.setData(self.ROLE_ROTATION, int(rotation) % 360)
-            if int(rotation) % 360 != 0:
-                title_item.setToolTip(f"回転 {int(rotation) % 360}°")
 
             self._table.setItem(row, 0, time_item)
             self._table.setItem(row, 1, title_item)

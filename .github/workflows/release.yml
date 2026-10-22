@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version tag (e.g., v2.1.0)'
-        required: true
-        default: 'v2.1.0'
+        description: '成果物に付けるバージョン表記（省略時はブランチ/タグ名。例 v2.3.1）'
+        required: false
+        default: ''
 
 env:
   VERSION: ${{ github.event.inputs.version || github.ref_name }}
@@ -22,7 +22,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.version || github.ref }}
+          # ref は起動元をそのまま使う。以前ここに version 入力を流用していたため、
+          # 手動実行すると「バージョン表記」を git の ref として checkout しようとし、
+          # 存在しないタグ（既定値 v2.1.0）で即失敗していた。存在するタグを入れた
+          # 場合も、ブランチではなくそのタグの古いコードがビルドされてしまう。
+          ref: ${{ github.ref }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -45,15 +49,28 @@ jobs:
 
       - name: Create DMG
         run: |
+          # ブランチから手動実行すると ref_name に `/` が入り、ファイル名が壊れる
+          # （try/segment-detect → ディレクトリ扱いになる）。区切りを潰しておく。
           VERSION="${{ github.event.inputs.version || github.ref_name }}"
+          VERSION="${VERSION//\//-}"
           mkdir -p dmg_contents
           cp -r "dist/Chaptr.app" dmg_contents/
           sync
-          sleep 2
-          hdiutil create -volname "Chaptr" \
-            -srcfolder dmg_contents \
-            -ov -format UDZO \
-            "Video-Chapter-Editor-${VERSION}-macOS-Intel.dmg"
+          # hdiutil は runner 上で "Resource busy" を散発する（Spotlight 等が
+          # 掴んだまま離さない）。実際に Intel 側だけ落ちたことがあるので、
+          # 待って数回やり直す。1回で決め打たない。
+          for attempt in 1 2 3 4 5; do
+            sleep $((attempt * 5))
+            if hdiutil create -volname "Chaptr" \
+                 -srcfolder dmg_contents \
+                 -ov -format UDZO \
+                 "Video-Chapter-Editor-${VERSION}-macOS-Intel.dmg"; then
+              exit 0
+            fi
+            echo "hdiutil failed (attempt $attempt), retrying..."
+          done
+          echo "hdiutil create failed after 5 attempts"
+          exit 1
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -68,7 +85,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.version || github.ref }}
+          # ref は起動元をそのまま使う。以前ここに version 入力を流用していたため、
+          # 手動実行すると「バージョン表記」を git の ref として checkout しようとし、
+          # 存在しないタグ（既定値 v2.1.0）で即失敗していた。存在するタグを入れた
+          # 場合も、ブランチではなくそのタグの古いコードがビルドされてしまう。
+          ref: ${{ github.ref }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -91,15 +112,28 @@ jobs:
 
       - name: Create DMG
         run: |
+          # ブランチから手動実行すると ref_name に `/` が入り、ファイル名が壊れる
+          # （try/segment-detect → ディレクトリ扱いになる）。区切りを潰しておく。
           VERSION="${{ github.event.inputs.version || github.ref_name }}"
+          VERSION="${VERSION//\//-}"
           mkdir -p dmg_contents
           cp -r "dist/Chaptr.app" dmg_contents/
           sync
-          sleep 2
-          hdiutil create -volname "Chaptr" \
-            -srcfolder dmg_contents \
-            -ov -format UDZO \
-            "Video-Chapter-Editor-${VERSION}-macOS-AppleSilicon.dmg"
+          # hdiutil は runner 上で "Resource busy" を散発する（Spotlight 等が
+          # 掴んだまま離さない）。実際に Intel 側だけ落ちたことがあるので、
+          # 待って数回やり直す。1回で決め打たない。
+          for attempt in 1 2 3 4 5; do
+            sleep $((attempt * 5))
+            if hdiutil create -volname "Chaptr" \
+                 -srcfolder dmg_contents \
+                 -ov -format UDZO \
+                 "Video-Chapter-Editor-${VERSION}-macOS-AppleSilicon.dmg"; then
+              exit 0
+            fi
+            echo "hdiutil failed (attempt $attempt), retrying..."
+          done
+          echo "hdiutil create failed after 5 attempts"
+          exit 1
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -114,7 +148,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.version || github.ref }}
+          # ref は起動元をそのまま使う。以前ここに version 入力を流用していたため、
+          # 手動実行すると「バージョン表記」を git の ref として checkout しようとし、
+          # 存在しないタグ（既定値 v2.1.0）で即失敗していた。存在するタグを入れた
+          # 場合も、ブランチではなくそのタグの古いコードがビルドされてしまう。
+          ref: ${{ github.ref }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -138,6 +176,10 @@ jobs:
 
       - name: Build with Nuitka (onefile mode)
         run: |
+          # --include-qt-plugins: 既定の sensible は platforms/styles/imageformats
+          # までで multimedia が入らない。入っていないと QMediaPlayer が生成できず、
+          # 尺0・再生不能・エラーも出ない状態になる（v2.3.1-rc1 で実際に発生した）。
+          # なおバックティック継続の途中にコメントは置けない（継続が壊れる）。
           python -m nuitka `
             --standalone `
             --onefile `
@@ -145,7 +187,9 @@ jobs:
             --windows-console-mode=disable `
             --windows-icon-from-ico=assets/icon.ico `
             --enable-plugin=pyside6 `
+            --include-qt-plugins=sensible,multimedia `
             --include-package=chaptr `
+            --include-package-data=chaptr `
             --include-module=cv2 `
             --include-module=psutil `
             --include-data-dir="${{ steps.ffmpeg-path.outputs.FFMPEG_BIN_DIR }}=static_ffmpeg/bin" `
@@ -153,10 +197,26 @@ jobs:
             --output-dir=dist `
             run_chaptr.py
 
+      - name: Verify Qt multimedia plugins are bundled
+        shell: pwsh
+        run: |
+          # onefile でも Nuitka は先に .dist を作る。そこにプラグインが無ければ
+          # exe にも入っていない。実機で気付くのではなくここで落とす。
+          $dist = Get-ChildItem -Path dist -Directory -Filter "*.dist" | Select-Object -First 1
+          if (-not $dist) { Write-Host "no .dist directory (onefile only); skipping"; exit 0 }
+          $found = Get-ChildItem -Path $dist.FullName -Recurse -Filter "*mediaplugin.dll" -ErrorAction SilentlyContinue
+          if (-not $found) {
+            Write-Error "QtMultimedia plugins are missing from the build. Playback would fail silently."
+            exit 1
+          }
+          $found | ForEach-Object { Write-Host "  bundled: $($_.Name)" }
+
       - name: Rename to versioned exe (single-file distribution)
         run: |
           $version = "${{ github.event.inputs.version }}"
           if (-not $version) { $version = "${{ github.ref_name }}" }
+          # ブランチ名の `/` はファイル名に使えないので潰す
+          $version = $version -replace '/', '-'
           # --onefile なので Chaptr.exe 単体で自己完結（ffmpeg も内包）。
           # zip 梱包せず、バージョン名を付けた exe をそのまま配布する。
           Copy-Item "dist/Chaptr.exe" "Video-Chapter-Editor-${version}-Windows.exe"
@@ -170,6 +230,10 @@ jobs:
   release:
     needs: [build-macos-intel, build-macos-arm, build-windows]
     runs-on: ubuntu-latest
+    # リリース作成はタグ push のときだけ。ブランチから手動実行するのは
+    # 動作確認用のビルドが欲しい場面で、そこでリリースやタグを作られると困る
+    # （tag_name にブランチ名が入ってしまう）。成果物は Artifacts から取れる。
+    if: startsWith(github.ref, 'refs/tags/')
     permissions:
       contents: write
 
@@ -193,6 +257,9 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ github.event.inputs.version || github.ref_name }}
+          # semver のプレリリース（v2.3.1-rc1 のようにハイフンを含む）は
+          # 正式版として出さない。Latest を上書きしてしまうため。
+          prerelease: ${{ contains(github.ref_name, '-') }}
           files: |
             *.dmg
             *.exe

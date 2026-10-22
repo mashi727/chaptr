@@ -59,7 +59,6 @@ a = Analysis(
         'chaptr.ui.workers',
         'chaptr.ui.widgets',
         'chaptr.ui.widgets.waveform',
-        'chaptr.ui.widgets.file_dialog',
         'chaptr.ui.updater',
     ],
     hookspath=[],

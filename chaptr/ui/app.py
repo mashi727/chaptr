@@ -20,6 +20,7 @@ from PySide6.QtCore import Qt, QTimer, QThread
 from PySide6.QtGui import QAction, QFont, QFontDatabase
 
 from .main_workspace import MainWorkspace
+from .styles import app_stylesheet, Colors, Scale
 from .log_panel import LogLevel
 from .preferences_dialog import PreferencesDialog
 from .updater import (
@@ -79,34 +80,43 @@ def get_system_fonts() -> dict:
         }
 
 
+def _sized(font: QFont, size: int) -> QFont:
+    """フォントのサイズをピクセルで与える
+
+    サイズは**ピクセル**で指定する。ポイント指定だと Qt の論理 DPI
+    （macOS 72 / Windows 96）の差がそのまま出て、同じ 16 が macOS では約 16px、
+    Windows では約 21px になる。アプリのスタイルシートは全面的に px 指定なので、
+    ポイントのままだとウィジェットのフォントだけが Windows で 3 割大きくなり、
+    固定幅のボタンからラベルがはみ出す（`Mel Spectrogram` が欠ける等）。
+    """
+    font.setPixelSize(size)
+    return font
+
+
 def get_monospace_font(size: int = 11) -> QFont:
-    """クロスプラットフォーム対応の等幅フォントを取得"""
+    """クロスプラットフォーム対応の等幅フォントを取得（size はピクセル）"""
     fonts = get_system_fonts()
 
     # 優先フォントを試行
     for font_name in [fonts["mono"], fonts["mono_fallback"]]:
         if QFontDatabase.hasFamily(font_name) and QFontDatabase.isFixedPitch(font_name):
-            return QFont(font_name, size)
+            return _sized(QFont(font_name), size)
 
     # フォールバック: システムの等幅フォント
-    font = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
-    font.setPointSize(size)
-    return font
+    return _sized(QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont), size)
 
 
 def get_ui_font(size: int = 13) -> QFont:
-    """クロスプラットフォーム対応のUIフォントを取得"""
+    """クロスプラットフォーム対応のUIフォントを取得（size はピクセル）"""
     fonts = get_system_fonts()
 
     for font_name in [fonts["ui"], fonts["ui_fallback"]]:
-        font = QFont(font_name, size)
+        font = QFont(font_name)
         if font.exactMatch() or QFontDatabase.hasFamily(font_name):
-            return font
+            return _sized(font, size)
 
     # フォールバック: システムフォント
-    font = QFontDatabase.systemFont(QFontDatabase.SystemFont.GeneralFont)
-    font.setPointSize(size)
-    return font
+    return _sized(QFontDatabase.systemFont(QFontDatabase.SystemFont.GeneralFont), size)
 
 
 class Chaptr(QMainWindow):
@@ -116,7 +126,7 @@ class Chaptr(QMainWindow):
     単一画面 + ダイアログパターンのメインウィンドウ。
     """
 
-    VERSION = "2.3.0"
+    VERSION = "2.3.1-rc4"
 
     def __init__(self, work_dir: Optional[Path] = None):
         super().__init__()
@@ -182,44 +192,13 @@ class Chaptr(QMainWindow):
         app = QApplication.instance()
         if app:
             app.setFont(get_ui_font(16))
-            # ツールチップの色をPaletteで設定
-            from PySide6.QtGui import QPalette, QColor
-            palette = app.palette()
-            palette.setColor(QPalette.ColorRole.ToolTipBase, QColor("#f0f0f0"))
-            palette.setColor(QPalette.ColorRole.ToolTipText, QColor("#000000"))
-            app.setPalette(palette)
+        self._apply_selection_palette()
+        self._apply_tooltip_palette()
 
-        # ダークテーマ
-        self.setStyleSheet("""
-            QMainWindow {
-                background: #242424;
-            }
-            QMenuBar {
-                background: #1a1a1a;
-                color: #f0f0f0;
-                border-bottom: 1px solid #3a3a3a;
-                font-size: 16px;
-            }
-            QMenuBar::item:selected {
-                background: #1e50a2;
-            }
-            QMenu {
-                background: #1a1a1a;
-                color: #f0f0f0;
-                border: 1px solid #3a3a3a;
-                font-size: 16px;
-            }
-            QMenu::item:selected {
-                background: #1e50a2;
-            }
-            QStatusBar {
-                background: #1a1a1a;
-                color: #a0a0a0;
-                border-top: 1px solid #3a3a3a;
-                padding: 8px 12px;
-                min-height: 28px;
-            }
-        """)
+        # 配色はすべて ColorRole（base16・3配色）から。以前はここに #242424 などを
+        # 直書きしていたため、テーマ機構があるのに切り替えてもほとんど変わらなかった。
+        # 寸法と面の切り方は styles.Scale / app_stylesheet に一本化（2026-10-07）。
+        self.setStyleSheet(app_stylesheet())
 
     def _setup_menu(self):
         """メニューバー設定"""
@@ -273,6 +252,11 @@ class Chaptr(QMainWindow):
 
         # Edit メニュー
         edit_menu = menubar.addMenu("Edit")
+
+        copy_time_action = QAction("Copy Playback Time", self)
+        copy_time_action.setShortcut("Ctrl+C")
+        copy_time_action.triggered.connect(self._copy_playback_time)
+        edit_menu.addAction(copy_time_action)
 
         paste_action = QAction("Paste Chapters", self)
         paste_action.setShortcut("Ctrl+V")
@@ -334,20 +318,18 @@ class Chaptr(QMainWindow):
 
         # Working Directory表示（左側）
         self._workdir_label = QLabel(f"Working Directory: {self._work_dir}")
-        self._workdir_label.setStyleSheet("color: #a0c0e0; font-size: 18px;")
+        self._refresh_status_styles()
         self._workdir_label.setToolTip("作業ディレクトリ（クリックで変更）")
         self._workdir_label.setCursor(Qt.CursorShape.PointingHandCursor)
         self._workdir_label.mousePressEvent = lambda e: self._browse_work_dir()
         self._statusbar.addWidget(self._workdir_label)
 
         # セパレーター
-        separator = QLabel(" | ")
-        separator.setStyleSheet("color: #606060; font-size: 18px;")
+        self._status_separator = separator = QLabel(" | ")
         self._statusbar.addWidget(separator)
 
         # Output Directory表示（Working Directoryの右）
         self._output_dir_label = QLabel("Output: (same as source)")
-        self._output_dir_label.setStyleSheet("color: #a0c0e0; font-size: 18px;")
         self._output_dir_label.setToolTip("出力先ディレクトリ（クリックで変更）")
         self._output_dir_label.setCursor(Qt.CursorShape.PointingHandCursor)
         self._output_dir_label.mousePressEvent = lambda e: self._workspace._browse_output()
@@ -376,6 +358,15 @@ class Chaptr(QMainWindow):
     def _open_folder(self):
         """フォルダを開く（Select Sourceと同じ挙動）"""
         self._workspace._open_source_dialog()
+
+    def _copy_playback_time(self):
+        """Cmd/Ctrl-C。再生位置の時刻をコピーする
+
+        メニュー項目の名前どおりの動作だが、テキストを選択しているときだけは
+        通常のコピーへ譲る。ショートカットはウィジェットのキー処理より先に
+        走るため、譲らないと時刻・タイトルの編集中に文字列をコピーできなくなる。
+        """
+        self._workspace.handle_copy_shortcut()
 
     def _paste_chapters(self):
         """チャプターをペースト"""
@@ -497,8 +488,84 @@ class Chaptr(QMainWindow):
             if widget is not None:
                 yield widget
 
+    def _apply_selection_palette(self):
+        """選択範囲の地と字をテーマから与える
+
+        スタイルシートで `selection-background-color` を指定しても、
+        `selection-color` を省くと文字色は QPalette 側（＝OS の既定）から来る。
+        さらに macOS では、フォーカスを失った選択が Inactive グループの灰色で
+        描かれるため、濃い灰の上に濃い灰の字という組み合わせが起きる。
+        チャプター表のセルを編集したときに字が読めなかったのはこれ。
+        Active / Inactive の両グループを配色から与える（2026-10-08）。
+        """
+        from PySide6.QtGui import QPalette, QColor
+
+        app = QApplication.instance()
+        if app is None:
+            return
+        highlight = QColor(Colors.get_primary())
+        on_highlight = QColor(Colors.get_on_primary())
+        palette = app.palette()
+        for group in (QPalette.ColorGroup.Active,
+                      QPalette.ColorGroup.Inactive,
+                      QPalette.ColorGroup.Normal):
+            palette.setColor(group, QPalette.ColorRole.Highlight, highlight)
+            palette.setColor(group, QPalette.ColorRole.HighlightedText, on_highlight)
+        app.setPalette(palette)
+
+    def _apply_tooltip_palette(self):
+        """ツールチップの地と字をテーマから与える
+
+        ツールチップはスタイルシートの `QToolTip` 規則とアプリのパレットという
+        2系統で色が決まり、macOS ではどちらが効くかが場所によって変わる。
+        以前はパレットだけ `#f0f0f0`/`#000000` に固定していたため、暗色テーマでは
+        濃い地に黒字が載って読めなかった。両系統が同じ色を指すようにする。
+        （2026-10-07）
+        """
+        from PySide6.QtWidgets import QToolTip
+        from PySide6.QtGui import QPalette, QColor
+
+        tip_bg = QColor(Colors.get_background_alt())
+        tip_fg = QColor(Colors.get_text_bright())
+
+        app = QApplication.instance()
+        if app:
+            palette = app.palette()
+            palette.setColor(QPalette.ColorRole.ToolTipBase, tip_bg)
+            palette.setColor(QPalette.ColorRole.ToolTipText, tip_fg)
+            app.setPalette(palette)
+
+        tip_palette = QToolTip.palette()
+        tip_palette.setColor(QPalette.ColorRole.ToolTipBase, tip_bg)
+        tip_palette.setColor(QPalette.ColorRole.ToolTipText, tip_fg)
+        QToolTip.setPalette(tip_palette)
+
+    def _refresh_status_styles(self):
+        """ステータスバーのラベルの色を当て直す（配色切替で呼ばれる）"""
+        dim = f"color: {Colors.get_text_dim()}; font-size: {Scale.FONT_SM}px;"
+        accent = f"color: {Colors.get_primary()}; font-size: {Scale.FONT_SM}px;"
+        for name, css in (("_workdir_label", accent),
+                          ("_status_separator", dim),
+                          ("_output_dir_label", accent)):
+            w = getattr(self, name, None)
+            if w is not None:
+                w.setStyleSheet(css)
+
     def _on_theme_changed(self):
-        """テーマ変更時の処理"""
+        """テーマ変更時の処理
+
+        スタイルシートは生成時に色を文字列へ焼き込むため、配色を変えただけでは
+        古い色が残る。全体スタイルとワークスペース側を貼り直す（2026-10-07）。
+        以前は UI が色を直書きしていたので貼り直す対象が無く、環境設定の
+        Color Scheme を変えてもほとんど見た目が変わらなかった。
+        """
+        self.setStyleSheet(app_stylesheet())
+        self._apply_selection_palette()
+        self._apply_tooltip_palette()
+        if hasattr(self._workspace, "reapply_theme"):
+            self._workspace.reapply_theme()
+        self._refresh_status_styles()
+
         # 波形ウィジェットを再描画（下段の区間表示も含む）
         for widget in self._waveform_widgets():
             widget.update()
@@ -525,31 +592,17 @@ class Chaptr(QMainWindow):
 
     def _set_progress_style_processing(self):
         """プログレスバーを処理中スタイル（赤）に設定"""
-        self._progress_bar.setStyleSheet("""
-            QProgressBar {
-                background: #2a2a2a;
-                border: 1px solid #3a3a3a;
-                border-radius: 4px;
-            }
-            QProgressBar::chunk {
-                background: #ef4444;
-                border-radius: 3px;
-            }
-        """)
+        # 既定は app_stylesheet の QProgressBar。ここは chunk の色だけ上書きする
+        self._progress_bar.setStyleSheet(
+            f"QProgressBar::chunk {{ background: {Colors.get_danger()}; "
+            f"border-radius: {Scale.RADIUS}px; }}")
 
     def _set_progress_style_complete(self):
         """プログレスバーを完了スタイル（緑）に設定"""
-        self._progress_bar.setStyleSheet("""
-            QProgressBar {
-                background: #2a2a2a;
-                border: 1px solid #3a3a3a;
-                border-radius: 4px;
-            }
-            QProgressBar::chunk {
-                background: #c3d825;  /* 若草色 */
-                border-radius: 3px;
-            }
-        """)
+        # 既定は app_stylesheet の QProgressBar。ここは chunk の色だけ上書きする
+        self._progress_bar.setStyleSheet(
+            f"QProgressBar::chunk {{ background: {Colors.get_primary()}; "
+            f"border-radius: {Scale.RADIUS}px; }}")
 
     def _on_work_dir_changed(self, new_dir):
         """作業ディレクトリ変更時"""
@@ -751,16 +804,22 @@ class Chaptr(QMainWindow):
         super().resizeEvent(event)
 
     def closeEvent(self, event):
-        """アプリケーション終了時のクリーンアップ"""
+        """アプリケーション終了時のクリーンアップ
+
+        **音声の切り離しを最初に行う。** 以前はアップデート確認とダウンロードの
+        スレッドを先に畳んでおり（それぞれ wait(1000)）、その間ずっと音声
+        デバイスを掴んだままだった。MainWorkspace 内部で直したのと同じ構図が、
+        ここに1段上として残っていた。
+        """
+        # MainWorkspace のクリーンアップ（音声の切り離しを含む）を最優先で
+        if self._workspace:
+            self._workspace.cleanup()
+
         # アップデートチェックスレッドをクリーンアップ
         self._cleanup_update_check()
 
         # ダウンロードスレッドをクリーンアップ
         self._cleanup_download()
-
-        # MainWorkspaceのクリーンアップ
-        if self._workspace:
-            self._workspace.cleanup()
 
         super().closeEvent(event)
 
@@ -780,14 +839,6 @@ def main():
 
     app = QApplication(sys.argv)
 
-    # ツールチップの色を設定（macOSネイティブスタイル対策）
-    from PySide6.QtWidgets import QToolTip
-    from PySide6.QtGui import QPalette, QColor
-    tooltip_palette = QToolTip.palette()
-    tooltip_palette.setColor(QPalette.ColorRole.ToolTipBase, QColor("#f0f0f0"))
-    tooltip_palette.setColor(QPalette.ColorRole.ToolTipText, QColor("#000000"))
-    QToolTip.setPalette(tooltip_palette)
-
     # プラットフォーム情報をログ
     system = platform.system()
     print(f"Platform: {system}")
@@ -802,6 +853,16 @@ def main():
 
     window = Chaptr(work_dir)
     window.show()
+
+    # 終了経路は closeEvent だけではない。macOS の Cmd+Q やドックからの終了は
+    # ウィンドウの close を経ずにアプリが落ちることがあり、その場合に後片付けが
+    # 丸ごと走らず、音声デバイスを掴んだままプロセスが消えて終了音が鳴っていた。
+    # aboutToQuit はどの経路でも必ず発火する。cleanup は二重呼び出しに耐える。
+    def _teardown():
+        if window._workspace:
+            window._workspace.cleanup()
+
+    app.aboutToQuit.connect(_teardown)
 
     sys.exit(app.exec())
 

@@ -9,9 +9,9 @@ from typing import List, Optional, Tuple
 
 from PySide6.QtWidgets import QWidget, QSizePolicy
 from PySide6.QtCore import Qt, Signal, QPoint
-from PySide6.QtGui import QPainter, QColor, QPen, QBrush, QImage
+from PySide6.QtGui import QPainter, QColor, QPen, QBrush, QImage, QPolygon
 
-from ..models import ChapterInfo, compute_excluded_regions
+from ..models import ChapterInfo, SegmentCandidate, compute_excluded_regions
 from ..theme import ColorRole, get_theme_manager
 
 # 寒色寄りのカラーマップ（藍〜緑〜黄）。上段と下段を見分けるために使う
@@ -19,8 +19,6 @@ COOL_COLORMAPS = frozenset({"viridis", "cividis"})
 
 # ホバー中に下方向へこれ以上動いたら X 追従を止める（下段へ移る間の区間ズレ防止）。
 # ウィジェット高さ×RATIO と MIN(px) の大きい方。小さいほど「厳しめ」＝早く固定する。
-HOVER_X_LOCK_DY_RATIO = 0.15
-HOVER_X_LOCK_DY_MIN = 12
 
 # ホイールのズーム感度。angleDelta の積算がこの値を越えたら1段動かす。
 # 標準的なマウスの1ノッチが 120 なので 2ノッチ相当。大きくすると鈍くなる。
@@ -44,6 +42,15 @@ _OVERLAY_ON_COOL = {          # viridis / cividis（紺〜青緑〜黄）には�
     "playback": QColor(233, 82, 149),      # 躑躅色 #e95295（黄のピークと衝突しない）
 }
 
+# 自動検出した区間候補の色。波形（暗い背景）とスペクトログラムの
+# どちらに重ねても沈まないよう、彩度の高い色を種類ごとに割り当てる。
+_CANDIDATE_COLORS = {
+    "play": QColor(56, 161, 219),    # 露草色 — 演奏
+    "talk": QColor(248, 181, 0),     # 山吹色 — コメント
+    "break": QColor(233, 84, 100),   # 韓紅 — 休憩（除外チャプターと同じ赤系）
+}
+_CANDIDATE_FALLBACK = QColor(200, 200, 200)
+
 # numpy の有無をチェック
 try:
     import numpy as np
@@ -63,7 +70,6 @@ class WaveformWidget(QWidget):
 
     # シグナル
     position_clicked = Signal(float)  # クリック位置（全体に対する 0.0-1.0）
-    hover_moved = Signal(float)       # ホバー位置（全体に対する 0.0-1.0）
     hover_left = Signal()             # ホバー終了
     zoom_requested = Signal(int)      # ホイール操作（+1: 拡大 / -1: 縮小）
     resized = Signal()                # 幅・高さの変更（データの取り直しに使う）
@@ -110,6 +116,9 @@ class WaveformWidget(QWidget):
         # ホイールの積算値（閾値を越えたときだけ1段動かす）
         self._wheel_accumulator: int = 0
 
+        # 自動検出の区間候補（チャプターではない。確定前の当たり）
+        self._segment_candidates: List[SegmentCandidate] = []
+
         # 左下の注記（区間の幅と倍率）
         self._corner_label: str = ""
 
@@ -129,6 +138,17 @@ class WaveformWidget(QWidget):
         if duration_ms > 0:
             self._duration_ms = duration_ms
         self.update()
+
+    def set_segment_candidates(self, candidates: List[SegmentCandidate]):
+        """自動検出した区間候補を設定（チャプターとは別レイヤで描く）"""
+        self._segment_candidates = list(candidates)
+        self.update()
+
+    def clear_segment_candidates(self):
+        """区間候補をクリア"""
+        if self._segment_candidates:
+            self._segment_candidates = []
+            self.update()
 
     def set_file_boundaries(self, boundaries: List[float]):
         """ファイル境界位置を設定（仮想タイムライン用）
@@ -202,7 +222,10 @@ class WaveformWidget(QWidget):
             self.update()
 
     def set_hover_enabled(self, enabled: bool):
-        """ホバー時刻表示と hover_moved の発行を有効にする"""
+        """ホバー時刻表示を有効にする
+
+        区間の追従には関与しない（区間を動かすのは再生カーソルだけ）。
+        """
         self._hover_enabled = enabled
 
     def set_corner_label(self, text: str):
@@ -811,6 +834,34 @@ class WaveformWidget(QWidget):
                 if -3 <= x <= w + 3:
                     painter.drawLine(x, 0, x, h)
 
+        # 自動検出の区間候補（破線＋上端の三角）。チャプターより先に描いて下に敷く
+        if self._duration_ms > 0 and self._segment_candidates:
+            for cand in self._segment_candidates:
+                x = int(self._ms_to_x(cand.time_ms, w))
+                if not (-4 <= x <= w + 4):
+                    continue
+                base = _CANDIDATE_COLORS.get(cand.kind, _CANDIDATE_FALLBACK)
+                # 確定済みは薄く残す（どこを拾い終えたかが見えるように）
+                alpha = 220
+                color = QColor(base.red(), base.green(), base.blue(), alpha)
+
+                pen = QPen(color)
+                pen.setWidthF(1.5)
+                pen.setStyle(Qt.PenStyle.DashLine)
+                painter.setPen(pen)
+                painter.drawLine(x, marker_height, x, h - marker_height)
+
+                # 上端の三角。線だけだとチャプターと見分けが付かない
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(QBrush(color))
+                tri = QPolygon([
+                    QPoint(x - 5, 0),
+                    QPoint(x + 5, 0),
+                    QPoint(x, marker_height),
+                ])
+                painter.drawPolygon(tri)
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+
         # チャプターマーカーを描画
         if self._duration_ms > 0 and self._chapters:
             # スペクトログラム時はカラーマップの反対色相、波形時はテーマ色
@@ -973,29 +1024,23 @@ class WaveformWidget(QWidget):
                 self.position_clicked.emit(self._x_to_position(event.position().x()))
 
     def mouseMoveEvent(self, event):
-        """ホバー位置を更新し、区間の再計算を要求する
+        """ホバー位置を更新する（時刻表示のためだけ）
 
-        下方向へ一定以上動いたら X 追従（hover_moved の発行）を止める。上段で X を
-        決めた後、下段へカーソルを移す最中に区間中心が動いて下段の表示領域がずれる
-        のを防ぐ。ホバー中の最上部 Y からの落差で判定し、leaveEvent でリセットする。
+        **区間の再計算は要求しない。** 以前はここから hover_moved を出して下段の
+        拡大区間を追従させていたが、positionChanged と交互に区間を動かして
+        奪い合い、カーソルを動かすたびに下段が揺れた。区間の中心を動かすのは
+        再生カーソルだけという仕様に変更した（2026-10-07）。
+
+        これに伴い「下端の帯に入ったら X 追従を止める」抑止も不要になり外した。
+        あれは hover_moved の発行を止めるためだけの仕掛けだった。
         """
         if not self._hover_enabled:
             return
-
-        # 下端の帯（lock_dy px）に入ったら X 追従（hover_moved）を止める。上段で X を
-        # 決めた後、下段へカーソルを移す最中に区間中心がずれるのを防ぐ。判定は「現在の
-        # 絶対 Y が下端帯にあるか」だけなので、上下に動かしても lock/unlock がトグルせず
-        # 安定する（履歴依存だった _hover_min_y 方式を廃止）。
-        y = int(event.position().y())
-        lock_dy = max(HOVER_X_LOCK_DY_MIN, int(self.height() * HOVER_X_LOCK_DY_RATIO))
-        x_locked = y > (self.height() - lock_dy)
 
         x = int(event.position().x())
         if x != self._hover_x:
             self._hover_x = x
             self.update()
-            if self._has_data() and 0 <= x < self.width() and not x_locked:
-                self.hover_moved.emit(self._x_to_position(x))
 
     def leaveEvent(self, event):
         """ホバー終了。区間は呼び出し側の判断で保持される"""

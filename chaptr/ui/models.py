@@ -35,13 +35,24 @@ def _parse_time_str(time_str: str) -> int:
     - MM:SS.mmm (例: 23:45.678)
     - MM:SS (例: 23:45)
     """
+    def _frac_ms(text: str) -> int:
+        """小数部をミリ秒として読む
+
+        小数なので桁を右へ埋める。`int()` をそのまま当てると `.5` が 5ms に
+        なってしまう（正しくは 500ms）。ファイルは常に3桁で書かれるので、
+        既存の読み込みには影響しない。手入力の `0:01:30.5` を救うための処理。
+        """
+        return int(text.ljust(3, '0')[:3])
+
     parts = time_str.replace('.', ':').split(':')
     if len(parts) == 4:
-        h, m, s, ms = int(parts[0]), int(parts[1]), int(parts[2]), int(parts[3])
+        h, m, s = int(parts[0]), int(parts[1]), int(parts[2])
+        ms = _frac_ms(parts[3])
     elif len(parts) == 3:
         if '.' in time_str:
             h = 0
-            m, s, ms = int(parts[0]), int(parts[1]), int(parts[2])
+            m, s = int(parts[0]), int(parts[1])
+            ms = _frac_ms(parts[2])
         else:
             h, m, s = int(parts[0]), int(parts[1]), int(parts[2])
             ms = 0
@@ -64,7 +75,6 @@ class ChapterInfo:
     local_time_ms: int  # ソースファイル内のローカル時間（ミリ秒）
     title: str
     source_index: Optional[int] = None  # 所属するソースファイルのインデックス
-    rotation: int = 0  # チャプター単位の回転角（度・時計回り、0/90/180/270）
 
     @property
     def local_time_str(self) -> str:
@@ -151,6 +161,25 @@ class ChapterInfo:
         return cls(local_time_ms=max(0, local_time_ms), title=title, source_index=source_index)
 
 
+@dataclass
+class SegmentCandidate:
+    """自動検出された区間の境界（チャプター候補）
+
+    チャプターそのものではない。検出は当たりを付けるところまでで、境界の 1 秒は
+    人が決める。候補はスキップ移動の行き先として使い、微調整のうえ確定した時点で
+    初めてチャプターになる。候補はチャプター追加位置の目印として使う。
+    """
+
+    time_ms: int              # 区間の開始時刻（全体タイムライン上の絶対時刻）
+    kind: str                 # "play" | "talk" | "break"
+    title: str                # 確定時に使う既定のチャプター名
+    confidence: float = 0.0
+
+    @property
+    def time_str(self) -> str:
+        return _format_time_ms(self.time_ms)
+
+
 def compute_excluded_regions(
     chapters: List[ChapterInfo], duration_ms: int
 ) -> List[Tuple[int, int]]:
@@ -230,7 +259,6 @@ class ProjectState:
     """プロジェクト状態"""
     work_dir: Path = field(default_factory=Path.cwd)
     sources: List['SourceFile'] = field(default_factory=list)
-    cover_image_path: Optional[Path] = None
     chapters: List[ChapterInfo] = field(default_factory=list)
     output_path: Optional[Path] = None
     output_dir: Optional[Path] = None  # 出力先ディレクトリ（Noneの場合はwork_dir）
@@ -547,36 +575,6 @@ def calculate_target_properties(sources_props: List[VideoProperties]) -> Optiona
         is_interlaced=False,
         field_order="progressive"
     )
-
-
-def build_rotation_filter(rotation: int) -> str:
-    """回転角（度・時計回り）から ffmpeg のビデオフィルタ文字列を生成
-
-    チャプター（セグメント）単位の回転で、プレビューと出力を一致させるための
-    単一情報源。90°単位のみ対応し、端数は最近接の90°にスナップする。
-
-    対応（時計回りCWを正方向とする）:
-        0°   → ""（no-op）
-        90°  → "transpose=1"            （90° CW）
-        180° → "transpose=1,transpose=1"
-        270° → "transpose=2"            （90° CCW）
-
-    ffmpeg transpose: 1=90°CW, 2=90°CCW。
-
-    Args:
-        rotation: 回転角（度）。任意の整数を 0/90/180/270 に正規化する。
-
-    Returns:
-        ffmpeg フィルタ文字列（回転不要なら空文字）
-    """
-    r = round((rotation % 360) / 90) * 90 % 360
-    if r == 90:
-        return "transpose=1"
-    if r == 180:
-        return "transpose=1,transpose=1"
-    if r == 270:
-        return "transpose=2"
-    return ""
 
 
 def build_scaling_filter(

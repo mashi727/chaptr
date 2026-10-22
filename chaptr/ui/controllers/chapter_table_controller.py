@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, Signal, QObject
 from PySide6.QtGui import QColor, QBrush
 
+from ..styles import Colors, Scale
 from ..widgets import DragDropTableWidget, FileBoundaryDelegate
 from ..models import ChapterInfo
 
@@ -119,15 +120,15 @@ class ChapterTableController(QObject):
     def _create_widget(self):
         """チャプターテーブルウィジェットを作成"""
         self._widget = QGroupBox()
-        self._widget.setStyleSheet("""
-            QGroupBox {
-                color: #f0f0f0;
+        self._widget.setStyleSheet(f"""
+            QGroupBox {{
+                color: {Colors.get_text()};
                 font-weight: bold;
-                border: 1px solid #3a3a3a;
+                border: 1px solid {Colors.get_selection()};
                 border-radius: 8px;
                 margin-top: 4px;
                 padding-top: 4px;
-            }
+            }}
         """)
 
         layout = QVBoxLayout(self._widget)
@@ -138,7 +139,7 @@ class ChapterTableController(QObject):
         header_layout.setSpacing(8)
 
         self._title_label = QLabel("Chapters")
-        self._title_label.setStyleSheet("font-weight: bold; color: #f0f0f0;")
+        self._title_label.setStyleSheet(f"font-weight: bold; color: {Colors.get_text()};")
         header_layout.addWidget(self._title_label)
 
         header_layout.addStretch()
@@ -147,19 +148,19 @@ class ChapterTableController(QObject):
         load_btn = QPushButton("Load")
         load_btn.setFixedHeight(28)
         load_btn.setFixedWidth(80)
-        load_btn.setStyleSheet("""
-            QPushButton {
-                background: #1e50a2;
-                color: white;
+        load_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {Colors.get_primary()};
+                color: {Colors.get_on_primary()};
                 border: none;
                 border-radius: 6px;
                 padding: 0 12px;
                 font-weight: bold;
                 font-size: 12px;
-            }
-            QPushButton:hover {
-                background: #3a6cb5;
-            }
+            }}
+            QPushButton:hover {{
+                background: {Colors.get_primary_hover()};
+            }}
         """)
         load_btn.setToolTip("チャプターファイルを読み込み")
         load_btn.clicked.connect(self.load_requested.emit)
@@ -202,34 +203,34 @@ class ChapterTableController(QObject):
         self._table.verticalHeader().setSectionsMovable(False)
 
         # スタイル
-        self._table.setStyleSheet("""
-            QTableWidget {
-                background: #0f0f0f;
-                color: #f0f0f0;
+        self._table.setStyleSheet(f"""
+            QTableWidget {{
+                background: {Colors.get_background()};
+                color: {Colors.get_text()};
                 border: none;
-                gridline-color: #2d2d2d;
-            }
-            QTableWidget::item {
+                gridline-color: {Colors.get_selection()};
+            }}
+            QTableWidget::item {{
                 padding: 4px;
-            }
-            QTableWidget::item:selected {
-                background: rgba(30, 80, 162, 0.5);
-                color: #ffffff;
-            }
-            QHeaderView {
-                background: #000000;
-            }
-            QHeaderView::section {
-                background: #000000;
-                color: #a0a0a0;
+            }}
+            QTableWidget::item:selected {{
+                background: {Colors.rgba(Colors.get_primary(), 0.5)};
+                color: {Colors.get_on_primary()};
+            }}
+            QHeaderView {{
+                background: {Colors.get_background_alt()};
+            }}
+            QHeaderView::section {{
+                background: {Colors.get_background_alt()};
+                color: {Colors.get_text_dim()};
                 border: none;
                 padding: 8px;
-            }
-            QTableCornerButton::section {
-                background: #000000;
-                color: #a0a0a0;
+            }}
+            QTableCornerButton::section {{
+                background: {Colors.get_background_alt()};
+                color: {Colors.get_text_dim()};
                 border: none;
-            }
+            }}
         """)
 
         # コーナーウィジェットに「No.」ラベルを設定
@@ -238,7 +239,7 @@ class ChapterTableController(QObject):
             corner_label = QLabel("No.")
             corner_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             corner_label.setStyleSheet(
-                "background: #000000; color: #a0a0a0; padding: 4px;"
+                f"background: {Colors.get_background_alt()}; color: {Colors.get_text_dim()}; padding: 4px;"
             )
             corner_btn.setLayout(QVBoxLayout())
             corner_btn.layout().setContentsMargins(0, 0, 0, 0)
@@ -256,20 +257,20 @@ class ChapterTableController(QObject):
         btn_layout = QHBoxLayout()
 
         # 共通スタイル
-        btn_style = """
-            QPushButton {
-                background: #3a3a3a;
-                color: #c0c0c0;
-                border: 1px solid #4a4a4a;
+        btn_style = f"""
+            QPushButton {{
+                background: {Colors.get_selection()};
+                color: {Colors.get_text()};
+                border: 1px solid {Colors.get_border()};
                 border-radius: 6px;
                 padding: 2px 8px;
-            }
-            QPushButton:hover {
-                background: #454545;
-            }
-            QPushButton:pressed {
-                background: #505050;
-            }
+            }}
+            QPushButton:hover {{
+                background: {Colors.get_background_hover()};
+            }}
+            QPushButton:pressed {{
+                background: {Colors.get_background_hover()};
+            }}
         """
 
         # Add Chapterボタン
@@ -373,7 +374,7 @@ class ChapterTableController(QObject):
                 各要素は {'title', 'source_index', 'local_time_ms', 'color'} の辞書
             source_offsets: ソースオフセットのリスト（絶対時間計算用）
         """
-        default_color = QColor("#f0f0f0")
+        default_color = QColor(Colors.get_text())
 
         self._block_signals = True
         self._table.blockSignals(True)

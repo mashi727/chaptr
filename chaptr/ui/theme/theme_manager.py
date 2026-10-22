@@ -46,7 +46,7 @@ class SpectrogramSettings:
 @dataclass
 class ThemeSettings:
     """Persistent theme settings."""
-    scheme_name: str = "vce-dark"
+    scheme_name: str = "tokyo-night"
     role_mapping: Dict[str, str] = field(default_factory=dict)
     spectrogram: SpectrogramSettings = field(default_factory=SpectrogramSettings)
 
@@ -71,7 +71,7 @@ class ThemeSettings:
         spec_data = data.get("spectrogram", {})
 
         return cls(
-            scheme_name=theme_data.get("base16_scheme", "vce-dark"),
+            scheme_name=theme_data.get("base16_scheme", "tokyo-night"),
             role_mapping=theme_data.get("custom_mapping", {}),
             spectrogram=SpectrogramSettings(
                 colormap=spec_data.get("colormap", "inferno"),
@@ -247,7 +247,7 @@ class ThemeManager(QObject):
         for key, scheme in self._available_schemes.items():
             if scheme == self._current_scheme:
                 return key
-        return "vce-dark"
+        return "tokyo-night"
 
     @property
     def available_schemes(self) -> Dict[str, Base16Scheme]:
