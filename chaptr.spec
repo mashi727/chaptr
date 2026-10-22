@@ -6,8 +6,18 @@ Usage:
     pyinstaller chaptr.spec
 """
 
+import re
 import sys
 from pathlib import Path
+
+# バージョンは chaptr/__init__.py を唯一の出所にする。
+# 以前は info_plist に直書きで、2.1.27 のまま 4 版ぶん取り残されていた。
+def get_version():
+    src = Path('chaptr/__init__.py').read_text(encoding='utf-8')
+    m = re.search(r'^__version__ = "([^"]+)"', src, re.M)
+    return m.group(1) if m else '0.0.0'
+
+APP_VERSION = get_version()
 
 # static-ffmpegのバイナリパスを取得
 def get_static_ffmpeg_binaries():
@@ -159,8 +169,8 @@ if sys.platform == 'darwin':
         icon='assets/icon.icns',
         bundle_identifier='com.mashi727.chaptr',
         info_plist={
-            'CFBundleShortVersionString': '2.1.27',
-            'CFBundleVersion': '2.1.27',
+            'CFBundleShortVersionString': APP_VERSION,
+            'CFBundleVersion': APP_VERSION,
             'NSHighResolutionCapable': True,
             'CFBundleDocumentTypes': [
                 {

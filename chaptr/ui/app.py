@@ -126,7 +126,7 @@ class Chaptr(QMainWindow):
     単一画面 + ダイアログパターンのメインウィンドウ。
     """
 
-    VERSION = "2.3.1-rc4"
+    VERSION = "2.4.0"
 
     def __init__(self, work_dir: Optional[Path] = None):
         super().__init__()
