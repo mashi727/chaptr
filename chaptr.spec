@@ -10,6 +10,18 @@ import re
 import sys
 from pathlib import Path
 
+from PyInstaller.utils.hooks import collect_submodules
+
+# numpy 2.x は PyInstaller の自動解析だけでは純 Python のサブモジュールを
+# 取りこぼす。実測で numpy._core は 37 個中 28 個しか収集されず、
+# `numpy._core._exceptions` が欠けて起動時に ImportError になった
+# （"you should not try to import numpy from its source directory"）。
+# testing / f2py / distutils は excludes の unittest と衝突するので外す。
+NUMPY_HIDDEN = [
+    m for m in collect_submodules('numpy')
+    if not m.startswith(('numpy.testing', 'numpy.f2py', 'numpy.distutils'))
+]
+
 # バージョンは chaptr/__init__.py を唯一の出所にする。
 # 以前は info_plist に直書きで、2.1.27 のまま 4 版ぶん取り残されていた。
 def get_version():
@@ -54,7 +66,6 @@ a = Analysis(
         'PySide6.QtWidgets',
         'PySide6.QtMultimedia',
         'PySide6.QtMultimediaWidgets',
-        'numpy',
         'cv2',
         'static_ffmpeg',
         # アプリモジュール
@@ -70,7 +81,7 @@ a = Analysis(
         'chaptr.ui.widgets',
         'chaptr.ui.widgets.waveform',
         'chaptr.ui.updater',
-    ],
+    ] + NUMPY_HIDDEN,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -81,7 +92,7 @@ a = Analysis(
         # 'email',  # urllib.requestが依存
         # 'html',   # urllib.requestが依存
         # 'http',   # urllib.requestが依存
-        'xml',
+        # 'xml',    # pkg_resources -> plistlib が依存。除外すると起動しない
         'pydoc',
         # 科学計算系（不要）
         'matplotlib',
