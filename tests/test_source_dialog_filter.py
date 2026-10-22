@@ -11,7 +11,7 @@ import pytest
 
 pytest.importorskip("PySide6")
 
-from PySide6.QtCore import QCoreApplication
+from PySide6.QtCore import QCoreApplication, QElapsedTimer
 from PySide6.QtWidgets import QApplication, QPushButton
 
 from chaptr.ui.media_types import (
@@ -41,6 +41,25 @@ def media_dir(tmp_path):
     return tmp_path
 
 
+def _wait_loaded(dialog, app, timeout_ms=5000):
+    """ディレクトリの走査が終わるまで待つ
+
+    `QFileSystemModel` は `setRootPath()` の中身を**別スレッドで**走査し、
+    終わってから行を足す。`app.processEvents()` 1 回では間に合わないことがあり、
+    実測で約 4 割の試行が「まだ空のモデル」を見て落ちていた。落ちるケースが
+    毎回変わるのはこのため。フィルタ前のモデルに行が来るまで回す。
+    """
+    model = dialog._file_model
+    root = model.index(str(dialog._work_dir))
+    timer = QElapsedTimer()
+    timer.start()
+    while model.rowCount(root) == 0 and timer.elapsed() < timeout_ms:
+        app.processEvents()
+    # プロキシ側の整列・絞り込みが追いつくまで数回
+    for _ in range(5):
+        app.processEvents()
+
+
 def _listed(dialog):
     proxy = dialog._file_proxy
     root = dialog._file_tree.rootIndex()
@@ -53,7 +72,7 @@ class TestUnifiedFilter:
         from chaptr.ui.dialogs import SourceSelectionDialog
 
         dlg = SourceSelectionDialog(work_dir=media_dir, mode="source")
-        app.processEvents()
+        _wait_loaded(dlg, app)
         labels = {b.text() for b in dlg.findChildren(QPushButton)}
         assert "Video" not in labels and "Audio" not in labels
         dlg.close()
@@ -63,7 +82,7 @@ class TestUnifiedFilter:
         from chaptr.ui.dialogs import SourceSelectionDialog
 
         dlg = SourceSelectionDialog(work_dir=media_dir, mode="source")
-        app.processEvents()
+        _wait_loaded(dlg, app)
         shown = _listed(dlg)
         expected = {n for n in NAMES if pathlib.Path(n).suffix.lower() in MEDIA_EXTENSIONS}
         assert expected <= shown
@@ -75,7 +94,7 @@ class TestUnifiedFilter:
         from chaptr.ui.dialogs import SourceSelectionDialog
 
         dlg = SourceSelectionDialog(work_dir=media_dir, mode="source")
-        app.processEvents()
+        _wait_loaded(dlg, app)
         assert not ({"readme.txt", "photo.jpg", "data.csv"} & _listed(dlg))
         dlg.close()
 
@@ -83,7 +102,7 @@ class TestUnifiedFilter:
         from chaptr.ui.dialogs import SourceSelectionDialog
 
         dlg = SourceSelectionDialog(work_dir=media_dir, mode="chapter")
-        app.processEvents()
+        _wait_loaded(dlg, app)
         assert _listed(dlg) == {"readme.txt"}
         dlg.close()
 
