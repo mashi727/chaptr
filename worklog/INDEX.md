@@ -5,6 +5,7 @@ type: worklog-index
 # Worklog Index
 
 ## テーマ
+- [release](release/) — 最終 2026-10-23 — 版の切り方と配布物のビルド。v2.4.0 を main 上で切り 3 プラットフォームのバイナリを公開。numpy 収集漏れと stdlib xml 除外で「ビルドは通るが起動しない」状態だったのを修正、成果物名を Chaptr-* へ改名
 - [theming](theming/) — 最終 2026-10-10 — 配色とデザイントークン。直書き色226箇所を ColorRole へ移し明色3配色（one-light / github / solarized-light）を同梱。スタイルシートと QPalette の二重設定によるツールチップ・セル編集の可読性欠陥を修正。本文 13→19→14px
 - [segment-detect](segment-detect/) — 最終 2026-09-12 — 演奏/コメント/休憩の自動判別。実素材で休憩判別を「静穏」から「非コヒーレンス」へ作り直し偽陽性ゼロに。感度プリセット4段、チャプター時刻の編集、字幕からの表題下書き
 - [readme](readme/) — 最終 2026-09-06 — READMEを実スクショ3枚（Qtオフスクリーン撮影）＋特長テーブル＋画面ツアーに刷新。波形付き編集ビューはoffscreen非対応で未収録（スロット用意）
