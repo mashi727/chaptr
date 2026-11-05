@@ -263,6 +263,13 @@ class Chaptr(QMainWindow):
         paste_action.triggered.connect(self._paste_chapters)
         edit_menu.addAction(paste_action)
 
+        edit_menu.addSeparator()
+
+        geometry_action = QAction("画の補正...", self)
+        geometry_action.setToolTip("傾き・台形を直す（ソースごと）")
+        geometry_action.triggered.connect(self._open_geometry_dialog)
+        edit_menu.addAction(geometry_action)
+
         # View メニュー
         view_menu = menubar.addMenu("View")
 
@@ -358,6 +365,11 @@ class Chaptr(QMainWindow):
     def _open_folder(self):
         """フォルダを開く（Select Sourceと同じ挙動）"""
         self._workspace._open_source_dialog()
+
+    def _open_geometry_dialog(self):
+        """画の補正（傾き・台形）"""
+        if hasattr(self._workspace, "open_geometry_dialog"):
+            self._workspace.open_geometry_dialog()
 
     def _copy_playback_time(self):
         """Cmd/Ctrl-C。再生位置の時刻をコピーする

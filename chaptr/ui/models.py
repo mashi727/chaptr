@@ -12,6 +12,7 @@ from typing import Optional, List, Tuple
 from dataclasses import dataclass, field
 
 from .ffmpeg_utils import get_ffmpeg_path, get_ffprobe_path, get_subprocess_kwargs
+from ..pipeline.geometry import Transform
 
 
 def _format_time_ms(time_ms: int, include_ms: bool = True) -> str:
@@ -242,6 +243,9 @@ class SourceFile:
     path: Path
     duration_ms: int = 0  # ミリ秒
     file_type: str = ""   # "mp3", "mp4", etc.
+    # 画の幾何補正（傾き・台形）。UI から触らなくても、読み込んだ値を保存で
+    # 書き戻すために持つ。落とすと vce-encode 側の設定が黙って消える。
+    transform: Optional[Transform] = None
 
     @property
     def duration_str(self) -> str:

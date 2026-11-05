@@ -59,6 +59,7 @@ from ..pipeline.segment_detector import (
     SENSITIVITY_LEVELS,
     SENSITIVITY_TITLES,
 )
+from ..pipeline.geometry import Transform
 from .styles import ButtonStyles, Colors, Scale, Surfaces, transport_icon
 from .ffmpeg_utils import get_ffmpeg_path, get_ffprobe_path, extract_chapters_with_ffmpeg, get_subprocess_kwargs, write_concat_file
 from .managers import (
@@ -5979,6 +5980,68 @@ class MainWorkspace(QWidget):
             self._pause_icon = transport_icon("pause", 75)
             self._play_btn.setIcon(self._pause_icon if playing else self._play_icon)
 
+    def open_geometry_dialog(self) -> bool:
+        """画の補正ダイアログを開く（傾き・台形）
+
+        対象は**いま再生しているソース 1 本**。補正はソースごとに持つので、
+        複数ソースのプロジェクトでは一本ずつ合わせる（カメラが違えば傾きも違う）。
+        """
+        from .dialogs.geometry_dialog import GeometryDialog
+        from .models import detect_video_properties
+
+        if not self._state.sources:
+            self._log_panel.warning("No source loaded", source="UI")
+            return False
+
+        index = max(0, min(self._current_source_index(), len(self._state.sources) - 1))
+        source = self._state.sources[index]
+        if source.path.suffix.lower() in {".mp3", ".wav", ".m4a", ".flac", ".aiff"}:
+            self._log_panel.warning("音声のみのソースには補正を掛けられません", source="UI")
+            return False
+
+        props = detect_video_properties(str(source.path))
+        size = (props.width, props.height) if props and props.width else (1920, 1080)
+
+        dialog = GeometryDialog(
+            source_path=source.path,
+            frame_size=size,
+            position_ms=self._local_position_for(index),
+            transform=source.transform,
+            parent=self,
+        )
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return False
+
+        source.transform = dialog.result_transform()
+        self._chapters_edited = True        # 保存を促す
+        if source.transform:
+            self._log_panel.info(f"{source.path.name}: {source.transform.describe()}",
+                                 source="UI")
+        else:
+            self._log_panel.info(f"{source.path.name}: 補正なし", source="UI")
+        return True
+
+    def _current_source_index(self) -> int:
+        """いま再生しているソースの番号"""
+        manager = getattr(self, "_source_manager", None)
+        if manager is not None and hasattr(manager, "_current_index"):
+            return manager._current_index
+        return 0
+
+    def _local_position_for(self, index: int) -> int:
+        """補正の基準にするフレームの位置（ミリ秒）
+
+        いま止めている場面をそのまま出す。再生器は 1 本ずつ再生するので
+        `position()` はそのソース内の時刻になる。再生中でないソースを選んだ
+        場合は、その時刻のフレーム（多くは先頭付近）が出る。
+        """
+        if not self._media_player:
+            return 0
+        try:
+            return max(0, int(self._media_player.position()))
+        except Exception:
+            return 0
+
     def copy_playback_time(self):
         """再生位置の時刻を H:MM:SS.mmm でクリップボードへ
 
@@ -6502,6 +6565,18 @@ class MainWorkspace(QWidget):
             )
             for path, duration_ms in results
         ]
+        # プロジェクトから読んだ幾何補正を当てる。UI で触らなくても、
+        # 保存でそのまま書き戻せるようにしておく（落とすと黙って消える）。
+        pending = getattr(self, "_pending_transforms", None)
+        if pending:
+            for src in self._state.sources:
+                transform = pending.get(src.path)
+                if transform:
+                    src.transform = transform
+                    self._log_panel.info(f"{src.path.name}: {transform.describe()}",
+                                         source="Project")
+            self._pending_transforms = {}
+
         self._sync_source_manager()  # SourceFileManagerを同期
 
         # デバッグ: 検出されたdurationをログ出力
@@ -7228,11 +7303,18 @@ class MainWorkspace(QWidget):
         sources = []
         for source in self._state.sources:
             try:
-                rel_path = source.path.relative_to(project_dir)
-                sources.append(str(rel_path))
+                rel_path = str(source.path.relative_to(project_dir))
             except ValueError:
                 # 相対パスにできない場合は絶対パス
-                sources.append(str(source.path))
+                rel_path = str(source.path)
+            # 幾何補正が無ければ従来どおり文字列。付いているときだけ辞書にする。
+            # ここで落とすと vce-encode 側の設定が黙って消えるので、UI で
+            # 触っていなくても読み込んだ値をそのまま書き戻す。
+            transform = getattr(source, "transform", None)
+            if transform and not transform.is_identity:
+                sources.append({"path": rel_path, "transform": transform.to_dict()})
+            else:
+                sources.append(rel_path)
 
         # チャプター情報を取得
         chapters = []
@@ -7325,14 +7407,31 @@ class MainWorkspace(QWidget):
 
         # ソースファイルを解決
         source_paths = []
+        source_transforms = {}
         missing_sources = []
-        for source_name in project.get("sources", []):
+        for entry in project.get("sources", []):
+            # 旧形式は相対パスの文字列。幾何補正を持つものは辞書で来る。
+            # 文字列しか想定していないと `project_dir / dict` で落ちる。
+            if isinstance(entry, dict):
+                source_name = entry.get("path", "")
+                try:
+                    transform = Transform.from_dict(entry.get("transform"))
+                except ValueError as e:
+                    self._log_panel.warning(f"transform を読めません（無視します）: {e}",
+                                            source="Project")
+                    transform = None
+            else:
+                source_name = entry
+                transform = None
+
             source_path = project_dir / source_name
             if not source_path.exists():
                 # 絶対パスとして試す
                 source_path = Path(source_name)
             if source_path.exists():
                 source_paths.append(source_path)
+                if transform and not transform.is_identity:
+                    source_transforms[source_path] = transform
             else:
                 missing_sources.append(source_name)
 
@@ -7354,6 +7453,9 @@ class MainWorkspace(QWidget):
         self.work_dir_changed.emit(project_dir)
 
         # ソースファイルを読み込み
+        # ソースの読み込みは非同期（DurationDetectWorker）なので、ここで
+        # self._state.sources を触っても空。完了ハンドラで当てる。
+        self._pending_transforms = source_transforms
         self._load_multiple_sources(source_paths)
 
         # 出力ディレクトリを設定
