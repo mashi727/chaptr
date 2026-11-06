@@ -6013,10 +6013,14 @@ class MainWorkspace(QWidget):
             return False
 
         source.transform = dialog.result_transform()
-        self._chapters_edited = True        # 保存を促す
+        # 補正は .vce.json にしか入らない。チャプターの .txt を保存しても残らないので、
+        # 保存先をログに書く（以前はここで `_chapters_edited` を立てていたが、
+        # あのフラグはチャプタースキップボタンの有効化しか握っておらず保存を促さない）。
         if source.transform:
-            self._log_panel.info(f"{source.path.name}: {source.transform.describe()}",
-                                 source="UI")
+            self._log_panel.info(
+                f"{source.path.name}: {source.transform.describe()}"
+                " — File → Save Project... で .vce.json に保存してください",
+                source="UI")
         else:
             self._log_panel.info(f"{source.path.name}: 補正なし", source="UI")
         return True

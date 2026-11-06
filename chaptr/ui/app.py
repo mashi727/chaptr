@@ -225,6 +225,16 @@ class Chaptr(QMainWindow):
         save_chapters_action.triggered.connect(self._save_chapters)
         file_menu.addAction(save_chapters_action)
 
+        # .txt はチャプターしか持てない。画の補正・ソース構成・出力先は
+        # .vce.json にしか入らないので、保存の入口を分けて置く。
+        save_project_action = QAction("Save Project...", self)
+        # Ctrl+Shift+S はスクリーンショット保存（MainWorkspace.keyPressEvent）が
+        # 使っている。QAction のショートカットはキーイベントより先に発火するので、
+        # 重ねると黙って奪ってしまう。
+        save_project_action.setShortcut("Ctrl+Alt+S")
+        save_project_action.triggered.connect(self._save_project)
+        file_menu.addAction(save_project_action)
+
         file_menu.addSeparator()
 
         load_subtitles_action = QAction("Load Subtitles...", self)
@@ -392,6 +402,13 @@ class Chaptr(QMainWindow):
         """章立てを .txt に保存（チャプター行の Save ボタンと同じ）"""
         self._workspace._save_chapters()
 
+    def _save_project(self):
+        """プロジェクトを .vce.json に保存
+
+        画の補正（`SourceFile.transform`）はここを通らないと残らない。
+        """
+        self._workspace.save_project()
+
     def _toggle_chapter_overlay(self, checked: bool):
         """チャプターオーバーレイ表示切り替え"""
         self._workspace.set_chapter_overlay_enabled(checked)
@@ -439,6 +456,8 @@ class Chaptr(QMainWindow):
 <tr><td><b>↑ (編集中)</b></td><td>カーソルを行頭へ</td></tr>
 <tr><td><b>↓ (編集中)</b></td><td>カーソルを行末へ</td></tr>
 <tr><td><b>Cmd+L / Ctrl+L</b></td><td>チャプターファイルを読み込み</td></tr>
+<tr><td><b>Cmd+S / Ctrl+S</b></td><td>チャプターを .txt に保存</td></tr>
+<tr><td><b>Cmd+Opt+S / Ctrl+Alt+S</b></td><td>プロジェクトを .vce.json に保存（画の補正を含む）</td></tr>
 <tr><td><b>Cmd+V / Ctrl+V</b></td><td>チャプターをペースト</td></tr>
 </table>
 
