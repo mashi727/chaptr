@@ -190,7 +190,7 @@ class TestAcceptedByVceEncode:
             and not (isinstance(n, ast.FunctionDef) and n.name == "main")
             and not isinstance(n, ast.If)
         ]
-        ns: dict = {}
+        ns: dict = {"__file__": str(self.VCE_ENCODE)}
         exec(compile(ast.Module(body=keep, type_ignores=[]), str(self.VCE_ENCODE), "exec"), ns)
 
         entry = json.loads(out.read_text(encoding="utf-8"))["sources"][0]

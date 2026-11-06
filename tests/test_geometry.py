@@ -23,6 +23,8 @@ import pytest
 from chaptr.pipeline.geometry import (
     Transform,
     angle_of_line,
+    fit_quad_to_aspect,
+    quad_aspect,
     quad_for_rotation,
     rect_for_rotation,
 )
@@ -85,7 +87,7 @@ class TestMatchesVceEncode:
             and not (isinstance(n, ast.FunctionDef) and n.name == "main")
             and not isinstance(n, ast.If)
         ]
-        ns: dict = {}
+        ns: dict = {"__file__": str(VCE_ENCODE)}
         exec(compile(ast.Module(body=keep, type_ignores=[]), str(VCE_ENCODE), "exec"), ns)
 
         w, h, deg = key
@@ -192,3 +194,85 @@ class TestTransform:
     def test_describe(self):
         assert Transform(rotate_deg=-1.4).describe() == "傾き補正 -1.40°"
         assert "台形" in Transform(quad=[(0, 0), (1, 0), (0, 1), (1, 1)]).describe()
+
+
+class TestQuadAspect:
+    """四隅が表す見かけの縦横比
+
+    出力は入力フレームと同じ寸法で、四隅はその枠いっぱいへ写される。つまり
+    「四隅の比 ≠ 出力の比」のぶんだけ被写体が伸びる。実素材（所沢ミューズ）で
+    1632×879 の囲みを 1920×1080 へ写し、約 4% 縦長になっていた。
+    """
+
+    def test_rectangle_gives_its_own_ratio(self):
+        assert quad_aspect([(0, 0), (1920, 0), (0, 1080), (1920, 1080)]) == \
+            pytest.approx(1920 / 1080)
+
+    def test_trapezoid_uses_the_mean_of_both_edges(self):
+        quad = [(100, 0), (900, 0), (0, 500), (1000, 500)]
+        assert quad_aspect(quad) == pytest.approx(900 / 500)
+
+    def test_degenerate_input_is_zero_not_an_error(self):
+        assert quad_aspect([(0, 0), (0, 0), (0, 0), (0, 0)]) == 0.0
+        assert quad_aspect([(0, 0), (1, 1)]) == 0.0
+
+    def test_the_real_case(self):
+        """実素材の四隅。ここが変わったら歪み量の説明も変わる"""
+        quad = [(127.664, 8.471), (1762.858, 4.082),
+                (120.513, 856.985), (1750.288, 914.206)]
+        assert quad_aspect(quad) == pytest.approx(1.857, abs=0.001)
+
+
+class TestFitQuadToAspect:
+    OUT = 1920 / 1080
+
+    def test_reaches_the_target(self):
+        quad = [(127.664, 8.471), (1762.858, 4.082),
+                (120.513, 856.985), (1750.288, 914.206)]
+        fitted = fit_quad_to_aspect(quad, self.OUT)
+        assert quad_aspect(fitted) == pytest.approx(self.OUT, abs=1e-9)
+
+    def test_centre_does_not_move(self):
+        """重心を保つ。動かすと構図がずれて、合わせ直しになる"""
+        quad = [(100, 50), (1800, 20), (90, 900), (1810, 950)]
+        fitted = fit_quad_to_aspect(quad, self.OUT)
+        for axis in (0, 1):
+            before = sum(p[axis] for p in quad) / 4
+            after = sum(p[axis] for p in fitted) / 4
+            assert after == pytest.approx(before)
+
+    @pytest.mark.parametrize("quad", [
+        [(100, 50), (1800, 20), (90, 900), (1810, 950)],      # 横に広い
+        [(500, 20), (1400, 10), (480, 1060), (1420, 1070)],   # 縦に長い
+    ])
+    def test_always_shrinks_never_grows(self, quad):
+        """広げると枠の外を舐めて黒が入る。必ず内側へ詰める"""
+        fitted = fit_quad_to_aspect(quad, self.OUT)
+        xs = [p[0] for p in quad]
+        ys = [p[1] for p in quad]
+        for (x, y) in fitted:
+            assert min(xs) - 1e-9 <= x <= max(xs) + 1e-9
+            assert min(ys) - 1e-9 <= y <= max(ys) + 1e-9
+
+    def test_only_one_axis_moves(self):
+        """横に広いなら横だけ詰める（縦を触ると見える範囲が減る）"""
+        quad = [(100, 50), (1800, 20), (90, 900), (1810, 950)]
+        fitted = fit_quad_to_aspect(quad, self.OUT)
+        assert [p[1] for p in fitted] == pytest.approx([p[1] for p in quad])
+        assert [p[0] for p in fitted] != pytest.approx([p[0] for p in quad])
+
+    def test_already_correct_is_untouched(self):
+        quad = [(0, 0), (1920, 0), (0, 1080), (1920, 1080)]
+        assert fit_quad_to_aspect(quad, self.OUT) == quad
+
+    def test_keystone_is_preserved(self):
+        """台形のままであること（上下の辺の長さの比が変わらない）"""
+        quad = [(300, 100), (1600, 60), (120, 980), (1800, 1020)]
+        before = (quad[1][0] - quad[0][0]) / (quad[3][0] - quad[2][0])
+        fitted = fit_quad_to_aspect(quad, self.OUT)
+        after = (fitted[1][0] - fitted[0][0]) / (fitted[3][0] - fitted[2][0])
+        assert after == pytest.approx(before)
+
+    def test_degenerate_input_is_returned_as_is(self):
+        quad = [(0, 0), (0, 0), (0, 0), (0, 0)]
+        assert fit_quad_to_aspect(quad, self.OUT) == quad

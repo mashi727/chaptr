@@ -25,7 +25,9 @@ from PySide6.QtWidgets import (
     QLabel, QPushButton, QSizePolicy, QVBoxLayout, QWidget,
 )
 
-from ...pipeline.geometry import Transform, angle_of_line, quad_for_rotation
+from ...pipeline.geometry import (
+    Transform, angle_of_line, fit_quad_to_aspect, quad_aspect, quad_for_rotation,
+)
 from ..ffmpeg_utils import get_ffmpeg_path, get_subprocess_kwargs
 from ..styles import ButtonStyles, Colors, Scale, Surfaces
 
@@ -86,6 +88,8 @@ class FrameCanvas(QWidget):
     """フレームを表示し、基準線または四隅を操作させる"""
 
     changed = Signal()
+    #: 操作が終わった合図。比の補正はドラッグ中ではなくここで掛ける
+    released = Signal()
 
     MODE_LINE = "line"
     MODE_CORNERS = "corners"
@@ -189,6 +193,7 @@ class FrameCanvas(QWidget):
             self._dragging = None
             self._drawing = False
             self.changed.emit()
+            self.released.emit()
 
     # -- 描画 ---------------------------------------------------------
 
@@ -341,6 +346,16 @@ class GeometryDialog(QDialog):
         mode_row.addWidget(self._hint)
         mode_row.addStretch()
 
+        # 出力は入力フレームと同じ寸法で、四隅はその枠いっぱいへ写される。
+        # つまり歪みが出ないのは「四隅の比＝出力の比」のときだけなので、
+        # 比を選ばせるのではなく、合わせるかどうかだけを選ばせる。
+        self._lock_check = QCheckBox("縦横比を出力に合わせる")
+        self._lock_check.setToolTip(
+            "四隅を離したとき、被写体が伸び縮みしない比へ寄せます（内側へ詰めます）")
+        self._lock_check.toggled.connect(self._on_lock_toggled)
+        self._lock_check.setVisible(False)       # 初期は傾き補正モード
+        mode_row.addWidget(self._lock_check)
+
         self._grid_check = QCheckBox("目安の線")
         self._grid_check.setChecked(True)
         self._grid_check.toggled.connect(self._on_grid_toggled)
@@ -366,6 +381,7 @@ class GeometryDialog(QDialog):
         layout.addLayout(canvases, 1)
 
         self._src_canvas.changed.connect(self._on_canvas_changed)
+        self._src_canvas.released.connect(self._on_canvas_released)
 
         controls = QHBoxLayout()
         angle_label = QLabel("角度")
@@ -379,6 +395,12 @@ class GeometryDialog(QDialog):
         self._angle.setFixedWidth(110)
         self._angle.valueChanged.connect(self._on_angle_changed)
         controls.addWidget(self._angle)
+
+        # 何がどれだけ伸びるかを数字で出す。四隅を目で合わせるだけでは、
+        # 数 % の引き伸ばしに気づけない（顔では分かるのに画では分からない）。
+        self._ratio_label = QLabel("")
+        self._ratio_label.setStyleSheet(f"color: {Colors.get_text_dim()};")
+        controls.addWidget(self._ratio_label)
 
         self._reset_btn = QPushButton("補正なしに戻す")
         self._reset_btn.setFixedHeight(Scale.H_MD)
@@ -426,6 +448,8 @@ class GeometryDialog(QDialog):
         self._src_canvas._mode = (FrameCanvas.MODE_CORNERS if keystone
                                   else FrameCanvas.MODE_LINE)
         self._angle.setEnabled(not keystone)
+        # 傾き補正は `rect_for_rotation` が比を保つので、出番は台形補正だけ
+        self._lock_check.setVisible(keystone)
         self._hint.setText("四隅をつまんで、長方形に写したい範囲に合わせてください"
                            if keystone else "水平にしたいものに沿って線を引いてください")
         if keystone and not self._src_canvas.quad():
@@ -433,6 +457,49 @@ class GeometryDialog(QDialog):
         self._src_canvas.clear_line()
         self._src_canvas.update()
         self._sync_preview()
+
+    def _on_canvas_released(self):
+        """操作が終わった時点で比を寄せる（ドラッグ中はそのまま動かす）"""
+        if self._src_canvas._mode == FrameCanvas.MODE_CORNERS and self._lock_check.isChecked():
+            self._apply_aspect_lock()
+
+    def _on_lock_toggled(self, on: bool):
+        if on and self._src_canvas._mode == FrameCanvas.MODE_CORNERS:
+            self._apply_aspect_lock()
+        self._update_ratio_label()
+
+    def _apply_aspect_lock(self):
+        quad = self._src_canvas.quad()
+        if len(quad) != 4:
+            return
+        self._src_canvas.set_quad(fit_quad_to_aspect(quad, self._output_aspect()))
+        self._sync_preview()
+
+    def _output_aspect(self) -> float:
+        return self._width / self._height if self._height else 16 / 9
+
+    def _update_ratio_label(self):
+        """四隅の比と、出力に写したときの伸びを出す"""
+        if self._src_canvas._mode != FrameCanvas.MODE_CORNERS:
+            self._ratio_label.setText("")
+            return
+        quad = self._src_canvas.quad()
+        ratio = quad_aspect(quad)
+        out = self._output_aspect()
+        if ratio <= 0 or out <= 0:
+            self._ratio_label.setText("")
+            return
+        stretch = ratio / out - 1.0
+        if abs(stretch) < 0.005:
+            text = f"比 {ratio:.3f}（出力 {out:.3f}）— 歪みなし"
+            color = Colors.get_text_dim()
+        else:
+            way = "縦" if stretch > 0 else "横"
+            text = (f"比 {ratio:.3f}（出力 {out:.3f}）— "
+                    f"{way}に {abs(stretch) * 100:.1f}% 伸びます")
+            color = Colors.get_warning()
+        self._ratio_label.setText(text)
+        self._ratio_label.setStyleSheet(f"color: {color};")
 
     def _on_canvas_changed(self):
         if self._src_canvas._mode == FrameCanvas.MODE_LINE:
@@ -466,6 +533,7 @@ class GeometryDialog(QDialog):
 
     def _sync_preview(self):
         self._preview.set_quad(self._src_canvas.quad())
+        self._update_ratio_label()
 
     # -- 結果 ---------------------------------------------------------
 

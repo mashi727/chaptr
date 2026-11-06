@@ -213,3 +213,101 @@ class TestCanvasMapping:
         """画像は縦横比を保って収める（歪んだ基準線を引かせない）"""
         rect = dialog._src_canvas._draw_rect()
         assert rect.width() / rect.height() == pytest.approx(W / H, abs=0.01)
+
+
+class TestAspectLock:
+    """縦横比を出力に合わせる
+
+    出力は入力フレームと同じ寸法で、四隅はその枠いっぱいへ写される。歪みが
+    出ないのは「四隅の比＝出力の比」のときだけなので、比を選ばせるのではなく
+    合わせるかどうかだけを選ばせる。
+
+    寄せるのは**指を離したとき**。ドラッグ中に直すと掴んだ角が逃げる。
+    """
+
+    def _keystone(self, dialog, app, quad):
+        dialog._btn_keystone.setChecked(True)
+        dialog._on_mode_changed(1)
+        dialog._src_canvas._quad = [QPointF(x, y) for x, y in quad]
+        dialog._sync_preview()
+        for _ in range(3):
+            app.processEvents()
+
+    def test_hidden_in_tilt_mode(self, dialog, app):
+        """傾き補正は比を保つので出番が無い"""
+        dialog._btn_tilt.setChecked(True)
+        dialog._on_mode_changed(0)
+        assert not dialog._lock_check.isVisible()
+
+    def test_release_snaps_to_the_output_ratio(self, dialog, app):
+        from chaptr.pipeline.geometry import quad_aspect
+
+        self._keystone(dialog, app, [(100, 50), (1180, 20), (90, 650), (1190, 700)])
+        dialog._lock_check.setChecked(True)
+        dialog._src_canvas.released.emit()
+        for _ in range(3):
+            app.processEvents()
+        assert quad_aspect(dialog._src_canvas.quad()) == pytest.approx(W / H, abs=1e-9)
+
+    def test_dragging_is_not_disturbed(self, dialog, app):
+        """ドラッグ中（changed だけ）は寄せない。掴んだ角が逃げると合わせられない"""
+        self._keystone(dialog, app, [(100, 50), (1180, 20), (90, 650), (1190, 700)])
+        dialog._lock_check.setChecked(True)
+        dialog._src_canvas.set_quad([(100, 50), (1180, 20), (90, 600), (1190, 640)])
+        before = dialog._src_canvas.quad()
+        dialog._src_canvas.changed.emit()
+        for _ in range(3):
+            app.processEvents()
+        assert dialog._src_canvas.quad() == before
+
+    def test_turning_it_on_fixes_the_current_quad(self, dialog, app):
+        from chaptr.pipeline.geometry import quad_aspect
+
+        self._keystone(dialog, app, [(100, 50), (1180, 20), (90, 650), (1190, 700)])
+        dialog._lock_check.setChecked(True)
+        assert quad_aspect(dialog._src_canvas.quad()) == pytest.approx(W / H, abs=1e-9)
+
+    def test_off_by_default_so_saved_quads_are_not_altered(self, app, tilted_clip):
+        """開き直しただけで保存済みの四隅が書き換わらないこと"""
+        from chaptr.pipeline.geometry import Transform
+        from chaptr.ui.dialogs.geometry_dialog import GeometryDialog
+
+        quad = [(127, 8), (1150, 4), (120, 600), (1140, 640)]
+        dlg = GeometryDialog(source_path=tilted_clip, frame_size=(W, H),
+                             transform=Transform(quad=quad, reference=(W, H)))
+        try:
+            assert not dlg._lock_check.isChecked()
+            assert dlg._src_canvas.quad() == [(float(x), float(y)) for x, y in quad]
+        finally:
+            dlg.close()
+
+    def test_preview_follows_the_snap(self, dialog, app):
+        self._keystone(dialog, app, [(100, 50), (1180, 20), (90, 650), (1190, 700)])
+        dialog._lock_check.setChecked(True)
+        assert dialog._preview.quad() == dialog._src_canvas.quad()
+
+
+class TestRatioReadout:
+    """伸びを数字で出す。目で四隅を合わせるだけでは数 % の引き伸ばしに気づけない"""
+
+    def test_shows_the_stretch(self, dialog, app):
+        dialog._btn_keystone.setChecked(True)
+        dialog._on_mode_changed(1)
+        dialog._src_canvas._quad = [QPointF(0, 0), QPointF(1280, 0),
+                                    QPointF(0, 600), QPointF(1280, 600)]
+        dialog._sync_preview()
+        text = dialog._ratio_label.text()
+        assert "縦に" in text and "%" in text, text
+
+    def test_says_nothing_is_wrong_when_it_matches(self, dialog, app):
+        dialog._btn_keystone.setChecked(True)
+        dialog._on_mode_changed(1)
+        dialog._src_canvas._quad = [QPointF(0, 0), QPointF(W, 0),
+                                    QPointF(0, H), QPointF(W, H)]
+        dialog._sync_preview()
+        assert "歪みなし" in dialog._ratio_label.text()
+
+    def test_empty_in_tilt_mode(self, dialog, app):
+        dialog._btn_tilt.setChecked(True)
+        dialog._on_mode_changed(0)
+        assert dialog._ratio_label.text() == ""

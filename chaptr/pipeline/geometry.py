@@ -88,6 +88,49 @@ def angle_of_line(p0: Point, p1: Point) -> float:
     return math.degrees(math.atan2(-dx, dy))
 
 
+def quad_aspect(quad: List[Point]) -> float:
+    """四隅が表す見かけの縦横比（平均の幅 ÷ 平均の高さ）
+
+    台形なので幅も高さも一意に決まらない。上下の辺・左右の辺をそれぞれ平均して
+    代表値とする。緩い台形（舞台を正面寄りから撮ったもの）では、これが
+    「被写体がどれだけ縦長・横長に写るか」とよく一致する。
+
+    厳密には、射影された矩形から元の実寸比を復元する方法（焦点距離を未知数に
+    置く Zhang の解法）がある。ただし四隅が長方形に近いと解が不安定になり、
+    ここで扱う「ほぼ正面」の素材では使いものにならないので採らない。
+    """
+    if len(quad) != 4:
+        return 0.0
+    (tlx, tly), (trx, try_), (blx, bly), (brx, bry) = quad
+    w = ((trx - tlx) + (brx - blx)) / 2.0
+    h = ((bly - tly) + (bry - try_)) / 2.0
+    if w <= 0 or h <= 0:
+        return 0.0
+    return w / h
+
+
+def fit_quad_to_aspect(quad: List[Point], target: float) -> List[Point]:
+    """四隅を目標の縦横比へ寄せる
+
+    重心を動かさず、**常に内側へ縮める**（広げると枠の外を舐めて黒が入る）。
+    横に広すぎるなら横を詰め、縦に長すぎるなら縦を詰める。
+
+    台形を重心まわりに片方向だけ拡縮しても四角形のままなので、台形補正の
+    成分は壊れない。
+    """
+    current = quad_aspect(quad)
+    if current <= 0 or target <= 0 or abs(current - target) < 1e-9:
+        return list(quad)
+
+    cx = sum(p[0] for p in quad) / 4.0
+    cy = sum(p[1] for p in quad) / 4.0
+    if current > target:
+        sx, sy = target / current, 1.0      # 横に広い → 横を詰める
+    else:
+        sx, sy = 1.0, current / target      # 縦に長い → 縦を詰める
+    return [(cx + (x - cx) * sx, cy + (y - cy) * sy) for x, y in quad]
+
+
 @dataclass
 class Transform:
     """ソース 1 本に対する幾何補正
