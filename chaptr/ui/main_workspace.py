@@ -1706,6 +1706,7 @@ class MainWorkspace(QWidget):
         self._region_widget.setMinimumHeight(80)
         self._region_widget.setToolTip(
             "クリックで再生位置を移動（拡大表示なので精密に指定できる）\n"
+            "ダブルクリックでその位置に新規チャプターを挿入\n"
             "ホイールで区間の幅を変更"
         )
         self._region_widget.set_display_mode(WaveformWidget.MODE_SPECTROGRAM)
@@ -1715,6 +1716,10 @@ class MainWorkspace(QWidget):
         self._region_widget.set_hover_enabled(True)
         self._region_widget.set_zoom_enabled(True)
         self._region_widget.position_clicked.connect(self._on_waveform_clicked)
+        # 挿入は下段だけに置く。上段は全長を 1 画面に収めるので 1 px が
+        # 数秒〜十数秒に相当し、狙って打つより誤って打つほうが起きやすい
+        self._region_widget.position_double_clicked.connect(
+            self._on_region_double_clicked)
         self._region_widget.zoom_requested.connect(self._on_region_zoom)
         # 高さ・幅が変わるとスペクトログラムの解像度も変わるので取り直す
         self._region_widget.resized.connect(self._region_timer.start)
@@ -3490,6 +3495,27 @@ class MainWorkspace(QWidget):
         self._region_pinned = False
         self._on_waveform_clicked(position)
 
+    def _on_region_double_clicked(self, position: float):
+        """下段のダブルクリック: その位置に新規チャプターを挿入する
+
+        下段は 43 ms/px まで拡大できるので、曲の入りを目で見て決められる。
+        再生をそこまで持って行ってから追加ボタンを押す、という往復が要らない。
+
+        1 打目の press で既にそこへシークしているので、挿入した章と再生カーソル
+        は一致する。`position` は**その 1 打目の座標系**で算出された値
+        （`WaveformWidget.mouseDoubleClickEvent` が控えている）。
+        """
+        duration = self._display_duration()
+        if duration <= 0:
+            return
+
+        absolute_pos = int(round(max(0.0, min(1.0, position)) * duration))
+        self._insert_chapter_at_timeline(absolute_pos)
+        # 誤って打っても気づけるようにする（挿入は .txt / .vce.json を汚す）
+        self._log_panel.info(
+            f"チャプターを挿入: {self._format_time(absolute_pos)}（下段ダブルクリック）",
+            source="Chapter")
+
     def _on_region_zoom(self, direction: int):
         """ホイールで区間の幅を変える（中心は保つ）"""
         ladder = REGION_SPAN_LADDER_MS
@@ -4064,26 +4090,44 @@ class MainWorkspace(QWidget):
             self._highlight_current_chapter(0)
 
     def _add_chapter(self):
-        """チャプター追加（時間順にソートされた位置に挿入）"""
-        # 現在の再生位置をチャプター時間として使用
-        # 仮想タイムラインモードの場合は仮想位置を使用
+        """チャプター追加（現在の再生位置へ、時間順にソートされた位置に挿入）"""
+        if len(self._state.sources) > 1:
+            source_index = self._source_list.get_current_index()
+            local_pos = self._media_player.position() if self._media_player else 0
+            absolute_pos = self._source_to_virtual(source_index, local_pos)
+        else:
+            source_index = 0
+            absolute_pos = self._media_player.position() if self._media_player else 0
+
+        self._insert_chapter_at_timeline(absolute_pos, source_index)
+
+    def _insert_chapter_at_timeline(self, absolute_pos: int,
+                                    source_index: Optional[int] = None) -> int:
+        """全体タイムライン上の時刻へチャプターを 1 件挿入し、挿入行を返す
+
+        入口は 2 つあり、どちらも「全体タイムライン上の絶対時刻」まで直して
+        から来る。
+
+          - 追加ボタン / ショートカット … 現在の再生位置（`_add_chapter`）
+          - 下段のダブルクリック … 指した位置（`_on_region_double_clicked`）
+
+        `source_index` を省くと絶対時刻から逆引きする。ダブルクリックは選択中
+        のソースの外も指せるため、現在の選択をそのまま使ってはいけない
+        （ローカル時刻が別ファイルの尺を基準に計算され、書き出しで別の場所が
+        切られる）。
+        """
+        absolute_pos = max(0, int(absolute_pos))
         source_offsets = self._get_source_offsets()
 
-        if len(self._state.sources) > 1:
-            local_pos = self._media_player.position() if self._media_player else 0
-            current_idx = self._source_list.get_current_index()
-            absolute_pos = self._source_to_virtual(current_idx, local_pos)
-            source_index = current_idx
-        else:
-            absolute_pos = self._media_player.position() if self._media_player else 0
-            local_pos = absolute_pos
-            source_index = 0
-
-        # ローカル時間を計算
-        if source_index < len(source_offsets):
+        if source_index is None:
+            if len(self._state.sources) > 1:
+                source_index, local_time_ms = self._virtual_to_source(absolute_pos)
+            else:
+                source_index, local_time_ms = 0, absolute_pos
+        elif source_index < len(source_offsets):
             local_time_ms = absolute_pos - source_offsets[source_index]
         else:
-            local_time_ms = local_pos
+            local_time_ms = absolute_pos
 
         time_str = self._format_time(absolute_pos)
 
@@ -4136,6 +4180,8 @@ class MainWorkspace(QWidget):
         # 追加直後にタイトルを編集状態にする。どのみち曲名を打つので、
         # ダブルクリックの一手を省く。更新処理が終わってから呼ぶために遅延させる
         QTimer.singleShot(0, lambda: self._begin_title_edit(insert_row))
+
+        return insert_row
 
     def _begin_title_edit(self, row: int):
         """指定行のタイトル列を編集状態にする

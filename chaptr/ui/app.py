@@ -461,6 +461,14 @@ class Chaptr(QMainWindow):
 <tr><td><b>Cmd+V / Ctrl+V</b></td><td>チャプターをペースト</td></tr>
 </table>
 
+<h4>マウス操作（波形・スペクトログラム）</h4>
+<table>
+<tr><td><b>上段をクリック</b></td><td>その位置へシーク（下段が追従）</td></tr>
+<tr><td><b>下段をクリック</b></td><td>その位置へシーク（拡大表示なので精密）</td></tr>
+<tr><td><b>下段をダブルクリック</b></td><td>その位置に新規チャプターを挿入</td></tr>
+<tr><td><b>下段でホイール</b></td><td>拡大区間の幅を変更</td></tr>
+</table>
+
 <h4>ドラッグ＆ドロップ</h4>
 <table>
 <tr><td><b>動画ファイル</b></td><td>読み込み（複数の場合は最初のみ）</td></tr>

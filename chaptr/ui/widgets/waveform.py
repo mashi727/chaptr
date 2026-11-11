@@ -70,6 +70,7 @@ class WaveformWidget(QWidget):
 
     # シグナル
     position_clicked = Signal(float)  # クリック位置（全体に対する 0.0-1.0）
+    position_double_clicked = Signal(float)  # ダブルクリック位置（同じ座標系）
     hover_left = Signal()             # ホバー終了
     zoom_requested = Signal(int)      # ホイール操作（+1: 拡大 / -1: 縮小）
     resized = Signal()                # 幅・高さの変更（データの取り直しに使う）
@@ -121,6 +122,10 @@ class WaveformWidget(QWidget):
 
         # 左下の注記（区間の幅と倍率）
         self._corner_label: str = ""
+
+        # 直前の press で読んだ位置。ダブルクリックの 2 打目で使う
+        # （理由は mouseDoubleClickEvent の説明）
+        self._press_position: Optional[float] = None
 
         # ホバー（-1 は非ホバー）
         self._hover_x: int = -1
@@ -1021,7 +1026,32 @@ class WaveformWidget(QWidget):
         """クリックで再生位置を変更"""
         if self._has_data():
             if event.button() == Qt.MouseButton.LeftButton:
-                self.position_clicked.emit(self._x_to_position(event.position().x()))
+                position = self._x_to_position(event.position().x())
+                # ダブルクリックの 2 打目のために控える
+                self._press_position = position
+                self.position_clicked.emit(position)
+
+    def mouseDoubleClickEvent(self, event):
+        """ダブルクリックした位置を通知する（チャプター挿入に使う）
+
+        **2 打目の座標から読み直してはいけない。** Qt は
+        press → release → doubleclick → release の順に送るので、1 打目の
+        press によるシークが済んだ後にこのイベントが届く。拡大区間は再生
+        カーソルに追従して動くため（MainWorkspace._sync_region_to_playback）、
+        同じ x が指す時刻が 1 打目と 2 打目で変わっている。ずれは区間の端を
+        狙ったときほど大きく、しかも「少し違う位置に入る」だけなので
+        気づきにくい。1 打目で控えた値を使う。
+        """
+        if event.button() != Qt.MouseButton.LeftButton or not self._has_data():
+            super().mouseDoubleClickEvent(event)
+            return
+
+        position = self._press_position
+        if position is None:
+            # press を経ずに届くことは無いが、来たら今の座標系で読む
+            position = self._x_to_position(event.position().x())
+        self.position_double_clicked.emit(position)
+        event.accept()
 
     def mouseMoveEvent(self, event):
         """ホバー位置を更新する（時刻表示のためだけ）
