@@ -5,6 +5,7 @@ type: worklog-index
 # Worklog Index
 
 ## テーマ
+- [geometry](geometry/) — 最終 2026-11-07 — 画の傾き・台形補正と章名の焼き込み。実素材で初めて端まで通し「作った機能が一度も繋がっていなかった」4 本の断線を修正（UI から呼べない保存・動画で無効な焼き込み・開けない vce-split・output_dir: null）。幾何を bin/_vce_geometry.py へ一本化、縦横比ロックと焼き込み位置指定を追加
 - [release](release/) — 最終 2026-10-23 — 版の切り方と配布物のビルド。v2.4.0 を main 上で切り 3 プラットフォームのバイナリを公開。numpy 収集漏れと stdlib xml 除外で「ビルドは通るが起動しない」状態だったのを修正、成果物名を Chaptr-* へ改名
 - [theming](theming/) — 最終 2026-10-10 — 配色とデザイントークン。直書き色226箇所を ColorRole へ移し明色3配色（one-light / github / solarized-light）を同梱。スタイルシートと QPalette の二重設定によるツールチップ・セル編集の可読性欠陥を修正。本文 13→19→14px
 - [segment-detect](segment-detect/) — 最終 2026-09-12 — 演奏/コメント/休憩の自動判別。実素材で休憩判別を「静穏」から「非コヒーレンス」へ作り直し偽陽性ゼロに。感度プリセット4段、チャプター時刻の編集、字幕からの表題下書き
